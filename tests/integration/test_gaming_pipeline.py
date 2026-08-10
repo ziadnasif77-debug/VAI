@@ -271,7 +271,7 @@ class TestStageWiring:
         ):
             assert order.index(dependency) < order.index(JobStage.GAME_EVENTS)
 
-    def test_the_runner_now_stops_at_moments(
+    def test_the_runner_stops_at_the_frontier(
         self, media_service, project_manager, database, paths, config,
         speech_provider, vision_provider, ocr_provider, scene_clip: Path,
     ) -> None:
@@ -287,7 +287,9 @@ class TestStageWiring:
             for job in runner.jobs.list_jobs(project.id)
             if job.stage not in runner.supported_stages
         )
-        assert frontier.stage is JobStage.MOMENTS
+        # Which stage that is moves as phases land, so this asserts the
+        # property rather than the name: the frontier waits, it does not fail.
+        assert frontier.stage not in runner.supported_stages
         assert frontier.error_code is None
 
 

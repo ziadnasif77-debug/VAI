@@ -5,6 +5,7 @@ from backend.database.repositories.frames import FrameRepository, FrameRow
 from backend.database.repositories.gaming import GameEventRepository, OcrRepository
 from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository, MediaTrackRepository
+from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.projects import ProjectRepository
 from backend.database.repositories.scenes import SceneRepository
 from backend.database.repositories.transcript import TranscriptRepository
@@ -18,6 +19,7 @@ __all__ = [
     "JobRepository",
     "MediaRepository",
     "MediaTrackRepository",
+    "MomentRepository",
     "OcrRepository",
     "ProjectRepository",
     "SceneRepository",

@@ -41,7 +41,7 @@ from backend.database.repositories.media import MediaRepository
 from backend.media.ffmpeg import CancelledError, FFmpegRunner
 from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.base import ProgressReporter, StageWorker, WorkerContext
-from backend.services.job_manager import JobManager
+from backend.services.job_manager import PER_MEDIA_STAGES, JobManager
 
 logger = get_logger("pipeline.runner", LogChannel.PIPELINE)
 
@@ -120,7 +120,17 @@ class PipelineRunner:
         """
         job = self._jobs.next_runnable(project_id)
         if job is None:
-            return None
+            # Every per-media chain is done, so the stages that reason across
+            # all of them can now be queued. This is the moment §46 means by
+            # "once every file has finished its own chain": doing it earlier
+            # would let STORY start while a second recording was still being
+            # analysed, and it has to see them all.
+            if not self._queue_project_stages(project_id):
+                return None
+            job = self._jobs.next_runnable(project_id)
+            if job is None:
+                return None
+
         if job.stage not in self._workers:
             logger.info(
                 "Pipeline paused: no worker for this stage yet",
@@ -129,6 +139,34 @@ class PipelineRunner:
             )
             return None
         return self.run_job(job.id)
+
+    def _queue_project_stages(self, project_id: str) -> bool:
+        """Queue the project-wide stages once every media file is finished.
+
+        Returns whether anything new was queued, so the caller knows whether
+        retrying is worthwhile rather than looping.
+        """
+        jobs = self._jobs.list_jobs(project_id)
+        if not jobs:
+            return False
+        per_media = [job for job in jobs if job.stage in PER_MEDIA_STAGES]
+        if not per_media or any(
+            job.status is not JobStatus.COMPLETED for job in per_media
+        ):
+            return False
+        if any(job.stage not in PER_MEDIA_STAGES for job in jobs):
+            return False  # already queued
+
+        queued = self._jobs.queue_project_stages(project_id)
+        if queued:
+            logger.info(
+                "Every media file is analysed; queueing the project-wide stages",
+                extra={
+                    "project_id": project_id,
+                    "stages": [job.stage.value for job in queued],
+                },
+            )
+        return bool(queued)
 
     def run_project(self, project_id: str, *, max_jobs: int | None = None) -> list[RunOutcome]:
         """Run stages until nothing more can run.

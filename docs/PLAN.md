@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 5 |
-| Current phase | **Phase 5 complete and verified.** Next: Phase 6 (Moments) |
-| Tests | 703 passing (4 opt-in model tests skipped by default) |
-| Backend code | ~26,000 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-10, end of Phase 6 |
+| Current phase | **Phase 6 complete and verified.** Next: Phase 7 (Narrative) |
+| Tests | 760 passing (4 opt-in model tests skipped by default) |
+| Backend code | ~29,000 lines across `backend/` and `ai/` |
 
 ---
 
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 703 passing (~17 min)
+.venv/bin/python -m pytest               # expect 760 passing (~18 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -38,7 +38,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 6 is the next work**. Start at §5 of this document.
+healthy and **Phase 7 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -56,8 +56,8 @@ Development order follows SPEC §126.
 | 3 | **Speech / Audio** | Whisper transcript, audio events, reactions | ✅ **done** |
 | 4 | **Vision** | scene detection, keyframes, VLM analysis | ✅ **done** |
 | 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ✅ **done** |
-| 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ⬜ next |
-| 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ⬜ |
+| 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ✅ **done** |
+| 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ⬜ next |
 | 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ⬜ |
 | 9 | **Remotion** | overlay composition | ⬜ |
 | 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ⬜ |
@@ -94,7 +94,8 @@ moments → EDL → render` does not work, no interface saves the project.
 | `ai/speech`, `ai/vision`, `ai/ocr` | real provider + deterministic fake + factory each | complete |
 | `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27) | complete; HUD extraction pending a real profile |
 | `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | one prompt so far |
-| `backend/{moments,narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
+| `backend/moments` | `formation` (§28), `context` (§29), `dead_time` (§30), `repetition` (§31, §33), `scoring` (§32) | complete |
+| `backend/{narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -337,7 +338,7 @@ Full write-up: [`docs/PHASE_5.md`](PHASE_5.md).
 
 ---
 
-### Phase 6 — Moments (next)
+### Phase 6 — Moments ✅ done
 
 **Goal (§28–§34):** ranked moments with defensible scores.
 
@@ -349,19 +350,28 @@ Full write-up: [`docs/PHASE_5.md`](PHASE_5.md).
 - `ai/llm/ollama_provider.py` implementing `LLMProvider`.
 - `backend/pipeline/workers/moments.py`.
 
-**Acceptance:** ranked moments, each with a stored `score_breakdown` and
-`explanation` — the Q&A layer already reads both and will start answering
-"why did you pick this?" for real.
+**Acceptance: passed.** Ranked moments through the whole pipeline on real
+files, every one carrying all ten §32 dimensions plus the penalties and the
+multiplier stored separately, and an explanation in sentences that says
+something about the evidence rather than repeating the number.
 
-**Traps**
-- §33: the highest score is not the best clip. Variety and narrative value are
-  inputs to selection, not afterthoughts.
-- §30: dead time is removed *only when removal does not damage context*.
-- Rule-based scoring must work when the LLM is unavailable (§95).
+**Traps — all three hit, all three handled**
+- §33 shaped the design: variety is a saturation *penalty* fed into the score,
+  never a filter, and nothing in this phase selects anything.
+- Dead time is scored, and a segment adjacent to a kept moment is protected —
+  the walk up to the ambush is what makes the ambush land.
+- Scoring is rule-based end to end; a test asserts it works with an empty
+  scoring context, i.e. on a machine with no model at all.
+
+**Also found:** the runner could not queue the project-wide stages, so the
+pipeline stopped after MOMENTS with STORY unreachable; and the speech-boundary
+rule was using the scene snap window, so a clip could still open mid-word.
+
+Full write-up: [`docs/PHASE_6.md`](PHASE_6.md).
 
 ---
 
-### Phase 7 — Narrative
+### Phase 7 — Narrative (next)
 
 **Goal (§35–§39):** a coherent video of the requested length.
 
@@ -527,7 +537,7 @@ Consequences to keep in mind:
   written and unit-tested here with fake providers; they cannot be *accepted*
   here.
 
-### Target machine setup (do this before Phase 6)
+### Target machine setup (do this before Phase 7)
 
 Installed already: FFmpeg 9.0 (gyan.dev full build, NVENC present),
 faster-whisper 1.2.1, PySceneDetect 0.7.1, PaddleOCR, OpenCV, numpy/scipy,
