@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 1 |
-| Current phase | **Phase 1 complete.** Next: Phase 2 (Media Engine) |
-| Tests | 414 passing |
-| Backend code | ~12,000 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-10, end of Phase 2 |
+| Current phase | **Phase 2 complete and verified.** Next: Phase 3 (Speech / Audio) |
+| Tests | 515 passing (including the §7 memory acceptance test) |
+| Backend code | ~15,000 lines across `backend/` and `ai/` |
 
 ---
 
@@ -24,14 +24,21 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 414 passing
+.venv/bin/python -m pytest               # expect 515 passing (~5 min)
+.venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
 .venv/bin/python scripts/db_init.py      # create/migrate the database
 ```
 
+FFmpeg is required from Phase 2 onward. On Windows, in an **elevated** shell:
+
+```
+choco install ffmpeg-full -y
+```
+
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 2 is the next work**. Start at §5 of this document.
+healthy and **Phase 3 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -45,8 +52,8 @@ Development order follows SPEC §126.
 | — | *Interaction layer* | editing intent, Q&A, commands, conversation, versions | ✅ **done** (added mid-Phase-1) |
 | — | *Effects engine* | 22-effect library, planner, budgets | ✅ **done** (added mid-Phase-1) |
 | — | *Publishing seam* | local-file target, YouTube slot | ✅ **done** (added mid-Phase-1) |
-| 2 | **Media Engine** | FFmpeg/FFprobe, proxy, audio, frames, chunking | ⬜ next |
-| 3 | **Speech / Audio** | Whisper transcript, audio events, reactions | ⬜ |
+| 2 | **Media Engine** | FFmpeg/FFprobe, proxy, audio, frames, chunking | ✅ **done** |
+| 3 | **Speech / Audio** | Whisper transcript, audio events, reactions | ⬜ next |
 | 4 | **Vision** | scene detection, keyframes, VLM analysis | ⬜ |
 | 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ⬜ |
 | 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ⬜ |
@@ -81,7 +88,9 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/publishing` | `base` (Publisher protocol + registry), `local_file` | local target complete |
 | `backend/api` | `app`, `dependencies`, `routers/` × 5 | complete for current scope |
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
-| `backend/{media,analysis,gaming,moments,narrative,timeline,rendering,qa,pipeline}` | package docstrings only | **empty — this is the remaining work** |
+| `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
+| `backend/pipeline` | `runner`, `workers/` for IMPORT · PROBE · PROXY · AUDIO · FRAMES | complete for the media stages |
+| `backend/{analysis,gaming,moments,narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -184,7 +193,7 @@ Where each is currently enforced:
 
 Each phase: goal, files to create, acceptance criterion, and the traps.
 
-### Phase 2 — Media Engine (next)
+### Phase 2 — Media Engine ✅ done
 
 **Goal (§99, §126 steps 05–06):** open the recording, produce everything the
 analysis stages read.
@@ -200,22 +209,26 @@ analysis stages read.
 - `backend/pipeline/workers/` — `PROBE`, `PROXY`, `AUDIO`, `FRAMES` stage workers.
 - `backend/pipeline/runner.py` — claim job → run → report → advance.
 
-**Acceptance:** a 2-hour recording is probed, proxied, audio-extracted and
-frame-sampled **without loading the whole file into RAM**. Measure peak RSS.
+**Acceptance: passed.** Measured rather than asserted — the same pipeline over
+a source 150× longer moved peak memory by **+0.2 MB** (39.5 → 39.6 MB).
+`tests/integration/test_long_source.py`, run on Windows 11 with FFmpeg 9.0.
 
-**Traps**
-- Frame extraction on a long source can produce tens of thousands of files.
-  `max_frames_per_hour` is the ceiling; enforce it, do not trust the interval.
-- ffprobe returns fps as a rational (`60000/1001`). Parse, do not `float()` it.
-- Proxy generation on a 2-hour file takes many minutes — report progress, and
-  make it resumable per chunk.
+**Traps — all three hit, all three handled**
+- The frame ceiling **widens the interval**; truncating the list would sample
+  the first forty minutes of a two-hour recording and abandon the rest.
+- fps is parsed as a rational. `0/0` means unknown and returns `None`, not zero.
+- The proxy is built in resumable segments, then concatenated **and its
+  duration verified** — a proxy short by one segment still plays, and every
+  timestamp after the gap would point at the wrong part of the recording.
 
-**Test fixtures:** generate small clips with FFmpeg's `testsrc`/`sine` rather
-than committing media. Mark them `@pytest.mark.requires_ffmpeg`.
+**Also delivered:** `JobManager.requeue` (§90 re-analysis had no way to return a
+finished stage to the queue), `MediaTrackRepository`, `FrameRepository`.
+
+Full write-up: [`docs/PHASE_2.md`](PHASE_2.md).
 
 ---
 
-### Phase 3 — Speech and Audio
+### Phase 3 — Speech and Audio (next)
 
 **Goal (§14, §18, §19, §20):** transcript with word timestamps, audio events,
 reaction candidates.
@@ -475,8 +488,10 @@ Consequences to keep in mind:
 
 ### Target machine setup (do this before Phase 3)
 
+FFmpeg is already installed (9.0, gyan.dev full build, NVENC present). The rest:
+
 ```powershell
-# NVIDIA driver + CUDA
+# elevated shell for anything chocolatey installs
 ollama pull qwen2.5vl:7b
 ollama pull qwen2.5:7b-instruct
 pip install faster-whisper paddleocr scenedetect opencv-python av
@@ -486,10 +501,14 @@ python scripts/doctor.py        # expect all OK
 ### Verification gate for every phase
 
 ```bash
-.venv/bin/python -m pytest      # all green
+.venv/bin/python -m pytest      # all green, slow tests included
 .venv/bin/ruff check .          # clean
 .venv/bin/python scripts/doctor.py
 ```
+
+`pytest` runs the acceptance tests by design: excluding them by default would
+mean a green suite that never checked the thing the phase was for. Use
+`-m "not slow"` in the development loop.
 
 A phase is complete only with implementation **and** tests **and** an executed
 acceptance criterion. Never report a phase done without running its tests.

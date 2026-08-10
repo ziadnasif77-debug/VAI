@@ -260,6 +260,55 @@ class JobManager:
         )
         return failed
 
+    def requeue(self, job_id: str, *, reset_attempts: bool = True) -> Job:
+        """Return a finished stage to the queue so it can run again (§90).
+
+        Re-analysis is a first-class operation: changing a sampling interval,
+        a game profile or a prompt means a stage that already completed has to
+        run again over the same source. Distinct from the retry path, which
+        keeps the attempt count because it is still the *same* run -- a user
+        asking for a re-run is starting a new one, so the retry budget resets.
+
+        Raises:
+            JobError: if the job is currently RUNNING. Something is executing
+                it, and re-queueing underneath a live worker would produce two
+                writers for one artefact.
+        """
+        job = self._jobs.require(job_id)
+        if job.status is JobStatus.RUNNING:
+            raise JobError(
+                f"Job {job_id!r} is running and cannot be re-queued.",
+                code=ErrorCode.JOB_DEPENDENCY_FAILED,
+                details={"job_id": job_id, "stage": job.stage.value},
+                recoverable=False,
+            )
+        requeued = job.model_copy(
+            update={
+                "status": JobStatus.QUEUED,
+                "progress": 0.0,
+                "message": None,
+                "started_at": None,
+                "completed_at": None,
+                "duration_seconds": None,
+                "error_code": None,
+                "error_message": None,
+                "cancel_requested": False,
+                "attempt": 0 if reset_attempts else job.attempt,
+            }
+        )
+        with self._db.transaction():
+            self._jobs.update(requeued)
+        logger.info(
+            "Job re-queued for another run",
+            extra={
+                "project_id": job.project_id,
+                "job_id": job_id,
+                "stage": job.stage.value,
+                "previous_status": job.status.value,
+            },
+        )
+        return requeued
+
     def cancel_project(self, project_id: str) -> int:
         """Request cancellation of every unfinished job (§82).
 

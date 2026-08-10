@@ -38,10 +38,21 @@ class TestSystemEndpoints:
 
     def test_missing_gpu_does_not_fail_the_report(self, api_client) -> None:
         # §52/§95: no GPU means CPU fallback, not a broken installation.
+        #
+        # The assertion is about the GPU check specifically, not about the
+        # overall status: on a machine without FFmpeg the report is legitimately
+        # "failed", and asserting otherwise would turn an honest environment
+        # report into a test failure.
         body = api_client.get("/api/health").json()
         gpu = next(check for check in body["checks"] if check["name"] == "gpu")
         assert gpu["required"] is False
-        assert body["status"] in {"ok", "warning"}
+        blocking = {
+            check["name"]
+            for check in body["checks"]
+            if check["required"] and check["status"] == "failed"
+        }
+        assert "gpu" not in blocking
+        assert "nvenc" not in blocking
 
     def test_capabilities_expose_the_import_options(self, api_client) -> None:
         body = api_client.get("/api/capabilities").json()
@@ -156,10 +167,11 @@ class TestMediaEndpoints:
         assert response.status_code == 409
         assert response.json()["error_code"] == "MEDIA_ALREADY_IMPORTED"
 
-    def test_missing_file_returns_404(self, api_client) -> None:
+    def test_missing_file_returns_404(self, api_client, tmp_path: Path) -> None:
         project = create_project(api_client)
+        absent = tmp_path / "nowhere" / "clip.mp4"
         response = api_client.post(
-            f"/api/projects/{project['id']}/media", json={"path": "/nowhere/clip.mp4"}
+            f"/api/projects/{project['id']}/media", json={"path": str(absent)}
         )
         assert response.status_code == 404
         assert response.json()["error_code"] == "MEDIA_NOT_FOUND"

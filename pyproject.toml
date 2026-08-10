@@ -37,6 +37,7 @@ markers = [
     "requires_ffmpeg: needs an ffmpeg binary on PATH",
     "requires_gpu: needs an NVIDIA GPU",
     "requires_models: needs local AI models (Ollama / WhisperX)",
+    "slow: transcodes minutes of video; run with -m slow",
 ]
 filterwarnings = ["error::DeprecationWarning:backend.*"]
 

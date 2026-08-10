@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime, timezone
 
 from backend.core.errors import ErrorCode, NotFoundError
 from backend.core.models.enums import MediaRole, MediaState
-from backend.core.models.media import Media, MediaMetadata
+from backend.core.models.media import Media, MediaMetadata, MediaTrack
 from backend.database.connection import Database
 
 _COLUMNS = (
@@ -15,6 +16,11 @@ _COLUMNS = (
     "checksum_algorithm, duration_seconds, width, height, fps, video_codec, audio_codec, "
     "sample_rate, channels, bitrate, has_video, has_audio, created_at, updated_at, "
     "error_code, error_message"
+)
+
+_TRACK_COLUMNS = (
+    "id, media_id, track_index, kind, codec, language, width, height, fps, "
+    "sample_rate, channels, bitrate, is_default"
 )
 
 
@@ -105,6 +111,49 @@ class MediaRepository:
         return float(row["total"]) if row is not None else 0.0
 
 
+class MediaTrackRepository:
+    """CRUD for the ``media_tracks`` table (§45).
+
+    Written by the PROBE stage. The rows are what §19 reads to decide whether a
+    recording carries a separate microphone, so they are replaced wholesale on
+    every probe rather than merged: a re-probe reflects the file as it is now.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def replace_for_media(self, media_id: str, tracks: Iterable[MediaTrack]) -> list[MediaTrack]:
+        """Replace every track row of one media file.
+
+        Callers wrap this in a transaction so a probe never leaves a file with
+        half its streams recorded.
+        """
+        rows = list(tracks)
+        self._db.execute("DELETE FROM media_tracks WHERE media_id = ?", (media_id,))
+        if rows:
+            self._db.executemany(
+                f"INSERT INTO media_tracks ({_TRACK_COLUMNS}) VALUES ("
+                ":id, :media_id, :track_index, :kind, :codec, :language, :width, :height, "
+                ":fps, :sample_rate, :channels, :bitrate, :is_default)",
+                [_track_to_row(track) for track in rows],
+            )
+        return rows
+
+    def list_for_media(self, media_id: str) -> list[MediaTrack]:
+        return [
+            _track_from_row(row)
+            for row in self._db.fetch_all(
+                f"SELECT {_TRACK_COLUMNS} FROM media_tracks WHERE media_id = ? "
+                "ORDER BY track_index ASC",
+                (media_id,),
+            )
+        ]
+
+    def audio_tracks(self, media_id: str) -> list[MediaTrack]:
+        """Audio streams only -- the input to microphone detection (§19)."""
+        return [track for track in self.list_for_media(media_id) if track.kind == "audio"]
+
+
 def _to_row(media: Media) -> dict[str, object]:
     metadata = media.metadata
     return {
@@ -168,6 +217,42 @@ def _from_row(row: sqlite3.Row) -> Media:
     )
 
 
+def _track_to_row(track: MediaTrack) -> dict[str, object]:
+    return {
+        "id": track.id,
+        "media_id": track.media_id,
+        "track_index": track.track_index,
+        "kind": track.kind,
+        "codec": track.codec,
+        "language": track.language,
+        "width": track.width,
+        "height": track.height,
+        "fps": track.fps,
+        "sample_rate": track.sample_rate,
+        "channels": track.channels,
+        "bitrate": track.bitrate,
+        "is_default": int(track.is_default),
+    }
+
+
+def _track_from_row(row: sqlite3.Row) -> MediaTrack:
+    return MediaTrack(
+        id=row["id"],
+        media_id=row["media_id"],
+        track_index=row["track_index"],
+        kind=row["kind"],
+        codec=row["codec"],
+        language=row["language"],
+        width=row["width"],
+        height=row["height"],
+        fps=row["fps"],
+        sample_rate=row["sample_rate"],
+        channels=row["channels"],
+        bitrate=row["bitrate"],
+        is_default=bool(row["is_default"]),
+    )
+
+
 def _to_int(value: bool | None) -> int | None:
     return None if value is None else int(value)
 
@@ -176,4 +261,4 @@ def _to_bool(value: int | None) -> bool | None:
     return None if value is None else bool(value)
 
 
-__all__ = ["MediaRepository"]
+__all__ = ["MediaRepository", "MediaTrackRepository"]

@@ -259,6 +259,65 @@ class TestCancellation:
         assert job_manager.cancel_project(project_id) == 0
 
 
+class TestReanalysis:
+    """§90: a finished stage can be asked to run again over the same source."""
+
+    def test_a_completed_stage_can_be_returned_to_the_queue(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+        job_manager.start(job.id)
+        job_manager.complete(job.id, result={"size_bytes": 1})
+
+        requeued = job_manager.requeue(job.id)
+
+        assert requeued.status is JobStatus.QUEUED
+        assert requeued.progress == 0.0
+        assert requeued.completed_at is None
+        # It can actually start again, which is the point.
+        assert job_manager.start(job.id).status is JobStatus.RUNNING
+
+    def test_a_re_run_gets_a_fresh_retry_budget(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        # A user asking for a re-run is starting a new run, not continuing the
+        # one that already exhausted its attempts.
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+        job_manager.start(job.id)
+        job_manager.fail(job.id, error_code=ErrorCode.MEDIA_CORRUPTED, error_message="bad")
+
+        assert job_manager.requeue(job.id).attempt == 0
+        assert job_manager.get_job(job.id).error_code is None
+
+    def test_the_attempt_count_can_be_preserved(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+        job_manager.start(job.id)
+        job_manager.complete(job.id)
+        assert job_manager.requeue(job.id, reset_attempts=False).attempt == 1
+
+    def test_a_running_stage_is_not_requeued_underneath_its_worker(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+        job_manager.start(job.id)
+        with pytest.raises(JobError):
+            job_manager.requeue(job.id)
+
+    def test_requeueing_clears_a_cancellation_request(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+        job_manager.cancel_project(project_id)
+        job_manager.cancel(job.id)
+
+        requeued = job_manager.requeue(job.id)
+
+        assert requeued.cancel_requested is False
+        assert job_manager.start(job.id).status is JobStatus.RUNNING
+
+
 class TestRecovery:
     def test_running_jobs_are_requeued_after_a_crash(
         self, job_manager: JobManager, project_id: str, media_id: str

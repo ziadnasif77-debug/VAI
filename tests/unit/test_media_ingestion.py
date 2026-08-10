@@ -92,9 +92,15 @@ class TestImport:
 
 
 class TestValidation:
-    def test_missing_file(self, media_service: MediaIngestionService, project_id: str) -> None:
+    def test_missing_file(
+        self, media_service: MediaIngestionService, project_id: str, tmp_path: Path
+    ) -> None:
+        # Derived from tmp_path rather than written literally: "/nowhere/clip.mp4"
+        # is drive-relative on Windows, so it would be rejected as non-absolute
+        # before the existence check ever runs.
+        absent = tmp_path / "nowhere" / "clip.mp4"
         with pytest.raises(MediaError) as exc_info:
-            media_service.import_media(project_id, MediaImport(path="/nowhere/clip.mp4"))
+            media_service.import_media(project_id, MediaImport(path=str(absent)))
         assert exc_info.value.code is ErrorCode.MEDIA_NOT_FOUND
 
     def test_relative_path_is_rejected(
