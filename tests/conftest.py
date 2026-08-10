@@ -351,6 +351,71 @@ def reaction_clip(media_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
+def duplicated_track_clip(media_fixtures_dir: Path) -> Path:
+    """A recording with the *same* mix written to both audio tracks.
+
+    What a capture tool produces when it is told to record two tracks but the
+    second was never routed to a separate source. Every recording on the
+    machine this project was first run against had this shape, so it is not an
+    edge case -- it is the default one.
+    """
+    target = media_fixtures_dir / "duplicated_tracks.mp4"
+    if target.is_file():
+        return target
+
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-map", "0:v", "-map", "1:a", "-map", "1:a",
+            "-t", "8",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "pcm_s16le",
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=600,
+    )
+    return target
+
+
+@pytest.fixture(scope="session")
+def silent_mic_clip(media_fixtures_dir: Path) -> Path:
+    """A recording whose second track was armed but never connected.
+
+    The shape that breaks the "second track is the microphone" convention: the
+    track exists, so it is detected, but it carries nothing. Transcribing it
+    would replace a usable transcript with an empty one, so the stage has to
+    notice and fall back.
+    """
+    target = media_fixtures_dir / "silent_mic.mp4"
+    if target.is_file():
+        return target
+
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+            "-map", "0:v", "-map", "1:a", "-map", "2:a",
+            "-t", "8",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "pcm_s16le",
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=600,
+    )
+    return target
+
+
+@pytest.fixture(scope="session")
 def scene_clip(media_fixtures_dir: Path) -> Path:
     """Nine seconds in three visually distinct shots, changing at 3 s and 6 s.
 

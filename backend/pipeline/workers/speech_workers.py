@@ -12,14 +12,25 @@ TRANSCRIPT chunks. Not because Whisper cannot handle a long file (it windows
 internally), but because a two-hour transcription that reports nothing for
 forty minutes and cannot be cancelled is unusable. Chunks give progress, a
 cancellation checkpoint, and a place to resume.
+
+TRANSCRIPT reads the **microphone**, not the primary track. §19 keeps the two
+apart precisely because they carry different things: the gameplay track has
+weapons and footsteps, and the player's voice is on the second track that
+capture tools record it to. Transcribing the primary track on a two-track
+recording produces an empty transcript from a session full of speech -- which
+is what it did, on the first real recording this pipeline saw: 255 speech
+events detected, zero words transcribed.
 """
 
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
+
+import numpy as np
 
 from ai.providers.base import SpeechProvider, TranscriptSegment
 from ai.speech import create_speech_provider
@@ -32,7 +43,7 @@ from backend.analysis.audio_events import (
     measure_loudness,
 )
 from backend.analysis.reactions import detect_reactions
-from backend.analysis.signal import analyse_stream
+from backend.analysis.signal import analyse_stream, read_windows
 from backend.core.errors import AnalysisError, ErrorCode
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import JobStage, MediaRole
@@ -82,10 +93,13 @@ class TranscriptWorker:
     def run(self, context: WorkerContext) -> dict[str, Any]:
         media = context.require_media()
         streams = _streams_for(context)
-        primary = next((stream for stream in streams if stream.is_primary), None)
+        primary, why = _speech_stream(streams, context)
         if primary is None:
             context.report(1.0, "No audio to transcribe")
             return {"skipped": True, "reason": "no analysis audio", "segments": 0}
+        logger.info(
+            "Transcribing %s", why, extra={"media_id": media.id, "track": primary.track_index}
+        )
 
         provider = self._provider or create_speech_provider(
             context.config, model_root=context.models_dir
@@ -168,6 +182,11 @@ class TranscriptWorker:
             "language": next(
                 (segment.language for segment in segments if segment.language), None
             ),
+            # Which track was read, and why. An empty transcript is ambiguous
+            # without it -- nobody spoke, or the wrong track was listened to?
+            "track_index": primary.track_index,
+            "track_role": primary.role,
+            "track_reason": why,
             # §49: provenance travels with the result, so a wrong transcript is
             # traceable to the model that produced it.
             "model": info.name,
@@ -262,6 +281,64 @@ class AudioEventsWorker:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _speech_stream(
+    streams: Sequence[_Stream], context: WorkerContext
+) -> tuple[_Stream | None, str]:
+    """Which track carries the player's voice (§14, §19).
+
+    The microphone, when the recording kept one. §19 separates the tracks
+    because they carry different things, and the words a video needs captions
+    for are on the one the player talked into -- the gameplay track has weapons
+    and footsteps.
+
+    The guard is for the recording where that convention does not hold: a
+    second track that was armed but never connected is silent, and transcribing
+    silence would replace a usable transcript with nothing. Measuring it costs
+    a scan of a 16 kHz mono file, against several minutes of a transcription
+    that would have produced nothing.
+    """
+    microphone = next((stream for stream in streams if stream.role == MICROPHONE), None)
+    primary = next((stream for stream in streams if stream.is_primary), None)
+    if microphone is None:
+        return primary, "the only audio track"
+    if primary is None or microphone is primary:
+        return microphone, "the microphone track"
+    if _carries_sound(microphone.path, context):
+        return microphone, "the microphone track (§19)"
+    logger.warning(
+        "The microphone track is silent; transcribing the gameplay track instead",
+        extra={"microphone_track": microphone.track_index, "primary_track": primary.track_index},
+    )
+    return primary, "the gameplay track, because the microphone track is silent"
+
+
+def _carries_sound(path: Path, context: WorkerContext) -> bool:
+    """Whether a track has anything above the silence floor (§18's threshold).
+
+    Coarse on purpose: this decides which file to hand a model, not where a
+    sound is. One window per second over a mono 16 kHz file is milliseconds.
+    """
+    audio = context.config.analysis.audio
+    try:
+        windows = read_windows(path, window_seconds=audio.window_seconds, hop_seconds=1.0)
+        for window in windows:
+            samples = window.samples
+            if samples.size == 0:
+                continue
+            rms = float(np.sqrt(np.mean(np.square(samples), dtype=np.float64)))
+            if 20.0 * np.log10(max(rms, 1e-10)) > audio.silence_threshold_db:
+                return True
+    except (OSError, AnalysisError) as exc:
+        # Unreadable is not silent. Fall through to using the track: the
+        # transcriber will report the real problem better than a guess here.
+        logger.warning(
+            "Could not measure a track's level",
+            extra={"path": str(path), "error": str(exc)},
+        )
+        return True
+    return False
 
 
 def _streams_for(context: WorkerContext) -> list[_Stream]:

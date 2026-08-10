@@ -18,6 +18,7 @@ recording costs one buffer, not eight hours of PCM in RAM (§7).
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -197,6 +198,14 @@ def extract_all_tracks(
     usually the microphone, and §19 requires the player's voice to be analysed
     independently of the game.
 
+    "Usually" is doing real work in that sentence. A capture tool told to record
+    two tracks will happily write the *same mix* to both when the second is not
+    routed to a separate source -- every recording on the machine this was first
+    run against did exactly that. A duplicate is dropped rather than kept,
+    because keeping it costs a second pass over the same audio and, worse, hands
+    §19 a "microphone" track that is really the game: every reaction detected on
+    it is attributed to a player who was not the one making the sound.
+
     Returns an empty list for a source with no audio -- silent gameplay is a
     real recording, not an error.
     """
@@ -231,7 +240,54 @@ def extract_all_tracks(
                 timeout_seconds=timeout_seconds,
             )
         )
-    return streams
+    return _without_duplicates(streams)
+
+
+def _without_duplicates(streams: list[AudioStream]) -> list[AudioStream]:
+    """Drop streams whose audio is byte-identical to one already kept (§19).
+
+    Compared after extraction rather than before, because two source tracks can
+    be encoded differently and still decode to the same samples -- and it is the
+    samples every detector downstream actually reads.
+    """
+    kept: list[AudioStream] = []
+    digests: dict[str, AudioStream] = {}
+    for stream in streams:
+        digest = _digest(stream.path)
+        original = digests.get(digest) if digest else None
+        if original is not None:
+            logger.info(
+                "Dropped a duplicate audio track",
+                extra={
+                    "path": str(stream.path),
+                    "duplicate_of": str(original.path),
+                    "source_track_index": stream.source_track_index,
+                },
+            )
+            stream.path.unlink(missing_ok=True)
+            continue
+        if digest:
+            digests[digest] = stream
+        kept.append(stream)
+    return kept
+
+
+def _digest(path: Path) -> str:
+    """Content hash of an extracted stream, or ``""`` if it cannot be read."""
+    try:
+        digest = hashlib.blake2b(digest_size=16)
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        return digest.hexdigest()
+    except OSError as exc:
+        # Unreadable is not duplicate. The extraction already succeeded, so
+        # keeping the stream is the safe answer.
+        logger.warning(
+            "Could not hash an extracted track",
+            extra={"path": str(path), "error": str(exc)},
+        )
+        return ""
 
 
 def _stem_for(track: TrackInfo, *, is_primary: bool) -> str:

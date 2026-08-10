@@ -356,3 +356,135 @@ class TestRealWhisper:
             assert segment.start >= 100.0, "start_offset must move every timestamp"
             for word in segment.words:
                 assert segment.start - 1e-3 <= word.start <= segment.end + 1e-3
+
+
+class TestWhichTrackIsTranscribed:
+    """§19: the microphone carries the words; the gameplay track carries the game.
+
+    The defect this pins was invisible to the whole suite and only appeared on
+    a real recording: the stage transcribed the *primary* track, so a
+    twenty-minute session in which the audio analysis found 255 speech events
+    produced a transcript of zero segments — and therefore no captions, and no
+    speech dimension in any moment's score.
+    """
+
+    def _run(self, media_service, project_manager, database, paths, config, clip: Path):
+        provider = FakeSpeechProvider(segment_seconds=1.0, gap_seconds=0.2)
+        workers = default_workers()
+        workers[JobStage.TRANSCRIPT] = TranscriptWorker(provider)
+        runner = PipelineRunner(database, paths, config, workers=workers)
+        project, media = _project_with(media_service, project_manager, clip)
+        outcomes = {outcome.job.stage: outcome.job for outcome in runner.run_project(project.id)}
+        return project, media, outcomes
+
+    def test_a_two_track_recording_transcribes_the_microphone(
+        self, media_service, project_manager, database, paths, config, reaction_clip: Path
+    ) -> None:
+        _, _, outcomes = self._run(
+            media_service, project_manager, database, paths, config, reaction_clip
+        )
+        result = outcomes[JobStage.TRANSCRIPT].result
+
+        assert result["track_role"] == "microphone"
+        # Track 1 is the game; the player's voice is on track 2.
+        assert result["track_index"] == 2
+
+    def test_a_single_track_recording_transcribes_the_only_track(
+        self, media_service, project_manager, database, paths, config, test_clip: Path
+    ) -> None:
+        # Nothing to choose between, and no microphone to prefer.
+        _, _, outcomes = self._run(
+            media_service, project_manager, database, paths, config, test_clip
+        )
+        result = outcomes[JobStage.TRANSCRIPT].result
+
+        assert result["track_index"] == 1
+        assert result["segments"] > 0
+
+    def test_the_transcript_records_which_track_it_read(
+        self, media_service, project_manager, database, paths, config, reaction_clip: Path
+    ) -> None:
+        # An empty transcript is ambiguous without this: nobody spoke, or the
+        # wrong track was listened to? (§80)
+        _, _, outcomes = self._run(
+            media_service, project_manager, database, paths, config, reaction_clip
+        )
+
+        assert outcomes[JobStage.TRANSCRIPT].result["track_reason"]
+
+    def test_a_silent_microphone_track_falls_back_to_the_gameplay_track(
+        self, media_service, project_manager, database, paths, config, silent_mic_clip: Path
+    ) -> None:
+        # A second track that was armed but never connected. Transcribing it
+        # would replace a usable transcript with nothing.
+        _, _, outcomes = self._run(
+            media_service, project_manager, database, paths, config, silent_mic_clip
+        )
+        result = outcomes[JobStage.TRANSCRIPT].result
+
+        assert result["track_role"] == "gameplay"
+        assert result["track_index"] == 1
+        assert "silent" in result["track_reason"]
+
+
+class TestDuplicatedTracks:
+    """A capture tool writing the same mix to both tracks (§19).
+
+    Not a hypothetical: every recording on the machine this pipeline was first
+    run against had two audio tracks carrying byte-identical audio. Treating
+    the copy as a microphone costs a second pass over the same samples and
+    attributes every reaction on it to a player who was not the one making the
+    sound.
+    """
+
+    def _run(self, media_service, project_manager, database, paths, config, clip: Path):
+        workers = default_workers()
+        workers[JobStage.TRANSCRIPT] = TranscriptWorker(FakeSpeechProvider())
+        runner = PipelineRunner(database, paths, config, workers=workers)
+        project, media = _project_with(media_service, project_manager, clip)
+        outcomes = {outcome.job.stage: outcome.job for outcome in runner.run_project(project.id)}
+        return project, media, outcomes
+
+    def test_the_duplicate_is_dropped(
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        duplicated_track_clip: Path,
+    ) -> None:
+        _, _, outcomes = self._run(
+            media_service, project_manager, database, paths, config, duplicated_track_clip
+        )
+        audio = outcomes[JobStage.AUDIO].result
+
+        assert audio["track_count"] == 1
+        assert len(audio["streams"]) == 1
+
+    def test_nothing_is_called_a_microphone_that_is_a_copy_of_the_game(
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        duplicated_track_clip: Path,
+    ) -> None:
+        _, _, outcomes = self._run(
+            media_service, project_manager, database, paths, config, duplicated_track_clip
+        )
+
+        assert outcomes[JobStage.TRANSCRIPT].result["track_role"] == "gameplay"
+        assert outcomes[JobStage.AUDIO_EVENTS].result["has_microphone_track"] is False
+
+    def test_a_genuinely_separate_microphone_is_kept(
+        self, media_service, project_manager, database, paths, config, reaction_clip: Path
+    ) -> None:
+        # The other side of the rule: different audio stays two tracks.
+        _, _, outcomes = self._run(
+            media_service, project_manager, database, paths, config, reaction_clip
+        )
+
+        assert outcomes[JobStage.AUDIO].result["track_count"] == 2
+        assert outcomes[JobStage.AUDIO_EVENTS].result["has_microphone_track"] is True

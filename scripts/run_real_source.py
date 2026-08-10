@@ -118,11 +118,21 @@ def _detail(job) -> str:
     """One line per stage, chosen from whatever that stage reports."""
     result = job.result or {}
     if job.stage is JobStage.PROBE:
-        return f"{result.get('duration_seconds', 0):.0f}s, {result.get('track_count', 0)} tracks"
+        mic = " + microphone" if result.get("has_separate_microphone_track") else ""
+        return (
+            f"{result.get('duration_seconds', 0):.0f}s, {result.get('width')}x"
+            f"{result.get('height')}@{result.get('fps')}, "
+            f"{result.get('audio_tracks', 0)} audio{mic}"
+        )
     if job.stage is JobStage.FRAMES:
         return f"{result.get('frames', result.get('count', 0))} frames"
+    if job.stage is JobStage.AUDIO:
+        return f"{result.get('track_count', 0)} analysis track(s)"
     if job.stage is JobStage.TRANSCRIPT:
-        return f"{result.get('segments', 0)} segments"
+        return (
+            f"{result.get('segments', 0)} segments from "
+            f"{result.get('track_reason', 'the audio')}"
+        )
     if job.stage is JobStage.VISION:
         return f"{result.get('observations', 0)} observations"
     if job.stage is JobStage.MOMENTS:

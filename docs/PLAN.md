@@ -9,7 +9,7 @@
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
 | Last updated | 2026-08-10, end of Phase 8 |
 | Current phase | **Phase 8 complete and verified.** Next: Phase 9 (Remotion overlay) |
-| Tests | 919 passing (4 opt-in model tests skipped by default) |
+| Tests | 926 passing (4 opt-in model tests skipped by default) |
 | Backend code | ~32,500 lines across `backend/` and `ai/` |
 
 ---
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 919 passing (~15 min)
+.venv/bin/python -m pytest               # expect 926 passing (~17 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -582,6 +582,11 @@ Consequences to keep in mind:
   Windows / RTX 3070 machine before the MVP is signed off.** Phases 3–6 can be
   written and unit-tested here with fake providers; they cannot be *accepted*
   here.
+- **Run against real recordings, not only fixtures.** `D:\Gaming 2026` holds 14
+  sessions, 7–96 minutes, 1080p60. `scripts/run_real_source.py <file>` takes one
+  end to end and reports what each stage cost and produced. The first such run
+  found two defects that 919 passing tests had not — see
+  [`docs/FIRST_REAL_RUN.md`](FIRST_REAL_RUN.md).
 
 ### Target machine setup
 
@@ -637,3 +642,4 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-10 | Interaction layer added as an independent layer above the pipeline. |
 | 2026-08-10 | Effects engine added as an independent module with a 22-effect library. |
 | 2026-08-10 | **Phase 1 complete** — 414 tests, committed and pushed. |
+| 2026-08-11 | **First run on a real recording** (21 min, 1080p60). Found two defects 919 tests had missed: the transcript read the gameplay track instead of the microphone (§19), and both audio tracks of every recording on the machine are byte-identical, so the copy was being analysed twice and labelled "microphone". Write-up: [`docs/FIRST_REAL_RUN.md`](FIRST_REAL_RUN.md). |
