@@ -1,0 +1,58 @@
+{
+  "id": "vision.frame_description",
+  "version": 1,
+  "purpose": "Describe candidate gameplay frames: game state, visible action, HUD text and anything unusual. Supporting evidence for game-event detection (SPEC 15, 21, 26), never a decision on its own.",
+  "input_schema": {
+    "type": "object",
+    "required": ["game", "frame_count", "timestamps"],
+    "properties": {
+      "game": {
+        "type": "string",
+        "description": "Game profile id, or 'an unidentified game' when unknown (SPEC 23)."
+      },
+      "frame_count": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "How many frames accompany this prompt. Bounded by analysis.vision.max_frames_per_request."
+      },
+      "timestamps": {
+        "type": "string",
+        "description": "Human-readable source timestamps, one per frame, in order."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["frames"],
+    "properties": {
+      "frames": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["description", "labels", "confidence"],
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "What is visible in this frame."
+            },
+            "labels": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Short lowercase tags justified by the image."
+            },
+            "confidence": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "hud": {
+              "type": "object",
+              "description": "HUD text read verbatim, keyed by field name. Omitted fields are fields that were not legible.",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    }
+  }
+}

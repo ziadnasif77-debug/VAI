@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from ai.speech.fake_provider import FakeSpeechProvider
+from ai.vision.fake_provider import FakeVisionProvider
 from backend.api.dependencies import AppState, build_state
 from backend.config.loader import load_config, reset_config_cache
 from backend.config.paths import Paths, build_paths, find_repository_root
@@ -35,6 +36,7 @@ from backend.media.ffmpeg import FFmpegRunner
 from backend.pipeline.runner import PipelineRunner
 from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.speech_workers import TranscriptWorker
+from backend.pipeline.workers.vision_workers import VisionWorker
 from backend.services.job_manager import JobManager
 from backend.services.media_ingestion import MediaIngestionService
 from backend.services.project_manager import ProjectManager
@@ -338,6 +340,35 @@ def reaction_clip(media_fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
+def scene_clip(media_fixtures_dir: Path) -> Path:
+    """Nine seconds in three visually distinct shots, changing at 3 s and 6 s.
+
+    Colour bars, then solid red, then solid blue: unambiguous boundaries at
+    known times, so a test can assert *where* they were found rather than only
+    how many.
+    """
+    target = media_fixtures_dir / "scenes.mp4"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=3",
+            "-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:duration=3",
+            "-f", "lavfi", "-i", "color=c=blue:size=320x240:rate=30:duration=3",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=9",
+            "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
+            "-map", "[v]", "-map", "3:a",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k",
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=600,
+    )
+    return target
+
+
+@pytest.fixture(scope="session")
 def long_clip(media_fixtures_dir: Path) -> Path:
     """Fifteen minutes: long enough to need more than one proxy segment.
 
@@ -373,13 +404,26 @@ def speech_provider() -> FakeSpeechProvider:
 
 
 @pytest.fixture
+def vision_provider() -> FakeVisionProvider:
+    """A deterministic vision provider.
+
+    It counts the frames it was handed, which is how the §15 acceptance test
+    proves the cascade's ceiling holds: the number of frames that reach a
+    vision model is the number this one saw.
+    """
+    return FakeVisionProvider()
+
+
+@pytest.fixture
 def pipeline_runner(
     database: Database,
     paths: Paths,
     config: AppConfig,
     speech_provider: FakeSpeechProvider,
+    vision_provider: FakeVisionProvider,
 ) -> PipelineRunner:
     """A runner whose model-backed stages use test doubles."""
     workers = default_workers()
     workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
+    workers[JobStage.VISION] = VisionWorker(vision_provider)
     return PipelineRunner(database, paths, config, workers=workers)

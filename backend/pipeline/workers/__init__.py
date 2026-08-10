@@ -16,6 +16,7 @@ from backend.pipeline.workers.media_workers import (
     ProxyWorker,
 )
 from backend.pipeline.workers.speech_workers import AudioEventsWorker, TranscriptWorker
+from backend.pipeline.workers.vision_workers import SceneWorker, VisionWorker
 
 
 def default_workers() -> dict[JobStage, StageWorker]:
@@ -23,7 +24,8 @@ def default_workers() -> dict[JobStage, StageWorker]:
 
     Phase 2 covers the media engine -- everything needed to turn a recording
     into the artefacts the analysis stages read. Phase 3 adds speech and audio
-    understanding. SCENES onward arrive with their phases.
+    understanding, Phase 4 the visual layer. OCR onward arrive with their
+    phases.
     """
     return {
         JobStage.IMPORT: ImportWorker(),
@@ -33,6 +35,8 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.FRAMES: FramesWorker(),
         JobStage.TRANSCRIPT: TranscriptWorker(),
         JobStage.AUDIO_EVENTS: AudioEventsWorker(),
+        JobStage.SCENES: SceneWorker(),
+        JobStage.VISION: VisionWorker(),
     }
 
 
@@ -44,8 +48,10 @@ __all__ = [
     "ProbeWorker",
     "ProgressReporter",
     "ProxyWorker",
+    "SceneWorker",
     "StageWorker",
     "TranscriptWorker",
+    "VisionWorker",
     "WorkerContext",
     "default_workers",
 ]

@@ -389,7 +389,9 @@ class TestPipelineEndToEnd:
         project, media = self._import(media_service, project_manager, test_clip)
         pipeline_runner.run_project(project.id)
 
-        frames = FrameRepository(database).list_for_media(media.id)
+        # Filtered by level: §16's hierarchy means later stages add denser
+        # frames of their own, and this test is about the base pass.
+        frames = FrameRepository(database).list_for_media(media.id, level="base")
         assert frames
         assert all(frame.sampling_level == "base" for frame in frames)
         assert all(not frame.analyzed for frame in frames)
@@ -446,7 +448,7 @@ class TestPipelineEndToEnd:
         outcome = runner.run_job(frames_job.id)
 
         assert outcome.succeeded
-        stored = FrameRepository(database).list_for_media(media.id)
+        stored = FrameRepository(database).list_for_media(media.id, level="base")
         # Not doubled: the stage clears its previous output before writing.
         assert len(stored) == outcome.job.result["frames"]
 

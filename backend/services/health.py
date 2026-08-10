@@ -52,6 +52,7 @@ class HealthService:
             gpu,
             self._check_nvenc(gpu_present=gpu.status is HealthStatus.OK),
             self._check_speech_model(),
+            self._check_scene_detector(),
             self._check_ollama(),
             self._check_ocr(),
         ]
@@ -265,6 +266,30 @@ class HealthService:
             required=False,
             detail=f"{module} available ({self._config.models.speech.model}).",
             version=self._config.models.speech.version,
+        )
+
+    def _check_scene_detector(self) -> HealthCheck:
+        """Check the scene detection backend (§17, Phase 4 dependency)."""
+        if not self._config.analysis.vision.enabled:
+            return HealthCheck(
+                name="scenes",
+                status=HealthStatus.SKIPPED,
+                required=False,
+                detail="Visual analysis disabled in configuration.",
+            )
+        if importlib.util.find_spec("scenedetect") is None:
+            return HealthCheck(
+                name="scenes",
+                status=HealthStatus.WARNING,
+                required=False,
+                detail="PySceneDetect is not installed; shot boundaries are unavailable.",
+                remediation="pip install scenedetect",
+            )
+        return HealthCheck(
+            name="scenes",
+            status=HealthStatus.OK,
+            required=False,
+            detail=f"PySceneDetect available ({self._config.analysis.scenes.detector} detector).",
         )
 
     def _check_ollama(self) -> HealthCheck:

@@ -9,8 +9,10 @@ import pytest
 
 from backend.config.schema import DatabaseConfig
 from backend.core.errors import ErrorCode, StorageError
+from backend.core.versions import SCHEMA_VERSION
 from backend.database.connection import Database, dumps, loads
 from backend.database.migrator import (
+    MIGRATIONS_DIR,
     current_version,
     discover_migrations,
     migrate,
@@ -54,10 +56,17 @@ class TestMigrations:
         assert current_version(database) == before
 
     def test_records_the_applied_version(self, database: Database) -> None:
-        assert current_version(database) == 1
+        assert current_version(database) == SCHEMA_VERSION
+
+    def test_the_declared_schema_version_tracks_the_migrations(self) -> None:
+        # versions.py says SCHEMA_VERSION "must equal the highest migration
+        # number". Asserted rather than trusted: a migration added without the
+        # bump makes every startup check compare against the wrong number.
+        highest = max(migration.version for migration in discover_migrations(MIGRATIONS_DIR))
+        assert highest == SCHEMA_VERSION
 
     def test_verify_schema_version_accepts_a_match(self, database: Database) -> None:
-        verify_schema_version(database, 1)
+        verify_schema_version(database, SCHEMA_VERSION)
 
     def test_verify_schema_version_rejects_a_mismatch(self, database: Database) -> None:
         with pytest.raises(StorageError) as exc_info:

@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 3 |
-| Current phase | **Phase 3 complete and verified.** Next: Phase 4 (Vision) |
-| Tests | 580 passing (2 opt-in model tests skipped by default) |
-| Backend code | ~18,000 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-10, end of Phase 4 |
+| Current phase | **Phase 4 complete and verified.** Next: Phase 5 (Gaming Intelligence) |
+| Tests | 652 passing (4 opt-in model tests skipped by default) |
+| Backend code | ~22,000 lines across `backend/` and `ai/` |
 
 ---
 
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 580 passing (~5 min)
+.venv/bin/python -m pytest               # expect 652 passing (~9 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -38,7 +38,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 4 is the next work**. Start at §5 of this document.
+healthy and **Phase 5 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -54,8 +54,8 @@ Development order follows SPEC §126.
 | — | *Publishing seam* | local-file target, YouTube slot | ✅ **done** (added mid-Phase-1) |
 | 2 | **Media Engine** | FFmpeg/FFprobe, proxy, audio, frames, chunking | ✅ **done** |
 | 3 | **Speech / Audio** | Whisper transcript, audio events, reactions | ✅ **done** |
-| 4 | **Vision** | scene detection, keyframes, VLM analysis | ⬜ next |
-| 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ⬜ |
+| 4 | **Vision** | scene detection, keyframes, VLM analysis | ✅ **done** |
+| 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ⬜ next |
 | 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ⬜ |
 | 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ⬜ |
 | 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ⬜ |
@@ -90,8 +90,9 @@ moments → EDL → render` does not work, no interface saves the project.
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
 | `backend/pipeline` | `runner`, `workers/` for IMPORT · PROBE · PROXY · AUDIO · FRAMES | complete for the media stages |
-| `backend/analysis` | `signal` (streaming features), `audio_events` (§18), `reactions` (§19, §20) | audio complete; vision pending |
-| `ai/speech` | `faster_whisper_provider`, `fake_provider`, factory | complete |
+| `backend/analysis` | `signal`, `audio_events` (§18), `reactions` (§19, §20), `scenes` (§17), `candidates` (the §15/§16 cascade) | complete |
+| `ai/speech`, `ai/vision` | real provider + deterministic fake + factory each | complete |
+| `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | one prompt so far |
 | `backend/{gaming,moments,narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
@@ -265,7 +266,7 @@ Full write-up: [`docs/PHASE_3.md`](PHASE_3.md).
 
 ---
 
-### Phase 4 — Vision (next)
+### Phase 4 — Vision ✅ done
 
 **Goal (§15, §16, §17):** scene boundaries and frame understanding, cheaply.
 
@@ -276,18 +277,30 @@ Full write-up: [`docs/PHASE_3.md`](PHASE_3.md).
 - `ai/vision/ollama_provider.py` implementing `VisionProvider`.
 - `backend/pipeline/workers/scenes.py`, `vision.py`.
 
-**Acceptance:** the system describes major visual changes, and **the VLM sees
-only candidate keyframes** — verify the frame count against
-`analysis.vision.max_frames_per_source_hour`.
+**Acceptance: passed.** Scene boundaries asserted at their known times on a
+three-shot fixture, and the frame count counted **at the provider** — the number
+of frames reaching a vision model is the number it was handed. Verified at every
+§7 source length, 30 min through 8 h, under a relentless stream of nominations:
+`frames_planned` never exceeds `max_frames_per_source_hour × hours`.
 
-**Traps**
-- This is where a naive implementation turns a 2-hour video into a 6-hour
-  analysis. The cascade is not an optimisation; it is the design.
-- Scene boundaries are supporting information, never automatic edit points (§17).
+**Traps — both hit, both handled**
+- The cascade is the design. Unbounded merging nearly defeated it: on a
+  recording with something loud every 30 s, every nomination merged into one
+  region spanning two hours, which then received four keyframes while reporting
+  100 % coverage. Region size is now bounded by the sampling config.
+- Scene boundaries are stored as supporting information with a **measured**
+  change score, never as edit points.
+
+**Also delivered:** §92's prompt architecture (`prompts/`, versioned, loader
+refuses a version that disagrees with the registry), migration 0002, and a test
+asserting `SCHEMA_VERSION` tracks the migrations — which `versions.py` claimed
+but nothing enforced.
+
+Full write-up: [`docs/PHASE_4.md`](PHASE_4.md).
 
 ---
 
-### Phase 5 — Gaming Intelligence
+### Phase 5 — Gaming Intelligence (next)
 
 **Goal (§21–§27):** the product differentiator.
 
@@ -500,15 +513,14 @@ Consequences to keep in mind:
   written and unit-tested here with fake providers; they cannot be *accepted*
   here.
 
-### Target machine setup (do this before Phase 4)
+### Target machine setup (do this before Phase 5)
 
 Installed already: FFmpeg 9.0 (gyan.dev full build, NVENC present),
-faster-whisper 1.2.1, PaddleOCR, numpy/scipy, Ollama. Remaining:
+faster-whisper 1.2.1, PySceneDetect 0.7.1, PaddleOCR, OpenCV, numpy/scipy,
+Ollama with `qwen2.5vl:7b`. Remaining:
 
 ```powershell
-ollama pull qwen2.5vl:7b        # Phase 4 vision model
 ollama pull qwen2.5:7b-instruct # Phase 13 LLM
-pip install scenedetect opencv-python
 python scripts/doctor.py        # expect all OK
 ```
 

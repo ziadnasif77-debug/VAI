@@ -34,7 +34,7 @@ class TestSystemEndpoints:
         assert response.status_code == 200
         body = response.json()
         names = {check["name"] for check in body["checks"]}
-        assert {"python", "ffmpeg", "ffprobe", "sqlite", "gpu", "nvenc"} <= names
+        assert {"python", "ffmpeg", "ffprobe", "sqlite", "gpu", "nvenc", "scenes"} <= names
 
     def test_missing_gpu_does_not_fail_the_report(self, api_client) -> None:
         # §52/§95: no GPU means CPU fallback, not a broken installation.

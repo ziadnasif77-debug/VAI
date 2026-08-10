@@ -18,6 +18,7 @@ PREFIXES: Final[dict[str, str]] = {
     "media_track": "track",
     "job": "job",
     "scene": "scene",
+    "vision_observation": "vis",
     "frame": "frame",
     "audio_event": "aev",
     "transcript_segment": "seg",

@@ -22,7 +22,7 @@ ANALYSIS_VERSION: Final[int] = 1
 
 #: Bumped for every database migration. Must equal the highest migration number
 #: in backend/database/migrations.
-SCHEMA_VERSION: Final[int] = 1
+SCHEMA_VERSION: Final[int] = 2
 
 #: Version of the on-disk ``project.json`` manifest format (§43).
 PROJECT_MANIFEST_VERSION: Final[int] = 1
@@ -30,7 +30,15 @@ PROJECT_MANIFEST_VERSION: Final[int] = 1
 #: Registry of production prompts (§92). Each prompt directory under
 #: ``prompts/`` registers its id here; using an unregistered prompt raises,
 #: because an unversioned prompt silently poisons the analysis cache.
-PROMPT_VERSIONS: Final[dict[str, int]] = {}
+#:
+#: The id is the directory path under ``prompts/``, dotted. Bump the version
+#: here *and* in the prompt's ``meta.json`` whenever the wording changes —
+#: :func:`backend.core.prompts.load_prompt` refuses to load them if the two
+#: disagree, which is how a forgotten bump is caught before it serves stale
+#: results.
+PROMPT_VERSIONS: Final[dict[str, int]] = {
+    "vision.frame_description": 1,
+}
 
 
 def prompt_version(prompt_id: str) -> int:
