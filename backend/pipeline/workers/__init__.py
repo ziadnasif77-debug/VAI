@@ -8,6 +8,7 @@ never able to run.
 
 from backend.core.models.enums import JobStage
 from backend.pipeline.workers.base import ProgressReporter, StageWorker, WorkerContext
+from backend.pipeline.workers.edl_worker import EdlWorker
 from backend.pipeline.workers.gaming_workers import GameEventsWorker, OcrWorker
 from backend.pipeline.workers.media_workers import (
     AudioWorker,
@@ -28,8 +29,8 @@ def default_workers() -> dict[JobStage, StageWorker]:
     Phase 2 covers the media engine -- everything needed to turn a recording
     into the artefacts the analysis stages read. Phase 3 adds speech and audio
     understanding, Phase 4 the visual layer, Phase 5 the gaming intelligence,
-    Phase 6 the moments, Phase 7 the narrative. EDL onward arrive with their
-    phases.
+    Phase 6 the moments, Phase 7 the narrative, Phase 8 the EDL. Render
+    onward arrive with their phases.
     """
     return {
         JobStage.IMPORT: ImportWorker(),
@@ -45,12 +46,14 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.GAME_EVENTS: GameEventsWorker(),
         JobStage.MOMENTS: MomentsWorker(),
         JobStage.STORY: StoryWorker(),
+        JobStage.EDL: EdlWorker(),
     }
 
 
 __all__ = [
     "AudioEventsWorker",
     "AudioWorker",
+    "EdlWorker",
     "FramesWorker",
     "GameEventsWorker",
     "ImportWorker",

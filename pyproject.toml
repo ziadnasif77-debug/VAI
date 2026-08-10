@@ -29,7 +29,10 @@ include = ["backend*"]
 minversion = "8.0"
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config"
+# --basetemp keeps every temporary artefact -- transcoded proxies, extracted
+# audio, frame dumps -- inside the repository. The default lands them in the
+# user's system temp directory, which may be on a drive that cannot take them.
+addopts = "-ra --strict-markers --strict-config --basetemp=.pytest-tmp"
 markers = [
     "unit: fast isolated tests with no external process or model",
     "integration: tests that cross a component boundary (API, database, ffmpeg)",
@@ -69,3 +72,5 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E501"]
+# Entry-point scripts put the repository on sys.path before importing from it.
+"scripts/*" = ["E402"]

@@ -114,10 +114,14 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 806 tests (~15 min)
+.venv/bin/python -m pytest              # 919 tests (~15 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
 ```
+
+Test artefacts stay inside the repository: `pyproject.toml` pins
+`--basetemp=.pytest-tmp`, so transcoded proxies and frame dumps never land in
+the system temp directory. Both are gitignored.
 
 Tests never touch the real `projects/` directory or database — every fixture is
 rooted in a temporary directory.

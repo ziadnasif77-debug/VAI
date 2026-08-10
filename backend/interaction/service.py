@@ -20,6 +20,7 @@ from backend.core.models.enums import JobStage
 from backend.core.models.project import Project
 from backend.database.connection import Database
 from backend.database.repositories.projects import ProjectRepository
+from backend.database.repositories.timeline import TimelineRepository
 from backend.interaction.intent import IntentResolver
 from backend.interaction.knowledge import VideoKnowledgeBase
 from backend.interaction.models import (
@@ -233,11 +234,11 @@ class InteractionService:
 
         if command.kind is CommandKind.DELETE_CLIP:
             target = _clip_by_index(clips, command.clip_index)
-            self._set_clip_enabled(target.id, False)
+            self._set_clip_enabled(project.id, target.id, False)
             message = f"Removed clip {target.clip_index} from the edit."
         elif command.kind is CommandKind.RESTORE_CLIP:
             target = _clip_by_index(clips, command.clip_index)
-            self._set_clip_enabled(target.id, True)
+            self._set_clip_enabled(project.id, target.id, True)
             message = f"Restored clip {target.clip_index}."
         elif command.kind is CommandKind.DELETE_AT_TIMESTAMP:
             timestamp = command.timestamp_seconds or 0.0
@@ -254,7 +255,7 @@ class InteractionService:
                     recoverable=False,
                 )
             for clip in matching:
-                self._set_clip_enabled(clip.id, False)
+                self._set_clip_enabled(project.id, clip.id, False)
             message = f"Removed {len(matching)} clip(s) covering that timestamp."
         else:
             raise ValidationError(
@@ -409,24 +410,24 @@ class InteractionService:
         self._versions.prune(project_id, self._config.interaction.commands.keep_versions)
         return version
 
-    def _set_clip_enabled(self, clip_id: str, enabled: bool) -> None:
-        with self._db.transaction():
-            self._db.execute(
-                "UPDATE timeline_clips SET enabled = ? WHERE id = ?",
-                (int(enabled), clip_id),
-            )
+    def _set_clip_enabled(self, project_id: str, clip_id: str, enabled: bool) -> None:
+        """Enable or disable a clip through the timeline repository.
+
+        Not a raw ``UPDATE``. Removing a clip has to re-flow the ones after it,
+        or the finished video keeps a hole the length of what was removed --
+        the validator calls that a gap and the renderer would draw it as black
+        frames. The repository owns that rule so every path obeys it.
+        """
+        TimelineRepository(self._db).set_enabled(project_id, clip_id, enabled=enabled)
 
     def _restore_clips(self, project_id: str, version: EditVersion) -> int:
-        """Re-apply a snapshot's enabled/disabled state."""
-        restored = 0
-        with self._db.transaction():
-            for clip in version.clips:
-                cursor = self._db.execute(
-                    "UPDATE timeline_clips SET enabled = ? WHERE id = ? AND project_id = ?",
-                    (int(bool(clip.get("enabled", True))), clip.get("id"), project_id),
-                )
-                restored += cursor.rowcount
-        return restored
+        """Re-apply a snapshot's enabled/disabled state, re-flowing once (§78)."""
+        states = {
+            str(clip["id"]): bool(clip.get("enabled", True))
+            for clip in version.clips
+            if clip.get("id")
+        }
+        return TimelineRepository(self._db).apply_enabled_states(project_id, states)
 
 
 def _clip_by_index(clips: list, index: int | None) -> Any:

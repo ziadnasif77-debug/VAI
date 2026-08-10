@@ -31,6 +31,8 @@ Boundaries this package keeps (§14, §22):
 * The product is a video editor with a control interface, not a chatbot.
 """
 
+from typing import TYPE_CHECKING, Any
+
 from backend.interaction.intent import IntentResolver
 from backend.interaction.knowledge import VideoKnowledgeBase
 from backend.interaction.models import (
@@ -43,7 +45,30 @@ from backend.interaction.models import (
 )
 from backend.interaction.parser import classify, parse_command, parse_instruction
 from backend.interaction.qa import QuestionAnswering
-from backend.interaction.service import InteractionService
+
+if TYPE_CHECKING:  # pragma: no cover - for type checkers only
+    from backend.interaction.service import InteractionService
+
+
+def __getattr__(name: str) -> Any:
+    """Load the service on first use (PEP 562).
+
+    Importing it eagerly would mean that touching the *vocabulary* -- the
+    ``EditingIntent`` the docstring above says the pipeline consumes -- loads
+    the whole application layer with it. That closed a real cycle: the effects
+    library reads this package's models, the timeline repository reads the
+    effects models, and the service reads the timeline repository. It surfaced
+    only from entry points that happened to import in the wrong order, which is
+    the worst way for an import cycle to surface.
+
+    Laziness here is not a workaround for that cycle; it is the package
+    matching what it already claims about itself.
+    """
+    if name == "InteractionService":
+        from backend.interaction.service import InteractionService
+
+        return InteractionService
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "Answer",

@@ -6,6 +6,7 @@ an event record or an EDL is immediately attributable to an entity kind.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from typing import Final
@@ -31,6 +32,7 @@ PREFIXES: Final[dict[str, str]] = {
     "music": "mus",
     "render": "rnd",
     "qa_result": "qa",
+    "marker": "mark",
 }
 
 _ID_RE = re.compile(r"^[a-z_]+-[0-9a-f]{12}$")
@@ -51,6 +53,32 @@ def new_id(entity: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
 
 
+def derived_id(entity: str, *parts: object) -> str:
+    """Return a stable identifier derived from ``parts``.
+
+    Same shape as :func:`new_id`, but the same inputs always produce the same
+    id. Used where a stage may re-run on unchanged input and the identifiers
+    must survive it (§48, §127): a re-generated timeline whose clips have new
+    ids would silently break every stored reference to them -- the interaction
+    layer's undo snapshots match clips by id, and would restore nothing.
+
+    Parts should identify the thing, not describe it. Including a score or a
+    label means an id that changes when the wording does.
+
+    Raises:
+        KeyError: if ``entity`` has no registered prefix.
+    """
+    try:
+        prefix = PREFIXES[entity]
+    except KeyError as exc:
+        raise KeyError(
+            f"Unknown entity type {entity!r}. Register its prefix in backend/core/ids.py."
+        ) from exc
+    material = "\x1f".join(str(part) for part in parts)
+    digest = hashlib.blake2b(material.encode("utf-8"), digest_size=6).hexdigest()
+    return f"{prefix}-{digest}"
+
+
 def is_valid_id(value: object) -> bool:
     """Return whether ``value`` has the shape produced by :func:`new_id`."""
     return isinstance(value, str) and bool(_ID_RE.match(value))
@@ -68,4 +96,4 @@ def sequence_id(prefix: str, index: int, *, width: int = 3) -> str:
     return f"{prefix}-{index:0{width}d}"
 
 
-__all__ = ["PREFIXES", "is_valid_id", "new_id", "sequence_id"]
+__all__ = ["PREFIXES", "derived_id", "is_valid_id", "new_id", "sequence_id"]

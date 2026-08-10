@@ -48,7 +48,10 @@ class StoryWorker:
             return {
                 "skipped": True,
                 "reason": "no moments available",
-                "clips": 0,
+                # A list, not a count. The EDL stage reads this key as the
+                # clips it must lay out, and a key whose type depends on which
+                # branch produced it is not a contract (§81).
+                "clips": [],
                 "within_target": False,
             }
 

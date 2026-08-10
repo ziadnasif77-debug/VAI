@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 7 |
-| Current phase | **Phase 7 complete and verified.** Next: Phase 8 (EDL and Timeline) |
-| Tests | 806 passing (4 opt-in model tests skipped by default) |
-| Backend code | ~30,500 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-10, end of Phase 8 |
+| Current phase | **Phase 8 complete and verified.** Next: Phase 9 (Remotion overlay) |
+| Tests | 919 passing (4 opt-in model tests skipped by default) |
+| Backend code | ~32,500 lines across `backend/` and `ai/` |
 
 ---
 
@@ -24,12 +24,21 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 806 passing (~15 min)
+.venv/bin/python -m pytest               # expect 919 passing (~15 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
 .venv/bin/python scripts/db_init.py      # create/migrate the database
 ```
+
+**Everything this project writes stays inside the repository.** The data root
+defaults to the repository root, and `pyproject.toml` pins
+`--basetemp=.pytest-tmp` so test artefacts -- transcoded proxies, extracted
+audio, frame dumps -- land here too rather than in the system temp directory.
+On the development machine `C:` has under 20 GB free against recordings that
+run to gigabytes each, so this is a hard constraint, not a preference. Model
+weights follow the same rule: faster-whisper downloads into `models/`, and
+Ollama is pointed at `D:\Models` by `OLLAMA_MODELS`.
 
 FFmpeg is required from Phase 2 onward. On Windows, in an **elevated** shell:
 
@@ -38,7 +47,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 8 is the next work**. Start at §5 of this document.
+healthy and **Phase 9 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -58,8 +67,8 @@ Development order follows SPEC §126.
 | 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ✅ **done** |
 | 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ✅ **done** |
 | 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ✅ **done** |
-| 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ⬜ next |
-| 9 | **Remotion** | overlay composition | ⬜ |
+| 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ✅ **done** |
+| 9 | **Remotion** | overlay composition | ⬜ next |
 | 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ⬜ |
 | 11 | **QA** | technical + content verification | ⬜ |
 | 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ⬜ |
@@ -89,14 +98,15 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/api` | `app`, `dependencies`, `routers/` × 5 | complete for current scope |
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
-| `backend/pipeline` | `runner`, `workers/` for every stage through STORY | EDL is the frontier |
+| `backend/pipeline` | `runner`, `workers/` for every stage through EDL | RENDER is the frontier |
 | `backend/analysis` | `signal`, `audio_events` (§18), `reactions` (§19, §20), `scenes` (§17), `candidates` (the §15/§16 cascade) | complete |
 | `ai/speech`, `ai/vision`, `ai/ocr` | real provider + deterministic fake + factory each | complete |
 | `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27) | complete; HUD extraction pending a real profile |
 | `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | one prompt so far |
 | `backend/moments` | `formation` (§28), `context` (§29), `dead_time` (§30), `repetition` (§31, §33), `scoring` (§32) | complete |
 | `backend/narrative` | `optimizer` (§39), `story` (§35, §36), `hook` (§37), `pacing` (§38) | complete |
-| `backend/{timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
+| `backend/timeline` | `models`, `builder`, `operations`, `validation` (§40-§42), `captions` (§71) | complete |
+| `backend/{rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -410,7 +420,7 @@ Full write-up: [`docs/PHASE_7.md`](PHASE_7.md).
 
 ---
 
-### Phase 8 — EDL and Timeline
+### Phase 8 — EDL and Timeline ✅ done
 
 **Goal (§40–§42):** the non-destructive description of the finished video.
 
@@ -420,13 +430,33 @@ Full write-up: [`docs/PHASE_7.md`](PHASE_7.md).
 - `backend/timeline/operations.py` — split, trim, move, delete, restore
 - `backend/timeline/validation.py` — timestamps, bounds, no gaps or overlaps
 - `backend/timeline/captions.py` — from transcript timestamps
-- `backend/pipeline/workers/edl.py`
+- `backend/pipeline/workers/edl_worker.py`
 
-**Acceptance:** the generated EDL reproduces the planned video exactly.
+**Acceptance: passed.** Every planned clip becomes exactly one timeline clip,
+in the plan's order, with its source span unchanged, summing to the planned
+duration, contiguous from zero, and validating — checked directly, then run
+through the real pipeline on a decoded recording.
 
-**Note:** the interaction layer's commands already write to `timeline_clips`;
-this phase populates it in the first place. Re-check
-`InteractionService._apply_timeline_command` against the real builder.
+**Traps — both handled**
+- The §6 clamp is enforced here as a last resort, downward only, trimming the
+  tail rather than dropping clips from the middle of the arc, and logged loudly
+  when reached. Nothing pads a short edit: that would mean inventing footage.
+- The stage reads the STORY job result rather than re-deriving the plan (§81).
+  Re-running the optimiser would usually agree, and the one time it did not the
+  EDL would describe a different video from the one the user approved.
+
+**Also found:** the interaction layer disabled clips with a raw `UPDATE` and no
+re-flow, so "delete clip 5" in chat left a hole in the video exactly the length
+of clip 5; effects were stored at absolute positions against a schema
+documenting them as clip-relative; `clip_index` updates collided with their own
+unique index on every reorder; the STORY stage reported `clips` as a list
+normally but as the count `0` when it skipped, so the first project with no
+moments took the EDL stage down; and a second import cycle stopped
+`scripts/doctor.py` from starting while the suite stayed green. Packages are
+now imported one per subprocess in `tests/unit/test_imports.py`, which is the
+only arrangement that can catch that.
+
+Full write-up: [`docs/PHASE_8.md`](PHASE_8.md).
 
 ---
 
@@ -592,6 +622,8 @@ Not blocking, but worth settling before the phase that needs them.
 | Do we ship model weights or download at setup? | Packaging | Download at setup; the repo stays small. |
 | Desktop shell — Tauri or plain localhost? | Phase 12 | Localhost web app first (§9 allows it), shell later. |
 | Multi-recording projects (multicam) | later | Sources are already independent; true sync is out of MVP scope. |
+| **Remotion licence for commercial use** | **Phase 9** | Remotion is free for individuals and small companies, but its company licence thresholds are not stated on the licensing page — they need reading from the licence text itself before the dependency lands. The overlay pass is skippable by design, so this does not block the render path. |
+| **This repository has no LICENSE file** | before any release | Nothing has been published, so nothing is currently mis-licensed. Worth settling before the repo is shared. |
 
 ---
 
