@@ -1,0 +1,21 @@
+{
+  "name": "vai-overlay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Transparent caption and motion-graphics overlay for the AI gaming video editor (SPEC 66, decision D-008).",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts OverlayLayer out/overlay.webm --codec=vp9",
+    "still": "remotion still src/index.ts OverlayLayer out/frame.png"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.409",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.409"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "typescript": "5.9.3"
+  }
+}

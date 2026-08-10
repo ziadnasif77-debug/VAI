@@ -58,12 +58,32 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     models_enabled = os.environ.get(MODELS_ENV_VAR, "").strip().lower() in {"1", "true", "yes"}
 
     skip_ffmpeg = pytest.mark.skip(reason="ffmpeg/ffprobe not on PATH")
+    node_ready, node_reason = _remotion_ready()
+    skip_node = pytest.mark.skip(reason=node_reason)
     skip_models = pytest.mark.skip(reason=f"set {MODELS_ENV_VAR}=1 to run against real models")
     for item in items:
         if not has_ffmpeg and "requires_ffmpeg" in item.keywords:
             item.add_marker(skip_ffmpeg)
         if not models_enabled and "requires_models" in item.keywords:
             item.add_marker(skip_models)
+        if not node_ready and "requires_node" in item.keywords:
+            item.add_marker(skip_node)
+
+
+def _remotion_ready() -> tuple[bool, str]:
+    """Whether an overlay can actually be rendered on this machine.
+
+    Reported through the same function the application uses, so a test skipping
+    and the pipeline degrading agree about why.
+    """
+    from backend.config.loader import load_config
+    from backend.rendering.remotion import is_available
+
+    try:
+        config = load_config()
+    except Exception as exc:  # pragma: no cover - a broken config fails elsewhere
+        return False, f"configuration could not be loaded: {exc}"
+    return is_available(config.remotion, find_repository_root())
 
 
 @pytest.fixture(scope="session")

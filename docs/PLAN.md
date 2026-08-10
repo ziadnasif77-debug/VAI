@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 8 |
-| Current phase | **Phase 8 complete and verified.** Next: Phase 9 (Remotion overlay) |
-| Tests | 926 passing (4 opt-in model tests skipped by default) |
-| Backend code | ~32,500 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-11, end of Phase 9 |
+| Current phase | **Phase 9 complete and verified.** Next: Phase 10 (Final Render) |
+| Tests | 965 passing (4 opt-in model tests skipped by default) |
+| Backend code | ~34,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
 
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 926 passing (~17 min)
+.venv/bin/python -m pytest               # expect 965 passing (~18 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -40,6 +40,15 @@ run to gigabytes each, so this is a hard constraint, not a preference. Model
 weights follow the same rule: faster-whisper downloads into `models/`, and
 Ollama is pointed at `D:\Models` by `OLLAMA_MODELS`.
 
+The overlay renderer needs Node (already present) and its own install:
+
+```bash
+cd remotion && npm install
+```
+
+Without it the pipeline still runs; overlays are skipped and the video has no
+captions (§95). `scripts/doctor.py` reports which it is.
+
 FFmpeg is required from Phase 2 onward. On Windows, in an **elevated** shell:
 
 ```
@@ -47,7 +56,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 9 is the next work**. Start at §5 of this document.
+healthy and **Phase 10 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -68,8 +77,8 @@ Development order follows SPEC §126.
 | 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ✅ **done** |
 | 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ✅ **done** |
 | 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ✅ **done** |
-| 9 | **Remotion** | overlay composition | ⬜ next |
-| 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ⬜ |
+| 9 | **Remotion** | overlay composition | ✅ **done** |
+| 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ⬜ next |
 | 11 | **QA** | technical + content verification | ⬜ |
 | 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ⬜ |
 | 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ⬜ |
@@ -106,7 +115,9 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/moments` | `formation` (§28), `context` (§29), `dead_time` (§30), `repetition` (§31, §33), `scoring` (§32) | complete |
 | `backend/narrative` | `optimizer` (§39), `story` (§35, §36), `hook` (§37), `pacing` (§38) | complete |
 | `backend/timeline` | `models`, `builder`, `operations`, `validation` (§40-§42), `captions` (§71) | complete |
-| `backend/{rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
+| `backend/rendering` | `composition` (§64), `remotion` (§66, D-008) | overlay complete; encode is Phase 10 |
+| `remotion/` | `OverlayLayer`, captions, 7 overlay effects | complete |
+| `backend/qa` | package docstring only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -460,22 +471,39 @@ Full write-up: [`docs/PHASE_8.md`](PHASE_8.md).
 
 ---
 
-### Phase 9 — Remotion overlay
+### Phase 9 — Remotion overlay ✅ done
 
 **Goal (§66, and decision D-008):** captions and motion graphics only.
 
 **Create**
 - `remotion/` — Remotion project, `OverlayLayer` composition, transparent canvas
 - `backend/rendering/remotion.py` — write `composition.json`, invoke the render
+- `backend/rendering/composition.py` — the §64 description, built in Python
 - overlay renderers for the Remotion half of the effects library
 
-**Acceptance:** EDL → Remotion → an alpha overlay that composites correctly.
+**Acceptance: passed.** Measured rather than asserted: compositing the overlay
+over known footage changes **zero** pixels before the caption appears, and 7 %
+of the frame during it.
 
-**Traps**
-- Overlay only. Rendering the gameplay through Chromium is the mistake this
-  design exists to avoid.
-- Skip the pass entirely when the plan has no Remotion-engine effects — the
-  planner already reports that via `EffectPlan.for_engine()`.
+**Traps — both handled**
+- Overlay only. The gameplay is never drawn through Chromium; the composition
+  carries no video, and only Remotion-engine effects cross the boundary.
+- The pass is skipped when the plan has no Remotion-engine effects and no
+  captions — `Composition.is_empty`, which an FFmpeg-only effect plan satisfies.
+
+**Also found:** VP9 in WebM carries alpha as a side channel, so `ffprobe`
+reports `yuv420p` and FFmpeg's *native* VP9 decoder discards it silently — the
+overlay composites as an opaque rectangle with nothing reporting a problem.
+`overlay_input_arguments()` names `libvpx-vp9`, and a test asserts the failure
+still exists so the fix is not mistaken for superstition. Also: the Remotion
+sequence offset was being subtracted twice, making captions invisible for most
+of their duration.
+
+**Licence settled:** free for individuals and companies up to three employees,
+read from the licence text rather than the docs page. This project is inside
+the free tier.
+
+Full write-up: [`docs/PHASE_9.md`](PHASE_9.md).
 
 ---
 
@@ -627,7 +655,7 @@ Not blocking, but worth settling before the phase that needs them.
 | Do we ship model weights or download at setup? | Packaging | Download at setup; the repo stays small. |
 | Desktop shell — Tauri or plain localhost? | Phase 12 | Localhost web app first (§9 allows it), shell later. |
 | Multi-recording projects (multicam) | later | Sources are already independent; true sync is out of MVP scope. |
-| **Remotion licence for commercial use** | **Phase 9** | Remotion is free for individuals and small companies, but its company licence thresholds are not stated on the licensing page — they need reading from the licence text itself before the dependency lands. The overlay pass is skippable by design, so this does not block the render path. |
+| ~~Remotion licence for commercial use~~ | ~~Phase 9~~ | **Settled 2026-08-11:** free for individuals and for-profit organisations with up to 3 employees; above that, a company licence. This project is inside the free tier. |
 | **This repository has no LICENSE file** | before any release | Nothing has been published, so nothing is currently mis-licensed. Worth settling before the repo is shared. |
 
 ---

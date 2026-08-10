@@ -59,6 +59,7 @@ class HealthService:
             self._check_scene_detector(),
             self._check_ollama(),
             self._check_ocr(),
+            self._check_remotion(),
         ]
         vram = _detected_vram_mb()
         return HealthReport(
@@ -342,6 +343,47 @@ class HealthService:
             status=HealthStatus.OK,
             required=False,
             detail=f"Ollama reachable with {len(installed)} model(s) installed.",
+        )
+
+    def _check_remotion(self) -> HealthCheck:
+        """Check the overlay renderer (§66, D-008).
+
+        Asked through the same function the render path uses, so a machine that
+        reports "ready" here and skips the overlay at render time cannot
+        disagree with itself. Never required: without it the pipeline produces
+        a video with no captions, which is a worse video rather than a failure
+        (§95).
+        """
+        from backend.config.paths import find_repository_root
+        from backend.rendering.remotion import is_available
+
+        if not self._config.remotion.enabled:
+            return HealthCheck(
+                name="remotion",
+                status=HealthStatus.SKIPPED,
+                required=False,
+                detail="Remotion disabled in configuration.",
+            )
+
+        started = time.perf_counter()
+        available, reason = is_available(self._config.remotion, find_repository_root())
+        duration = time.perf_counter() - started
+
+        if available:
+            return HealthCheck(
+                name="remotion",
+                status=HealthStatus.OK,
+                required=False,
+                detail="Overlay renderer ready (captions and motion graphics).",
+                duration_seconds=duration,
+            )
+        return HealthCheck(
+            name="remotion",
+            status=HealthStatus.WARNING,
+            required=False,
+            detail=f"Overlays unavailable: {reason}. Videos will render without captions.",
+            remediation="cd remotion && npm install",
+            duration_seconds=duration,
         )
 
     def _check_ocr(self) -> HealthCheck:
