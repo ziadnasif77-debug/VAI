@@ -29,12 +29,12 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from ai.providers.base import StoredObservation
 from backend.analysis.audio_events import MICROPHONE, AudioEvent
 from backend.analysis.reactions import ReactionCandidate
 from backend.analysis.scenes import Scene
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import AudioEventType, GameEventType, ReactionType
-from backend.database.repositories.vision import StoredObservation
 from backend.gaming.ocr import FrameText
 from backend.gaming.profiles import GameProfile
 

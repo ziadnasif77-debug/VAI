@@ -414,6 +414,36 @@ def speech_provider() -> FakeSpeechProvider:
     return FakeSpeechProvider()
 
 
+def assert_frontier_waits(runner, project_id: str) -> None:
+    """The first stage with no worker yet waits; it does not fail.
+
+    A helper rather than an assertion each phase rewrites: naming the frontier
+    stage means every landed phase breaks the previous phase's test, which
+    happened four times before this existed. What matters is the property --
+    an unimplemented stage is a stopping point, not a failure.
+    """
+    from backend.core.models.enums import JobStatus
+
+    assert runner.run_next(project_id) is None
+    frontier = next(
+        (
+            job
+            for job in runner.jobs.list_jobs(project_id)
+            if job.stage not in runner.supported_stages
+        ),
+        None,
+    )
+    assert frontier is not None, "every stage has a worker; this helper needs retiring"
+    assert frontier.status is JobStatus.QUEUED
+    assert frontier.error_code is None
+
+
+@pytest.fixture
+def frontier_check():
+    """Return :func:`assert_frontier_waits`, handed over rather than imported."""
+    return assert_frontier_waits
+
+
 @pytest.fixture
 def vision_provider() -> FakeVisionProvider:
     """A deterministic vision provider.

@@ -18,6 +18,7 @@ from backend.pipeline.workers.media_workers import (
 )
 from backend.pipeline.workers.moments_worker import MomentsWorker
 from backend.pipeline.workers.speech_workers import AudioEventsWorker, TranscriptWorker
+from backend.pipeline.workers.story_worker import StoryWorker
 from backend.pipeline.workers.vision_workers import SceneWorker, VisionWorker
 
 
@@ -27,7 +28,8 @@ def default_workers() -> dict[JobStage, StageWorker]:
     Phase 2 covers the media engine -- everything needed to turn a recording
     into the artefacts the analysis stages read. Phase 3 adds speech and audio
     understanding, Phase 4 the visual layer, Phase 5 the gaming intelligence,
-    Phase 6 the moments. STORY onward arrive with their phases.
+    Phase 6 the moments, Phase 7 the narrative. EDL onward arrive with their
+    phases.
     """
     return {
         JobStage.IMPORT: ImportWorker(),
@@ -42,6 +44,7 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.OCR: OcrWorker(),
         JobStage.GAME_EVENTS: GameEventsWorker(),
         JobStage.MOMENTS: MomentsWorker(),
+        JobStage.STORY: StoryWorker(),
     }
 
 
@@ -58,6 +61,7 @@ __all__ = [
     "ProxyWorker",
     "SceneWorker",
     "StageWorker",
+    "StoryWorker",
     "TranscriptWorker",
     "VisionWorker",
     "WorkerContext",

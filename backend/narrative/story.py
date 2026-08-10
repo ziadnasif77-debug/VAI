@@ -1,0 +1,335 @@
+"""The three video modes (SPEC sections 35, 36).
+
+§35 defines them, and the difference is what each optimises for:
+
+* **Story** — hook, context, build-up, event, escalation, climax, reaction,
+  ending. §36: *optimises narrative coherence, not merely moment score. A
+  slightly weaker moment may be selected when it creates necessary context.*
+* **Best Moments** — the strongest moments, with variety enforced. No arc is
+  imposed, and none is pretended.
+* **Compilation** — moments grouped by type. A different product: the viewer is
+  browsing kinds of thing, not following a session.
+
+All three share the same input — §32's ranked, explained moments — and the same
+duration constraint. What differs is selection and order, which is why they live
+together: three files that each re-derive "pick moments to fill 20 minutes"
+would be three places for that to drift.
+
+§36's rule has a concrete consequence in `story`: a moment's value for a
+*narrative slot* is not its score. A tense build-up scores modestly and is the
+only thing that can fill the build-up slot, so it wins that slot over a
+higher-scoring kill that would make the arc nonsense.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, field
+from typing import Any, Final
+
+from backend.config.schema import NarrativeConfig
+from backend.core.duration import DurationPolicy
+from backend.core.logging import LogChannel, get_logger
+from backend.core.models.enums import MomentType, VideoMode
+from backend.moments.formation import Moment, replace_moment
+from backend.narrative import pacing
+from backend.narrative.hook import HookSelection, choose_hook
+from backend.narrative.optimizer import OptimisationResult, optimise
+
+logger = get_logger("narrative.story", LogChannel.PIPELINE)
+
+#: Which moment types can fill each §35 story beat. A beat with no candidate is
+#: simply absent -- a session with no defeat has no "reaction to defeat" beat,
+#: and inventing one would mean inventing footage.
+BEAT_TYPES: Final[dict[str, frozenset[MomentType]]] = {
+    "hook": frozenset({MomentType.EPIC, MomentType.CLUTCH, MomentType.FUNNY,
+                       MomentType.SURPRISE}),
+    "context": frozenset({MomentType.DISCOVERY, MomentType.TENSION, MomentType.SKILL}),
+    "build_up": frozenset({MomentType.TENSION, MomentType.SKILL, MomentType.DISCOVERY,
+                           MomentType.RARE}),
+    "event": frozenset({MomentType.SKILL, MomentType.OUTPLAY, MomentType.FUNNY,
+                        MomentType.FAIL, MomentType.SURPRISE}),
+    "escalation": frozenset({MomentType.CHAOS, MomentType.CLUTCH, MomentType.RAGE,
+                             MomentType.COMEBACK, MomentType.TENSION}),
+    "climax": frozenset({MomentType.EPIC, MomentType.CLUTCH, MomentType.BOSS,
+                         MomentType.COMEBACK, MomentType.OUTPLAY}),
+    "reaction": frozenset({MomentType.REACTION, MomentType.FUNNY, MomentType.RAGE}),
+    "ending": frozenset({MomentType.VICTORY, MomentType.DEFEAT, MomentType.BOSS,
+                         MomentType.COMEBACK}),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class NarrativePlan:
+    """The edit, before it becomes a timeline.
+
+    Ordered clips, the hook, and an account of how the plan was reached. Phase 8
+    turns this into an EDL; nothing here touches video.
+    """
+
+    mode: VideoMode
+    moments: tuple[Moment, ...]
+    hook: HookSelection
+    optimisation: OptimisationResult
+    pacing: pacing.PacingReport
+    #: Which story beat each moment fills, by index. Empty outside story mode.
+    beats: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def total_seconds(self) -> float:
+        return sum(moment.context_duration for moment in self.moments)
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.moments
+
+    @property
+    def within_target(self) -> bool:
+        return self.optimisation.within_tolerance
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode.value,
+            "clips": len(self.moments),
+            "total_seconds": round(self.total_seconds, 2),
+            "target_seconds": round(self.optimisation.target_seconds, 2),
+            "within_target": self.within_target,
+            "hook": self.hook.summary(),
+            "pacing": self.pacing.summary(),
+            "beats": list(self.beats),
+            "notes": list(self.notes),
+        }
+
+
+def build_plan(
+    moments: Sequence[Moment],
+    *,
+    mode: VideoMode,
+    target_seconds: float,
+    config: NarrativeConfig,
+    policy: DurationPolicy,
+) -> NarrativePlan:
+    """Turn ranked moments into an ordered edit of the requested length (§35-§39).
+
+    The sequence is the same for every mode: choose a subset that fits the
+    duration (§39), order it for the mode, then pick a hook and measure the
+    pacing. Duration is settled first because it is the only hard constraint --
+    everything else is a preference, and preferences that break the constraint
+    produce a video of the wrong length.
+    """
+    if not moments:
+        return _empty(mode, target_seconds, policy)
+
+    selection = optimise(
+        moments, target_seconds=target_seconds, config=config.optimizer, policy=policy
+    )
+    if selection.is_empty:
+        return _empty(mode, target_seconds, policy, notes=selection.notes)
+
+    if mode is VideoMode.STORY:
+        ordered, beats, notes = _story_order(selection.moments, config)
+    elif mode is VideoMode.COMPILATION:
+        ordered, notes = _compilation_order(selection.moments, config)
+        beats = ()
+    else:
+        ordered, notes = _best_moments_order(selection.moments, config)
+        beats = ()
+
+    ordered = pacing.order(ordered, config.pacing)
+    hook = choose_hook(ordered, config.hook)
+    ordered = _apply_hook(ordered, hook, config)
+
+    plan = NarrativePlan(
+        mode=mode,
+        moments=tuple(ordered),
+        hook=hook,
+        optimisation=selection,
+        pacing=pacing.report(ordered, config.pacing),
+        beats=tuple(beats),
+        notes=(*selection.notes, *notes),
+        metadata={"candidates": len(moments)},
+    )
+    logger.info("Built the narrative plan", extra=plan.summary())
+    return plan
+
+
+# ---------------------------------------------------------------------------
+# modes
+# ---------------------------------------------------------------------------
+
+
+def _story_order(
+    moments: Sequence[Moment], config: NarrativeConfig
+) -> tuple[list[Moment], list[str], list[str]]:
+    """Arrange moments along the §35 structure, coherence first (§36).
+
+    Each beat takes the best *available* moment of a type that fits it, where
+    "best" weighs coherence against score by the configured ratio. Everything
+    unassigned keeps its chronological place around the beats, so the arc is a
+    shape imposed on the session rather than a replacement for it.
+    """
+    story = config.story
+    remaining = list(moments)
+    assignments: list[tuple[str, Moment]] = []
+
+    for beat in story.structure:
+        allowed = BEAT_TYPES.get(beat, frozenset())
+        candidates = [moment for moment in remaining if moment.moment_type in allowed]
+        if not candidates:
+            continue
+        best = max(
+            candidates,
+            key=lambda moment: (
+                story.coherence_weight * _beat_fit(moment, beat)
+                + story.score_weight * moment.score
+            ),
+        )
+        remaining.remove(best)
+        assignments.append((beat, best))
+
+    notes: list[str] = []
+    if story.require_climax and not any(beat == "climax" for beat, _ in assignments):
+        notes.append("no moment strong enough to serve as a climax")
+
+    # The assigned beats define the spine, in §35's order rather than the
+    # recording's -- an arc is the point of story mode. The unassigned
+    # remainder follows in recording order, so the session's own sequence
+    # survives everywhere the arc does not override it.
+    ordered = [moment for _, moment in assignments]
+    ordered.extend(sorted(remaining, key=lambda moment: moment.context_start))
+    beats = [beat for beat, _ in assignments] + ["body"] * len(remaining)
+    return ordered, beats, notes
+
+
+def _beat_fit(moment: Moment, beat: str) -> float:
+    """How well a moment suits a beat, beyond merely being an allowed type.
+
+    Narrative position matters: the scorer already measured how structural a
+    moment is, and a beat that closes the video wants a moment that closes
+    something.
+    """
+    structural = float(moment.score_breakdown.get("narrative", 0.5))
+    if beat in {"climax", "ending"}:
+        return structural
+    if beat in {"context", "build_up"}:
+        # A build-up should not be the loudest thing in the video.
+        return 1.0 - float(moment.score_breakdown.get("audio", 0.5)) * 0.5
+    return 0.5 + structural * 0.5
+
+
+def _best_moments_order(
+    moments: Sequence[Moment], config: NarrativeConfig
+) -> tuple[list[Moment], list[str]]:
+    """Strongest first, with types interleaved (§35).
+
+    No arc is imposed and none is claimed. Interleaving is the only structure:
+    without it the mode degenerates into the monotony §33 warns about.
+    """
+    ordered = sorted(moments, key=lambda moment: -moment.score)
+    if not config.best_moments.interleave_types:
+        return ordered, []
+
+    interleaved: list[Moment] = []
+    pending = list(ordered)
+    previous: MomentType | None = None
+    while pending:
+        index = next(
+            (i for i, moment in enumerate(pending) if moment.moment_type is not previous), 0
+        )
+        chosen = pending.pop(index)
+        interleaved.append(chosen)
+        previous = chosen.moment_type
+    return interleaved, ["types interleaved to avoid runs of the same kind"]
+
+
+def _compilation_order(
+    moments: Sequence[Moment], config: NarrativeConfig
+) -> tuple[list[Moment], list[str]]:
+    """Group by type, in the configured order (§35)."""
+    compilation = config.compilation
+    priority = {name: index for index, name in enumerate(compilation.group_order)}
+    ordered = sorted(
+        moments,
+        key=lambda moment: (
+            priority.get(moment.moment_type.value, len(priority)),
+            -moment.score,
+        ),
+    )
+    groups = len({moment.moment_type for moment in ordered})
+    return ordered, [f"grouped into {groups} type(s)"]
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def _apply_hook(
+    moments: Sequence[Moment], hook: HookSelection, config: NarrativeConfig
+) -> list[Moment]:
+    """Move the hook to the front (§37).
+
+    When replay is allowed the moment stays in its chronological place as well,
+    which is the cold-open convention. When it is not, the body copy is removed
+    so the same footage does not appear twice in a row.
+    """
+    if not hook.exists:
+        return list(moments)
+
+    body = [
+        moment
+        for moment in moments
+        if not _same_moment(moment, hook.moment)
+        or config.hook.allow_replay_in_body
+    ]
+    opening = replace_moment(
+        hook.moment, metadata={**hook.moment.metadata, "role": "hook"}
+    )
+    return [opening, *body]
+
+
+def _same_moment(left: Moment, right: Moment | None) -> bool:
+    if right is None:
+        return False
+    return (
+        left.media_id == right.media_id
+        and abs(left.start_seconds - right.start_seconds) < 1e-6
+    )
+
+
+def _empty(
+    mode: VideoMode,
+    target_seconds: float,
+    policy: DurationPolicy,
+    *,
+    notes: Sequence[str] = (),
+) -> NarrativePlan:
+    from backend.narrative.hook import HookSelection
+    from backend.narrative.optimizer import OptimisationResult
+
+    return NarrativePlan(
+        mode=mode,
+        moments=(),
+        hook=HookSelection(moment=None, reason="nothing to choose from"),
+        optimisation=OptimisationResult(
+            moments=(),
+            target_seconds=target_seconds,
+            total_seconds=0.0,
+            value=0.0,
+            within_tolerance=False,
+            notes=tuple(notes),
+        ),
+        pacing=pacing.report([], _default_pacing()),
+        notes=("no moments were available to build an edit from", *notes),
+    )
+
+
+def _default_pacing():
+    from backend.config.schema import PacingConfig
+
+    return PacingConfig()
+
+
+__all__ = ["BEAT_TYPES", "NarrativePlan", "build_plan"]

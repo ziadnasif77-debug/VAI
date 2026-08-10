@@ -331,21 +331,11 @@ class TestStageWiring:
         assert order.index(JobStage.FRAMES) < order.index(JobStage.VISION)
 
     def test_the_runner_still_stops_at_the_frontier(
-        self, media_service, project_manager, pipeline_runner, test_clip: Path
+        self, media_service, project_manager, pipeline_runner, frontier_check, test_clip: Path
     ) -> None:
         project, _ = _project_with(media_service, project_manager, test_clip)
         pipeline_runner.run_project(project.id)
-
-        assert pipeline_runner.run_next(project.id) is None
-        frontier = next(
-            job
-            for job in pipeline_runner.jobs.list_jobs(project.id)
-            if job.stage not in pipeline_runner.supported_stages
-        )
-        # Which stage that is moves as phases land, so this asserts the
-        # property rather than the name: the frontier waits, it does not fail.
-        assert frontier.stage not in pipeline_runner.supported_stages
-        assert frontier.error_code is None
+        frontier_check(pipeline_runner, project.id)
 
 
 @pytest.mark.requires_models

@@ -14,11 +14,9 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
 
-from ai.providers.base import ModelInfo, VisionObservation
+from ai.providers.base import ModelInfo, StoredObservation, VisionObservation
 from backend.core.ids import new_id
 from backend.database.connection import Database, dumps, loads
 
@@ -27,40 +25,6 @@ _COLUMNS = (
     "region_start, region_end, sources, model_name, model_version, prompt_id, "
     "prompt_version, created_at"
 )
-
-
-@dataclass(frozen=True, slots=True)
-class StoredObservation:
-    """A persisted observation, with the provenance the model call carried."""
-
-    observation: VisionObservation
-    region_start: float | None
-    region_end: float | None
-    sources: tuple[str, ...]
-    model_name: str
-    model_version: str
-    prompt_id: str | None
-    prompt_version: int | None
-
-    @property
-    def timestamp(self) -> float:
-        return self.observation.timestamp
-
-    @property
-    def description(self) -> str:
-        return self.observation.description
-
-    @property
-    def labels(self) -> tuple[str, ...]:
-        return self.observation.labels
-
-    @property
-    def confidence(self) -> float:
-        return self.observation.confidence
-
-    @property
-    def hud(self) -> dict[str, Any]:
-        return self.observation.hud
 
 
 class VisionRepository:

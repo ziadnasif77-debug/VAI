@@ -32,12 +32,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Final
 
-from ai.providers.base import TranscriptSegment
+from ai.providers.base import StoredObservation, TranscriptSegment
 from backend.analysis.audio_events import MICROPHONE, AudioEvent
 from backend.config.schema import MomentScoringConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import AudioEventType, GameEventType, MomentType
-from backend.database.repositories.vision import StoredObservation
 from backend.moments.formation import Moment
 
 logger = get_logger("moments.scoring", LogChannel.PIPELINE)

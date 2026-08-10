@@ -67,6 +67,46 @@ class VisionObservation:
     hud: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class StoredObservation:
+    """A vision observation with the provenance of the call that produced it.
+
+    Lives here rather than with its repository because the gaming and moment
+    layers read it, and a domain module that imports persistence to name a type
+    creates exactly the import cycle that produced this class's move.
+    """
+
+    observation: VisionObservation
+    model_name: str
+    model_version: str
+    prompt_id: str | None = None
+    prompt_version: int | None = None
+    #: The §16 candidate region this keyframe came from, and why it was chosen.
+    region_start: float | None = None
+    region_end: float | None = None
+    sources: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def timestamp(self) -> float:
+        return self.observation.timestamp
+
+    @property
+    def description(self) -> str:
+        return self.observation.description
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        return self.observation.labels
+
+    @property
+    def confidence(self) -> float:
+        return self.observation.confidence
+
+    @property
+    def hud(self) -> dict[str, Any]:
+        return self.observation.hud
+
+
 @runtime_checkable
 class Provider(Protocol):
     """Common lifecycle for anything that occupies VRAM."""
@@ -233,6 +273,7 @@ __all__ = [
     "Provider",
     "ProviderRegistry",
     "SpeechProvider",
+    "StoredObservation",
     "TextDetection",
     "TranscriptSegment",
     "TranscriptWord",

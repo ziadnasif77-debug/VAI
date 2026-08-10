@@ -273,24 +273,14 @@ class TestStageWiring:
 
     def test_the_runner_stops_at_the_frontier(
         self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        speech_provider, vision_provider, ocr_provider, scene_clip: Path, frontier_check,
     ) -> None:
         runner = _runner(
             database, paths, config, speech_provider, vision_provider, ocr_provider
         )
         project, _ = _project_with(media_service, project_manager, scene_clip)
         runner.run_project(project.id)
-
-        assert runner.run_next(project.id) is None
-        frontier = next(
-            job
-            for job in runner.jobs.list_jobs(project.id)
-            if job.stage not in runner.supported_stages
-        )
-        # Which stage that is moves as phases land, so this asserts the
-        # property rather than the name: the frontier waits, it does not fail.
-        assert frontier.stage not in runner.supported_stages
-        assert frontier.error_code is None
+        frontier_check(runner, project.id)
 
 
 def _install_profile(profiles_dir: Path, game: str) -> Path:

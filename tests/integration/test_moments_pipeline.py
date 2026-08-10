@@ -212,17 +212,9 @@ class TestStagePipeline:
         assert preserved
         assert preserved[0].metadata["user_state"] == "rejected"
 
-    def test_the_runner_now_stops_at_story(
-        self, media_service, project_manager, runner, reaction_clip: Path
+    def test_the_runner_stops_at_the_frontier(
+        self, media_service, project_manager, runner, frontier_check, reaction_clip: Path
     ) -> None:
         project, _ = _project_with(media_service, project_manager, reaction_clip)
         runner.run_project(project.id)
-
-        assert runner.run_next(project.id) is None
-        frontier = next(
-            job
-            for job in runner.jobs.list_jobs(project.id)
-            if job.stage not in runner.supported_stages
-        )
-        assert frontier.stage is JobStage.STORY
-        assert frontier.error_code is None
+        frontier_check(runner, project.id)

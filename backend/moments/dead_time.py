@@ -30,12 +30,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from ai.providers.base import TranscriptSegment
+from ai.providers.base import StoredObservation, TranscriptSegment
 from backend.analysis.audio_events import AudioEvent
 from backend.config.schema import DeadTimeConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import AudioEventType, DeadTimeCategory
-from backend.database.repositories.vision import StoredObservation
 from backend.moments.formation import Moment
 
 logger = get_logger("moments.dead_time", LogChannel.PIPELINE)

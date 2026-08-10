@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 6 |
-| Current phase | **Phase 6 complete and verified.** Next: Phase 7 (Narrative) |
-| Tests | 760 passing (4 opt-in model tests skipped by default) |
-| Backend code | ~29,000 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-10, end of Phase 7 |
+| Current phase | **Phase 7 complete and verified.** Next: Phase 8 (EDL and Timeline) |
+| Tests | 806 passing (4 opt-in model tests skipped by default) |
+| Backend code | ~30,500 lines across `backend/` and `ai/` |
 
 ---
 
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 760 passing (~18 min)
+.venv/bin/python -m pytest               # expect 806 passing (~15 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -38,7 +38,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 7 is the next work**. Start at §5 of this document.
+healthy and **Phase 8 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -57,8 +57,8 @@ Development order follows SPEC §126.
 | 4 | **Vision** | scene detection, keyframes, VLM analysis | ✅ **done** |
 | 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ✅ **done** |
 | 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ✅ **done** |
-| 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ⬜ next |
-| 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ⬜ |
+| 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ✅ **done** |
+| 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ⬜ next |
 | 9 | **Remotion** | overlay composition | ⬜ |
 | 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ⬜ |
 | 11 | **QA** | technical + content verification | ⬜ |
@@ -89,13 +89,14 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/api` | `app`, `dependencies`, `routers/` × 5 | complete for current scope |
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
-| `backend/pipeline` | `runner`, `workers/` for IMPORT · PROBE · PROXY · AUDIO · FRAMES | complete for the media stages |
+| `backend/pipeline` | `runner`, `workers/` for every stage through STORY | EDL is the frontier |
 | `backend/analysis` | `signal`, `audio_events` (§18), `reactions` (§19, §20), `scenes` (§17), `candidates` (the §15/§16 cascade) | complete |
 | `ai/speech`, `ai/vision`, `ai/ocr` | real provider + deterministic fake + factory each | complete |
 | `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27) | complete; HUD extraction pending a real profile |
 | `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | one prompt so far |
 | `backend/moments` | `formation` (§28), `context` (§29), `dead_time` (§30), `repetition` (§31, §33), `scoring` (§32) | complete |
-| `backend/{narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
+| `backend/narrative` | `optimizer` (§39), `story` (§35, §36), `hook` (§37), `pacing` (§38) | complete |
+| `backend/{timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -371,26 +372,41 @@ Full write-up: [`docs/PHASE_6.md`](PHASE_6.md).
 
 ---
 
-### Phase 7 — Narrative (next)
+### Phase 7 — Narrative ✅ done
 
 **Goal (§35–§39):** a coherent video of the requested length.
 
 **Create**
-- `backend/narrative/story.py`, `best_moments.py`, `compilation.py`
+- `backend/narrative/story.py` — all three §35 modes, because they share one
+  input and one duration constraint; three files re-deriving "pick moments to
+  fill 20 minutes" would be three places for that to drift.
 - `backend/narrative/hook.py` — selects an existing moment, invents nothing (§37)
 - `backend/narrative/pacing.py`
 - `backend/narrative/optimizer.py` — **constrained optimisation, not a sort** (§39)
-- `backend/pipeline/workers/story.py`
+- `backend/pipeline/workers/story_worker.py`
 
-**Acceptance:** a 2-hour source becomes a coherent 20-minute edit within the
-configured tolerance.
+**Acceptance: passed.** The arithmetic runs against a 200-moment, two-hour-plus
+session and lands inside the tolerance with a hook, a climax and at least five
+distinct moment types — repeated across **every duration preset §6 offers**, 10
+through 60 minutes, from the same source. The stage itself runs end to end on a
+decoded recording.
 
-**Traps**
-- The optimizer maximises entertainment + narrative + variety while minimising
-  repetition + dead time, subject to a duration constraint. A greedy top-N sort
-  will miss the target and produce a monotonous video.
-- Clamp to the hard band at the EDL boundary as a last resort, and log a warning
-  when that path is reached.
+**Traps — both hit, both handled**
+- §39 is an optimisation problem. The greedy sort the spec warns about was
+  built and measured against the optimiser on the same 150-moment session:
+  1192.6 s / 8 distinct types versus 1255.1 s / **15**. Variety had to live
+  *inside* the objective — a per-moment bonus cannot express "this is the fourth
+  kill in a row", so the search carries the type mix of each partial solution.
+- The last-resort duration clamp belongs at the EDL boundary, so this stage
+  reports missing the tolerance rather than silently correcting it.
+
+**Also found:** pacing re-sorted chronologically, which made all three §35 modes
+produce **identical output** — the user picks "compilation" and gets the story
+edit. And a circular import through the repositories package: a domain module
+had come to depend on the persistence layer, fixed by moving the type rather
+than deferring the import.
+
+Full write-up: [`docs/PHASE_7.md`](PHASE_7.md).
 
 ---
 
@@ -537,7 +553,7 @@ Consequences to keep in mind:
   written and unit-tested here with fake providers; they cannot be *accepted*
   here.
 
-### Target machine setup (do this before Phase 7)
+### Target machine setup
 
 Installed already: FFmpeg 9.0 (gyan.dev full build, NVENC present),
 faster-whisper 1.2.1, PySceneDetect 0.7.1, PaddleOCR, OpenCV, numpy/scipy,
