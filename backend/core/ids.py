@@ -23,6 +23,7 @@ PREFIXES: Final[dict[str, str]] = {
     "audio_event": "aev",
     "transcript_segment": "seg",
     "game_event": "evt",
+    "ocr_result": "ocr",
     "moment": "mom",
     "timeline_clip": "clip",
     "timeline_effect": "fx",

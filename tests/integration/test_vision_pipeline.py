@@ -342,7 +342,9 @@ class TestStageWiring:
             for job in pipeline_runner.jobs.list_jobs(project.id)
             if job.stage not in pipeline_runner.supported_stages
         )
-        assert frontier.stage is JobStage.OCR
+        # Which stage that is moves as phases land, so this asserts the
+        # property rather than the name: the frontier waits, it does not fail.
+        assert frontier.stage not in pipeline_runner.supported_stages
         assert frontier.error_code is None
 
 

@@ -157,7 +157,10 @@ class TestQueueing:
     ) -> None:
         stages = {job.stage for job in job_manager.queue_project_stages(project_id)}
         assert not (stages & set(DELIVERY_STAGES))
-        assert JobStage.MOMENTS in stages
+        # STORY is the first stage that reasons across every file at once, so
+        # it is the first that is genuinely project-wide.
+        assert JobStage.STORY in stages
+        assert not (stages & PER_MEDIA_STAGES)
 
     def test_per_media_stage_requires_a_media_id(
         self, job_manager: JobManager, project_id: str, media_id: str

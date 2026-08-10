@@ -1,0 +1,267 @@
+"""The gaming-intelligence stages: OCR and GAME_EVENTS.
+
+SPEC sections 21-27 — the product differentiator, and the part §23 constrains
+hardest:
+
+    **The application must not require a game profile.**
+
+Both stages therefore run identically with or without one. A profile changes
+*what* OCR reads (three declared boxes instead of the whole frame) and *how*
+text is interpreted (this game's wording instead of the words that mean the
+same thing everywhere), and it changes neither stage's ability to produce
+timestamped events.
+
+OCR reads the candidate keyframes the §16 cascade already chose, for the same
+reason the vision model does: reading every sampled frame of a two-hour
+recording is an afternoon of work to find the four minutes that mattered.
+"""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+from typing import Any
+
+from ai.ocr import create_ocr_provider
+from ai.providers.base import OcrProvider, TextDetection
+from backend.analysis.reactions import ReactionCandidate
+from backend.core.logging import LogChannel, get_logger
+from backend.core.models.enums import JobStage, ReactionType
+from backend.core.models.media import Media
+from backend.database.repositories.audio_events import AudioEventRepository
+from backend.database.repositories.frames import FrameRepository
+from backend.database.repositories.gaming import GameEventRepository, OcrRepository
+from backend.database.repositories.scenes import SceneRepository
+from backend.database.repositories.vision import VisionRepository
+from backend.gaming import events as detectors
+from backend.gaming.correlation import correlate
+from backend.gaming.ocr import CROP_DIRNAME, read_frames
+from backend.gaming.profiles import ProfileResolution, load_profile
+from backend.pipeline.workers.base import WorkerContext
+from backend.pipeline.workers.vision_workers import CANDIDATE_LEVEL
+
+logger = get_logger("pipeline.workers.gaming", LogChannel.PIPELINE)
+
+
+class OcrWorker:
+    """OCR -- read on-screen text off the candidate frames (§25).
+
+    Region-restricted when a profile declares regions; a reduced-resolution
+    full-frame read otherwise (§23). Every detection carries the timestamp of
+    the frame it came from, which §25 requires and without which none of it
+    could become an event.
+    """
+
+    stage = JobStage.OCR
+
+    def __init__(self, provider: OcrProvider | None = None) -> None:
+        self._provider = provider
+
+    def run(self, context: WorkerContext) -> dict[str, Any]:
+        media = context.require_media()
+        config = context.config.analysis.ocr
+        if not config.enabled:
+            context.report(1.0, "OCR disabled")
+            return {"skipped": True, "reason": "ocr disabled in configuration"}
+
+        provider = self._provider or create_ocr_provider(context.config)
+        if provider is None or not provider.is_available():
+            # §95: OCR failing degrades to vision and audio. It does not fail
+            # the analysis, and it never invents text.
+            context.report(1.0, "No usable OCR engine")
+            logger.warning(
+                "No usable OCR engine; continuing without on-screen text",
+                extra={"media_id": media.id, "engine": config.engine},
+            )
+            return {"skipped": True, "reason": "no usable OCR engine", "detections": 0}
+
+        resolution = _profile_for(context)
+        frames = _candidate_frames(context, media)
+        if not frames:
+            context.report(1.0, "No candidate frames")
+            return {"skipped": True, "reason": "no candidate frames", "detections": 0}
+
+        work_dir = context.paths.frames / media.id / CROP_DIRNAME
+        try:
+            provider.load()
+            results = read_frames(
+                frames,
+                provider,
+                config,
+                resolution.profile,
+                work_dir=work_dir,
+                should_cancel=context.should_cancel,
+                on_progress=context.report,
+            )
+        finally:
+            provider.unload()
+            # §84: the crops are an intermediate, and there is one per region
+            # per frame.
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+        detections = [item for frame in results for item in frame.detections]
+        repository = OcrRepository(context.database)
+        with context.database.transaction():
+            stored = repository.replace_for_media(
+                context.project_id,
+                media.id,
+                detections,
+                game_profile=resolution.id,
+                engine=provider.info().provider,
+            )
+
+        context.report(1.0, f"{stored} text detections")
+        return {
+            "detections": stored,
+            "frames_read": len(frames),
+            "frames_with_text": len(results),
+            "engine": provider.info().provider,
+            "mode": "regions" if resolution.profile.has_ocr_regions else "full_frame",
+            **resolution.profile.summary(),
+        }
+
+
+class GameEventsWorker:
+    """GAME_EVENTS -- turn every detector's evidence into events (§21, §26, §27).
+
+    This is the stage where the pipeline stops describing a recording and starts
+    saying what happened in it. It reads only what earlier stages stored, so it
+    is cheap, deterministic and re-runnable — changing a correlation window and
+    re-running costs seconds, not another pass over the video (§127).
+    """
+
+    stage = JobStage.GAME_EVENTS
+
+    def run(self, context: WorkerContext) -> dict[str, Any]:
+        media = context.require_media()
+        analysis = context.config.analysis
+        resolution = _profile_for(context)
+
+        vision = VisionRepository(context.database).list_for_media(media.id)
+        audio = AudioEventRepository(context.database).list_for_media(media.id)
+        scenes = SceneRepository(context.database).list_for_media(media.id)
+        ocr_frames = _ocr_frames(context, media.id)
+        reactions = _reactions_from(audio)
+
+        observations = detectors.detect(
+            vision=vision,
+            ocr_frames=ocr_frames,
+            audio=audio,
+            reactions=reactions,
+            scenes=scenes,
+            profile=resolution.profile,
+            vision_min_confidence=analysis.vision.min_confidence,
+            scene_min_change=analysis.scenes.threshold,
+        )
+        events = correlate(
+            observations,
+            window_seconds=analysis.reactions.correlation_window_seconds,
+            game_profile=resolution.id,
+            min_confidence=analysis.hud.min_confidence,
+        )
+
+        repository = GameEventRepository(context.database)
+        with context.database.transaction():
+            stored = repository.replace_for_media(context.project_id, media.id, events)
+
+        context.report(1.0, f"{stored} game events")
+        return {
+            "events": stored,
+            "observations": len(observations),
+            "by_type": repository.counts_by_type(media.id),
+            "named_events": sum(1 for event in events if event.is_named),
+            "multi_source_events": sum(1 for event in events if event.agreement > 1),
+            # §23's claim, made checkable: this ran with or without a profile,
+            # and the result says which.
+            "game_profile": resolution.id,
+            "profile_requested": resolution.requested,
+            "profile_exact": resolution.exact,
+            "inputs": {
+                "vision": len(vision),
+                "audio": len(audio),
+                "scenes": len(scenes),
+                "ocr_frames": len(ocr_frames),
+                "reactions": len(reactions),
+            },
+        }
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+
+def _profile_for(context: WorkerContext) -> ProfileResolution:
+    """Resolve the project's game profile, falling back to generic (§23)."""
+    row = context.database.fetch_one(
+        "SELECT game FROM projects WHERE id = ?", (context.project_id,)
+    )
+    game = str(row["game"]) if row is not None and row["game"] else "auto"
+    return load_profile(game, context.profiles_dir)
+
+
+def _candidate_frames(context: WorkerContext, media: Media) -> list[tuple[float, Path]]:
+    """The frames OCR reads: the cascade's keyframes, or the base pass.
+
+    Candidate keyframes are the right target — they are where something was
+    already thought to be happening. Falling back to the base pass keeps OCR
+    working when the vision stage was skipped, which §95 allows.
+    """
+    repository = FrameRepository(context.database)
+    rows = repository.list_for_media(media.id, level=CANDIDATE_LEVEL)
+    if not rows:
+        rows = repository.list_for_media(media.id, level="base")
+    return [
+        (row.timestamp, Path(row.image_path))
+        for row in rows
+        if Path(row.image_path).is_file()
+    ]
+
+
+def _ocr_frames(context: WorkerContext, media_id: str):
+    """Rebuild per-frame text groupings from stored detections."""
+    from backend.gaming.ocr import FrameText
+
+    detections = OcrRepository(context.database).list_for_media(media_id)
+    grouped: dict[float, list[TextDetection]] = {}
+    for detection in detections:
+        grouped.setdefault(detection.timestamp, []).append(detection)
+    # The frame path is not carried back: these detections came from the
+    # database, and their crop was deleted when the OCR stage finished.
+    return [
+        FrameText(timestamp=timestamp, frame_path=Path(), detections=tuple(items))
+        for timestamp, items in sorted(grouped.items())
+    ]
+
+
+def _reactions_from(audio) -> list[ReactionCandidate]:
+    """Recover reaction candidates from the audio events that carry them.
+
+    §20's results are persisted as microphone-track audio events with a
+    ``reaction_type`` in their metadata, so this is a read rather than a
+    re-detection — the analysis is not repeated to be used.
+    """
+    recovered: list[ReactionCandidate] = []
+    for event in audio:
+        name = event.metadata.get("reaction_type")
+        if not name:
+            continue
+        try:
+            reaction_type = ReactionType(name)
+        except ValueError:  # a type this build does not know
+            continue
+        recovered.append(
+            ReactionCandidate(
+                reaction_type=reaction_type,
+                start_seconds=event.start_seconds,
+                end_seconds=event.end_seconds,
+                confidence=event.confidence,
+                intensity_db=float(event.metadata.get("intensity_db") or 0.0),
+                correlation_offset=event.metadata.get("correlation_offset"),
+                correlated_event_type=event.metadata.get("correlated_event_type"),
+            )
+        )
+    return recovered
+
+
+__all__ = ["GameEventsWorker", "OcrWorker"]

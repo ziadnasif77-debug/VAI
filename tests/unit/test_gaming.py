@@ -1,0 +1,539 @@
+"""Gaming intelligence without FFmpeg or models (Phase 5, SPEC §21-§27).
+
+The two claims worth testing here are the ones the spec makes hardest:
+
+* **§23** — the application must not require a game profile. Every detector
+  runs on the generic profile, and a profile only improves what comes out.
+* **§27** — detectors that agree become *one* event with higher confidence,
+  never several events. Three records of one explosion make it look like three
+  explosions to everything downstream.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from ai.ocr.fake_provider import FakeOcrProvider
+from ai.providers.base import TextDetection, VisionObservation
+from backend.analysis.audio_events import GAMEPLAY, MICROPHONE, AudioEvent
+from backend.analysis.reactions import ReactionCandidate
+from backend.analysis.scenes import Scene
+from backend.core.errors import ConfigurationError
+from backend.core.models.enums import AudioEventType, GameEventType, ReactionType
+from backend.database.repositories.vision import StoredObservation
+from backend.gaming import events as detectors
+from backend.gaming.correlation import GENERIC_TYPES, correlate
+from backend.gaming.ocr import FULL_FRAME, FrameText
+from backend.gaming.profiles import (
+    GENERIC_PROFILE,
+    EventRule,
+    GameProfile,
+    Region,
+    available_profiles,
+    clear_profile_cache,
+    load_profile,
+)
+
+pytestmark = pytest.mark.unit
+
+
+def _observation(timestamp: float, labels: tuple[str, ...], confidence: float = 0.8):
+    return StoredObservation(
+        observation=VisionObservation(
+            timestamp=timestamp, description="x", labels=labels, confidence=confidence
+        ),
+        region_start=None,
+        region_end=None,
+        sources=(),
+        model_name="fake",
+        model_version="1",
+        prompt_id=None,
+        prompt_version=None,
+    )
+
+
+def _text(timestamp: float, text: str, *, region: str | None = None, confidence: float = 0.9):
+    return FrameText(
+        timestamp=timestamp,
+        frame_path=Path(),
+        detections=(
+            TextDetection(
+                text=text, confidence=confidence, timestamp=timestamp, region=region
+            ),
+        ),
+    )
+
+
+class TestProfiles:
+    """§23: a profile is additive, and never required."""
+
+    def test_an_unknown_game_gets_the_generic_profile(self, tmp_path: Path) -> None:
+        resolution = load_profile("some-game-nobody-wrote", tmp_path)
+        assert resolution.profile is GENERIC_PROFILE
+        assert resolution.exact is False
+        assert resolution.profile.is_generic
+
+    def test_auto_and_blank_mean_no_specific_game(self, tmp_path: Path) -> None:
+        for value in ("auto", "", "  ", "generic", "unknown"):
+            assert load_profile(value, tmp_path).profile.is_generic
+
+    def test_the_shipped_generic_profile_declares_nothing(self) -> None:
+        assert GENERIC_PROFILE.is_generic
+        assert not GENERIC_PROFILE.has_ocr_regions
+        assert GENERIC_PROFILE.event_rules == ()
+
+    def test_a_real_profile_loads(self, tmp_path: Path) -> None:
+        _write_profile(tmp_path, "testgame")
+        clear_profile_cache()
+        resolution = load_profile("testgame", tmp_path)
+        assert resolution.exact is True
+        assert not resolution.profile.is_generic
+        assert resolution.profile.has_ocr_regions
+        assert "kill_feed" in resolution.profile.reading_regions()
+
+    def test_a_malformed_profile_fails_loudly(self, tmp_path: Path) -> None:
+        # A broken profile that silently became generic would look like the
+        # feature working.
+        directory = tmp_path / "broken"
+        directory.mkdir()
+        (directory / "profile.json").write_text("{not json", encoding="utf-8")
+        clear_profile_cache()
+        with pytest.raises(ConfigurationError):
+            load_profile("broken", tmp_path)
+
+    def test_ocr_regions_must_exist(self, tmp_path: Path) -> None:
+        directory = tmp_path / "bad"
+        directory.mkdir()
+        (directory / "profile.json").write_text(
+            json.dumps({"id": "bad", "ocr_regions": ["nowhere"]}), encoding="utf-8"
+        )
+        clear_profile_cache()
+        with pytest.raises(ConfigurationError, match="does not define"):
+            load_profile("bad", tmp_path)
+
+    def test_regions_are_fractions_so_resolution_does_not_matter(self) -> None:
+        # A profile written against 1080p must keep working on the 720p proxy.
+        region = Region(x=0.5, y=0.0, width=0.5, height=0.25)
+        assert region.to_pixels(1280, 720) == (640, 0, 1280, 180)
+        assert region.to_pixels(1920, 1080) == (960, 0, 1920, 270)
+
+    def test_a_region_cannot_leave_the_frame(self) -> None:
+        with pytest.raises(ValueError, match="fit inside the frame"):
+            Region(x=0.8, y=0.0, width=0.5, height=0.5)
+
+    def test_ignore_patterns_filter_interface_furniture(self) -> None:
+        profile = GameProfile(id="p", ignore_patterns=(r"^press\s", r"subscribe"))
+        assert profile.should_ignore("Press F to interact")
+        assert profile.should_ignore("  ")
+        assert not profile.should_ignore("ELIMINATED")
+
+    def test_a_rule_can_be_restricted_to_a_region(self) -> None:
+        rule = EventRule(
+            event_type=GameEventType.KILL, patterns=(r"eliminated",), regions=("kill_feed",)
+        )
+        assert rule.matches("ELIMINATED", region="kill_feed")
+        assert not rule.matches("ELIMINATED", region="chat")
+        assert not rule.matches("ELIMINATED")
+
+    def test_available_profiles_always_includes_generic(self, tmp_path: Path) -> None:
+        assert available_profiles(tmp_path) == ("generic",)
+        _write_profile(tmp_path, "testgame")
+        assert set(available_profiles(tmp_path)) == {"generic", "testgame"}
+
+
+class TestDetectorsWithoutAProfile:
+    """§23's acceptance, at the unit level: every detector works generic."""
+
+    def test_vision_labels_become_events(self) -> None:
+        found = detectors.observations_from_vision(
+            [_observation(10.0, ("victory_screen",)), _observation(20.0, ("low_health",))]
+        )
+        assert [item.event_type for item in found] == [
+            GameEventType.VICTORY,
+            GameEventType.LOW_HEALTH,
+        ]
+
+    def test_an_unmapped_label_claims_nothing(self) -> None:
+        # A label the taxonomy has no event for must not become one.
+        assert detectors.observations_from_vision([_observation(5.0, ("driving",))]) == []
+
+    def test_prose_is_never_parsed_for_decisions(self) -> None:
+        # §93: pipeline decisions never come from uncontrolled prose.
+        rich = StoredObservation(
+            observation=VisionObservation(
+                timestamp=1.0,
+                description="The player gets an incredible triple kill and wins the round",
+                labels=(),
+                confidence=0.95,
+            ),
+            region_start=None, region_end=None, sources=(),
+            model_name="m", model_version="1", prompt_id=None, prompt_version=None,
+        )
+        assert detectors.observations_from_vision([rich]) == []
+
+    def test_generic_text_patterns_work_without_a_profile(self) -> None:
+        found = detectors.observations_from_ocr(
+            [_text(12.0, "VICTORY", region=FULL_FRAME), _text(30.0, "ELIMINATED")],
+            GENERIC_PROFILE,
+        )
+        assert {item.event_type for item in found} == {
+            GameEventType.VICTORY,
+            GameEventType.KILL,
+        }
+        assert all(item.source == detectors.OCR for item in found)
+
+    def test_a_profile_rule_outranks_the_generic_pattern(self) -> None:
+        profile = GameProfile(
+            id="testgame",
+            regions={"kill_feed": Region(x=0.7, y=0.1, width=0.3, height=0.2)},
+            ocr_regions=("kill_feed",),
+            event_rules=(
+                EventRule(
+                    event_type=GameEventType.MULTI_KILL,
+                    patterns=(r"double\s+kill",),
+                    regions=("kill_feed",),
+                    confidence=0.9,
+                ),
+            ),
+        )
+        found = detectors.observations_from_ocr(
+            [_text(50.0, "DOUBLE KILL", region="kill_feed")], profile
+        )
+        assert [item.event_type for item in found] == [GameEventType.MULTI_KILL]
+        assert found[0].source == detectors.PROFILE
+        assert found[0].confidence > 0.7
+
+    def test_audio_never_names_what_it_heard(self) -> None:
+        # A loud transient is a fact about the waveform. Calling it a gunshot
+        # would be a claim about the game.
+        found = detectors.observations_from_audio(
+            [
+                AudioEvent(
+                    event_type=AudioEventType.TRANSIENT,
+                    start_seconds=5.0,
+                    end_seconds=5.4,
+                    confidence=0.9,
+                    track_role=GAMEPLAY,
+                )
+            ]
+        )
+        assert [item.event_type for item in found] == [GameEventType.UNEXPECTED_EVENT]
+        assert found[0].source == detectors.AUDIO
+
+    def test_microphone_audio_is_a_distinct_source(self) -> None:
+        found = detectors.observations_from_audio(
+            [
+                AudioEvent(
+                    event_type=AudioEventType.SPIKE,
+                    start_seconds=5.0,
+                    end_seconds=5.4,
+                    track_role=MICROPHONE,
+                )
+            ]
+        )
+        assert found[0].source == detectors.MICROPHONE_SOURCE
+
+    def test_a_laugh_names_a_moment_without_knowing_the_game(self) -> None:
+        found = detectors.observations_from_reactions(
+            [
+                ReactionCandidate(
+                    reaction_type=ReactionType.LAUGH,
+                    start_seconds=100.0,
+                    end_seconds=102.0,
+                    confidence=0.8,
+                    intensity_db=12.0,
+                )
+            ]
+        )
+        assert [item.event_type for item in found] == [GameEventType.FUNNY_MOMENT]
+
+    def test_scene_changes_are_weak_on_purpose(self) -> None:
+        # §17: boundaries are supporting information. A scene change alone must
+        # never become an event.
+        found = detectors.observations_from_scenes(
+            [
+                Scene(index=0, start_seconds=0.0, end_seconds=10.0),
+                Scene(index=1, start_seconds=10.0, end_seconds=20.0, change_score=50.0),
+            ],
+            min_change=27.0,
+        )
+        assert len(found) == 1
+        assert found[0].confidence < 0.3
+
+    def test_silence_and_speech_are_not_events(self) -> None:
+        assert (
+            detectors.observations_from_audio(
+                [
+                    AudioEvent(
+                        event_type=AudioEventType.SILENCE,
+                        start_seconds=0.0,
+                        end_seconds=10.0,
+                    ),
+                    AudioEvent(
+                        event_type=AudioEventType.SPEECH,
+                        start_seconds=0.0,
+                        end_seconds=10.0,
+                    ),
+                ]
+            )
+            == []
+        )
+
+
+class TestCorrelation:
+    """§27: agreeing detectors become one event, not several."""
+
+    @staticmethod
+    def _observation(event_type, at, source, confidence=0.7, duration=1.0):
+        return detectors.EventObservation(
+            event_type=event_type,
+            start_seconds=at,
+            end_seconds=at + duration,
+            source=source,
+            confidence=confidence,
+        )
+
+    def test_the_spec_example_becomes_one_event(self) -> None:
+        # "Kill-feed change + weapon sound + NO WAY becomes one high-confidence
+        # gameplay moment."
+        events = correlate(
+            [
+                self._observation(GameEventType.KILL, 100.0, detectors.OCR, 0.6),
+                self._observation(
+                    GameEventType.UNEXPECTED_EVENT, 100.3, detectors.AUDIO, 0.8, 0.5
+                ),
+                self._observation(
+                    GameEventType.UNEXPECTED_EVENT, 101.2, detectors.MICROPHONE_SOURCE, 0.7
+                ),
+            ]
+        )
+        assert len(events) == 1
+        event = events[0]
+        assert event.event_type is GameEventType.KILL
+        assert set(event.sources) == {"ocr", "audio", "microphone"}
+        # High confidence, as §27 asks -- higher than any single detector had.
+        assert event.confidence > 0.75
+
+    def test_agreement_raises_confidence(self) -> None:
+        alone = correlate([self._observation(GameEventType.KILL, 10.0, detectors.OCR, 0.6)])
+        together = correlate(
+            [
+                self._observation(GameEventType.KILL, 10.0, detectors.OCR, 0.6),
+                self._observation(GameEventType.KILL, 10.4, detectors.VISION, 0.6),
+            ]
+        )
+        assert together[0].confidence > alone[0].confidence
+
+    def test_confidence_never_reaches_certainty(self) -> None:
+        # No amount of agreement between inferring detectors makes a fact.
+        events = correlate(
+            [
+                self._observation(GameEventType.KILL, 10.0, source, 0.95)
+                for source in ("ocr", "vision", "audio", "microphone", "scene", "profile")
+            ]
+        )
+        assert events[0].confidence < 1.0
+
+    def test_repeated_observations_from_one_source_do_not_count_as_agreement(self) -> None:
+        # Three OCR lines off one frame are one detector, not three.
+        one_source = correlate(
+            [self._observation(GameEventType.KILL, 10.0, detectors.OCR, 0.6) for _ in range(3)]
+        )
+        two_sources = correlate(
+            [
+                self._observation(GameEventType.KILL, 10.0, detectors.OCR, 0.6),
+                self._observation(GameEventType.KILL, 10.1, detectors.VISION, 0.6),
+            ]
+        )
+        assert one_source[0].confidence < two_sources[0].confidence
+
+    def test_a_specific_type_beats_a_generic_one(self) -> None:
+        events = correlate(
+            [
+                self._observation(
+                    GameEventType.UNEXPECTED_EVENT, 10.0, detectors.AUDIO, 0.95
+                ),
+                self._observation(GameEventType.VICTORY, 10.2, detectors.OCR, 0.5),
+            ]
+        )
+        # Audio was more confident, but only OCR could know what it was.
+        assert events[0].event_type is GameEventType.VICTORY
+
+    def test_distant_events_stay_separate(self) -> None:
+        events = correlate(
+            [
+                self._observation(GameEventType.KILL, 10.0, detectors.OCR),
+                self._observation(GameEventType.KILL, 500.0, detectors.OCR),
+            ]
+        )
+        assert len(events) == 2
+
+    def test_a_chain_of_close_observations_stays_one_event(self) -> None:
+        # Clustering against the group's span, not its first member: otherwise
+        # a run of observations a second apart fragments into several events.
+        events = correlate(
+            [
+                self._observation(GameEventType.UNEXPECTED_EVENT, at, detectors.AUDIO, 0.7, 0.5)
+                for at in (10.0, 11.0, 12.0, 13.0, 14.0)
+            ]
+        )
+        assert len(events) == 1
+        assert events[0].duration >= 4.0
+
+    def test_the_event_span_covers_every_contributor(self) -> None:
+        events = correlate(
+            [
+                self._observation(GameEventType.KILL, 100.0, detectors.OCR, 0.6, 1.0),
+                self._observation(
+                    GameEventType.UNEXPECTED_EVENT, 101.5, detectors.AUDIO, 0.6, 2.0
+                ),
+            ]
+        )
+        assert events[0].start_seconds == 100.0
+        assert events[0].end_seconds == 103.5
+
+    def test_every_event_records_which_profile_was_in_force(self) -> None:
+        # §49: "detected with the generic profile" is a different claim.
+        events = correlate(
+            [self._observation(GameEventType.KILL, 10.0, detectors.OCR)],
+            game_profile="generic",
+        )
+        assert events[0].game_profile == "generic"
+
+    def test_the_confidence_floor_drops_noise(self) -> None:
+        events = correlate(
+            [self._observation(GameEventType.UNEXPECTED_EVENT, 10.0, detectors.SCENE, 0.1)],
+            min_confidence=0.5,
+        )
+        assert events == []
+
+    def test_generic_events_are_marked_as_unnamed(self) -> None:
+        events = correlate(
+            [self._observation(GameEventType.UNEXPECTED_EVENT, 10.0, detectors.AUDIO, 0.8)]
+        )
+        assert not events[0].is_named
+        assert events[0].event_type in GENERIC_TYPES
+
+    def test_the_event_shape_matches_the_spec(self) -> None:
+        # §26's schema.
+        payload = correlate(
+            [self._observation(GameEventType.CLUTCH, 812.4, detectors.OCR, 0.9)]
+        )[0].as_dict()
+        assert set(payload) >= {
+            "type", "start", "end", "confidence", "importance", "sources", "metadata"
+        }
+        assert 0.0 <= payload["confidence"] <= 1.0
+        assert 0.0 <= payload["importance"] <= 1.0
+
+    def test_nothing_in_produces_nothing_out(self) -> None:
+        assert correlate([]) == []
+
+
+class TestEndToEndDetection:
+    """§23's headline claim, exercised through the whole detector chain."""
+
+    def test_events_are_detected_with_no_profile_at_all(self) -> None:
+        observations = detectors.detect(
+            vision=[_observation(100.0, ("victory_screen",), 0.85)],
+            ocr_frames=[_text(100.5, "VICTORY", region=FULL_FRAME)],
+            audio=[
+                AudioEvent(
+                    event_type=AudioEventType.SPIKE,
+                    start_seconds=100.2,
+                    end_seconds=100.9,
+                    confidence=0.8,
+                )
+            ],
+            profile=GENERIC_PROFILE,
+        )
+        events = correlate(observations, game_profile="generic")
+
+        assert len(events) == 1
+        assert events[0].event_type is GameEventType.VICTORY
+        assert events[0].is_named
+        assert set(events[0].sources) == {"vision", "ocr", "audio"}
+        assert events[0].confidence > 0.85
+
+    def test_a_profile_improves_the_result_it_does_not_enable_it(self) -> None:
+        profile = GameProfile(
+            id="testgame",
+            regions={"banner": Region(x=0.25, y=0.4, width=0.5, height=0.2)},
+            ocr_regions=("banner",),
+            event_rules=(
+                EventRule(
+                    event_type=GameEventType.VICTORY,
+                    patterns=(r"round\s+won",),
+                    regions=("banner",),
+                    confidence=0.95,
+                ),
+            ),
+        )
+        frames = [_text(100.0, "ROUND WON", region="banner")]
+
+        without = correlate(
+            detectors.detect(ocr_frames=frames, profile=GENERIC_PROFILE),
+            game_profile="generic",
+        )
+        with_profile = correlate(
+            detectors.detect(ocr_frames=frames, profile=profile), game_profile="testgame"
+        )
+
+        # Generic wording does not know "ROUND WON": nothing is claimed.
+        assert without == []
+        # The profile does, and says so with high confidence.
+        assert len(with_profile) == 1
+        assert with_profile[0].event_type is GameEventType.VICTORY
+        assert with_profile[0].confidence > 0.8
+
+
+class TestFakeOcrProvider:
+    def test_it_satisfies_the_provider_protocol(self) -> None:
+        from ai.providers.base import OcrProvider
+
+        assert isinstance(FakeOcrProvider(), OcrProvider)
+
+    def test_it_scripts_text_per_frame(self, tmp_path: Path) -> None:
+        provider = FakeOcrProvider(
+            by_filename={"t000000012_000.jpg": [("ELIMINATED", 0.9)]},
+            default=[("HUD", 0.5)],
+        )
+        scripted = provider.read(tmp_path / "t000000012_000.jpg")
+        assert [item.text for item in scripted] == ["ELIMINATED"]
+        assert [item.text for item in provider.read(tmp_path / "other.jpg")] == ["HUD"]
+
+    def test_it_honours_the_confidence_floor(self, tmp_path: Path) -> None:
+        provider = FakeOcrProvider(default=[("faint", 0.2), ("clear", 0.9)])
+        kept = provider.read(tmp_path / "a.jpg", min_confidence=0.5)
+        assert [item.text for item in kept] == ["clear"]
+
+
+def _write_profile(root: Path, game: str) -> Path:
+    directory = root / game
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "profile.json").write_text(
+        json.dumps(
+            {
+                "id": game,
+                "name": "Test Game",
+                "regions": {
+                    "kill_feed": {"x": 0.7, "y": 0.1, "width": 0.28, "height": 0.2},
+                    "score": {"x": 0.4, "y": 0.02, "width": 0.2, "height": 0.06},
+                },
+                "ocr_regions": ["kill_feed", "score"],
+                "event_rules": [
+                    {
+                        "event_type": "kill",
+                        "patterns": ["eliminated", "knocked"],
+                        "regions": ["kill_feed"],
+                        "confidence": 0.85,
+                    }
+                ],
+                "ignore_patterns": ["^press "],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return directory

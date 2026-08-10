@@ -114,6 +114,41 @@ class SpeechProvider(Provider, Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class TextDetection:
+    """One piece of text read off a frame (§25).
+
+    ``timestamp`` is mandatory and is the whole point: §25 requires every OCR
+    result to carry one, because text without a time cannot become an event.
+    """
+
+    text: str
+    confidence: float
+    timestamp: float
+    #: Which named profile region it came from, or ``None`` for a full-frame
+    #: read. Knowing that a string came from the kill feed rather than from
+    #: somewhere on screen is most of its meaning.
+    region: str | None = None
+    #: Bounding box in the analysed image, as ``(left, top, right, bottom)``.
+    box: tuple[int, int, int, int] | None = None
+
+
+@runtime_checkable
+class OcrProvider(Provider, Protocol):
+    """Text recognition on frames (§25)."""
+
+    def read(
+        self, image_path: Path, *, min_confidence: float = 0.0
+    ) -> tuple[TextDetection, ...]:
+        """Read text from one image.
+
+        Timestamps are attached by the caller, which is the only layer that
+        knows what instant the image came from; implementations return
+        ``0.0`` and let :func:`~backend.gaming.ocr.read_frames` place them.
+        """
+        ...
+
+
 @runtime_checkable
 class VisionProvider(Provider, Protocol):
     """Frame understanding (§15)."""
@@ -194,9 +229,11 @@ registry = ProviderRegistry()
 __all__ = [
     "LLMProvider",
     "ModelInfo",
+    "OcrProvider",
     "Provider",
     "ProviderRegistry",
     "SpeechProvider",
+    "TextDetection",
     "TranscriptSegment",
     "TranscriptWord",
     "VisionObservation",

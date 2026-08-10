@@ -31,6 +31,10 @@ logger = get_logger("services.health", LogChannel.APPLICATION)
 
 #: Every probe is bounded: a hung binary must not hang the dashboard.
 _COMMAND_TIMEOUT_SECONDS = 10
+
+#: Package behind each OCR engine name, so the report can distinguish
+#: "not installed" from "installed but broken".
+_OCR_MODULES = {"paddleocr": "paddleocr", "easyocr": "easyocr", "tesseract": "pytesseract"}
 _HTTP_TIMEOUT_SECONDS = 3
 
 
@@ -341,13 +345,15 @@ class HealthService:
         )
 
     def _check_ocr(self) -> HealthCheck:
-        """Check the OCR engine (Phase 5 dependency)."""
-        engine = self._config.analysis.ocr.engine
-        modules = {
-            "paddleocr": "paddleocr",
-            "easyocr": "easyocr",
-            "tesseract": "pytesseract",
-        }
+        """Check the OCR engine (§25).
+
+        Availability is decided by *importing* the package, not by finding it
+        on disk. An installed-but-broken engine -- PaddlePaddle against a
+        protobuf 4+ runtime is the common case -- would otherwise be reported
+        as ready, and the failure would arrive in the middle of a stage.
+        """
+        from ai.ocr.engines import AUTO_ORDER, engine_importable, resolve_engine
+
         if not self._config.analysis.ocr.enabled:
             return HealthCheck(
                 name="ocr",
@@ -355,37 +361,43 @@ class HealthService:
                 required=False,
                 detail="OCR disabled in configuration.",
             )
-        if engine == "auto":
-            found = [name for name, module in modules.items() if importlib.util.find_spec(module)]
-            if found:
-                return HealthCheck(
-                    name="ocr",
-                    status=HealthStatus.OK,
-                    required=False,
-                    detail=f"OCR engines available: {', '.join(found)}.",
+
+        requested = self._config.analysis.ocr.engine
+        started = time.perf_counter()
+        resolved = resolve_engine(requested)
+        duration = time.perf_counter() - started
+
+        if resolved is None:
+            broken = [
+                name
+                for name in AUTO_ORDER
+                if importlib.util.find_spec(_OCR_MODULES[name]) is not None
+                and not engine_importable(name)
+            ]
+            detail = "No usable OCR engine; HUD text reading is unavailable."
+            if broken:
+                detail = (
+                    f"{', '.join(broken)} installed but not importable; "
+                    "HUD text reading is unavailable."
                 )
             return HealthCheck(
                 name="ocr",
                 status=HealthStatus.WARNING,
                 required=False,
-                detail="No OCR engine installed; HUD text reading is unavailable.",
-                remediation="pip install paddleocr",
+                detail=detail,
+                remediation="pip install easyocr",
+                duration_seconds=duration,
             )
 
-        module = modules.get(engine)
-        if module is None or importlib.util.find_spec(module) is None:
-            return HealthCheck(
-                name="ocr",
-                status=HealthStatus.WARNING,
-                required=False,
-                detail=f"OCR engine {engine!r} is not installed.",
-                remediation=f"pip install {module or engine}",
-            )
+        detail = f"OCR engine {resolved} available."
+        if resolved != requested:
+            detail = f"OCR engine {resolved} available (requested {requested!r})."
         return HealthCheck(
             name="ocr",
             status=HealthStatus.OK,
             required=False,
-            detail=f"OCR engine {engine} available.",
+            detail=detail,
+            duration_seconds=duration,
         )
 
     # -- helper ---------------------------------------------------------

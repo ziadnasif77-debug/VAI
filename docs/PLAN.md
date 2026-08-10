@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 4 |
-| Current phase | **Phase 4 complete and verified.** Next: Phase 5 (Gaming Intelligence) |
-| Tests | 652 passing (4 opt-in model tests skipped by default) |
-| Backend code | ~22,000 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-10, end of Phase 5 |
+| Current phase | **Phase 5 complete and verified.** Next: Phase 6 (Moments) |
+| Tests | 703 passing (4 opt-in model tests skipped by default) |
+| Backend code | ~26,000 lines across `backend/` and `ai/` |
 
 ---
 
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 652 passing (~9 min)
+.venv/bin/python -m pytest               # expect 703 passing (~17 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -38,7 +38,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 5 is the next work**. Start at §5 of this document.
+healthy and **Phase 6 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -55,8 +55,8 @@ Development order follows SPEC §126.
 | 2 | **Media Engine** | FFmpeg/FFprobe, proxy, audio, frames, chunking | ✅ **done** |
 | 3 | **Speech / Audio** | Whisper transcript, audio events, reactions | ✅ **done** |
 | 4 | **Vision** | scene detection, keyframes, VLM analysis | ✅ **done** |
-| 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ⬜ next |
-| 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ⬜ |
+| 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ✅ **done** |
+| 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ⬜ next |
 | 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ⬜ |
 | 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ⬜ |
 | 9 | **Remotion** | overlay composition | ⬜ |
@@ -91,9 +91,10 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
 | `backend/pipeline` | `runner`, `workers/` for IMPORT · PROBE · PROXY · AUDIO · FRAMES | complete for the media stages |
 | `backend/analysis` | `signal`, `audio_events` (§18), `reactions` (§19, §20), `scenes` (§17), `candidates` (the §15/§16 cascade) | complete |
-| `ai/speech`, `ai/vision` | real provider + deterministic fake + factory each | complete |
+| `ai/speech`, `ai/vision`, `ai/ocr` | real provider + deterministic fake + factory each | complete |
+| `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27) | complete; HUD extraction pending a real profile |
 | `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | one prompt so far |
-| `backend/{gaming,moments,narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
+| `backend/{moments,narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -300,7 +301,7 @@ Full write-up: [`docs/PHASE_4.md`](PHASE_4.md).
 
 ---
 
-### Phase 5 — Gaming Intelligence (next)
+### Phase 5 — Gaming Intelligence ✅ done
 
 **Goal (§21–§27):** the product differentiator.
 
@@ -312,18 +313,31 @@ Full write-up: [`docs/PHASE_4.md`](PHASE_4.md).
 - `backend/gaming/profiles.py` — profile loader; `profiles/generic/` first.
 - `backend/pipeline/workers/ocr.py`, `game_events.py`.
 
-**Acceptance:** gameplay moments detected with timestamps, **without a game
-profile** (§23). A profile improves accuracy; it is never required.
+**Acceptance: passed.** The same clip run through the whole pipeline twice:
+once as `game: auto`, producing timestamped events recorded against the generic
+profile; once against a profile declaring two regions and one rule, which
+switches OCR to region mode and reads wording the generic path correctly
+declines to claim. An unknown game falls back with `profile_exact: false` — the
+substitution recorded, not hidden.
 
-**Traps**
-- Do not write ten game profiles before one is validated (§111).
-- Every OCR result carries a timestamp (§25).
-- Correlation must raise confidence, not multiply events: kill-feed change +
-  weapon sound + "NO WAY" is *one* high-confidence moment.
+**Traps — all three hit, all three handled**
+- Still exactly one profile directory, and it is `generic/` (§111). Validating
+  a real one needs real gameplay footage, not a colour bar.
+- Every OCR row has a `NOT NULL` timestamp, because text without a time cannot
+  become an event.
+- Correlation merges: §27's own example — kill feed + weapon sound + "NO WAY"
+  — produces **one** event, typed by the only source that could know, with
+  confidence higher than any single detector had.
+
+**Also found:** GAME_EVENTS and MOMENTS were queued by nothing, so the pipeline
+could not reach event detection at all; and `doctor.py` reported a broken
+PaddleOCR as available because it only checked that the package existed.
+
+Full write-up: [`docs/PHASE_5.md`](PHASE_5.md).
 
 ---
 
-### Phase 6 — Moments
+### Phase 6 — Moments (next)
 
 **Goal (§28–§34):** ranked moments with defensible scores.
 
@@ -513,7 +527,7 @@ Consequences to keep in mind:
   written and unit-tested here with fake providers; they cannot be *accepted*
   here.
 
-### Target machine setup (do this before Phase 5)
+### Target machine setup (do this before Phase 6)
 
 Installed already: FFmpeg 9.0 (gyan.dev full build, NVENC present),
 faster-whisper 1.2.1, PySceneDetect 0.7.1, PaddleOCR, OpenCV, numpy/scipy,

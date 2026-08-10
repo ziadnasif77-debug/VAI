@@ -13,6 +13,7 @@ machine without it.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import shutil
 import subprocess
@@ -85,8 +86,18 @@ def config(config_dir: Path) -> Iterator[AppConfig]:
 
 @pytest.fixture
 def paths(config: AppConfig, tmp_path: Path) -> Paths:
-    """Application paths rooted in a temporary directory."""
-    return build_paths(config, data_root=tmp_path).create()
+    """Application paths rooted in a temporary directory.
+
+    ``profiles_dir`` is redirected too. Game profiles ship with the code, so
+    :func:`build_paths` resolves them against the repository -- and a test that
+    writes one would be writing into the developer's checkout. The generic
+    profile is a constant in code, not a file, so nothing is lost by pointing
+    this at a temporary directory.
+    """
+    resolved = build_paths(config, data_root=tmp_path).create()
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    return dataclasses.replace(resolved, profiles_dir=profiles)
 
 
 @pytest.fixture

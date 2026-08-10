@@ -191,7 +191,10 @@ class TestPipelineEndpoints:
     def test_analyze_queues_project_stages(self, api_client) -> None:
         project = create_project(api_client)
         body = api_client.post(f"/api/projects/{project['id']}/analyze").json()
-        assert "moments" in body["queued_stages"]
+        # The project-wide stages: those that reason across every file at once.
+        # Per-media stages, up to and including MOMENTS, are queued at import.
+        assert "story" in body["queued_stages"]
+        assert "moments" not in body["queued_stages"]
         # Delivery is never queued automatically (§51).
         assert "publish" not in body["queued_stages"]
 

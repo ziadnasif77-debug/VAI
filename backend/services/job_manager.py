@@ -32,6 +32,12 @@ from backend.database.repositories.jobs import JobRepository
 logger = get_logger("services.job_manager", LogChannel.PIPELINE)
 
 #: Stages that run once per source file. Everything else runs once per project.
+#:
+#: The line falls where §45 puts it: ``game_events`` and ``moments`` both carry
+#: a ``NOT NULL media_id``, because an event is something that happened *in a
+#: recording* and a moment is a span *of one*. Only from STORY onward does the
+#: pipeline reason across every file at once, and those stages have no media
+#: column to fill.
 PER_MEDIA_STAGES: frozenset[JobStage] = frozenset(
     {
         JobStage.IMPORT,
@@ -44,6 +50,8 @@ PER_MEDIA_STAGES: frozenset[JobStage] = frozenset(
         JobStage.SCENES,
         JobStage.VISION,
         JobStage.OCR,
+        JobStage.GAME_EVENTS,
+        JobStage.MOMENTS,
     }
 )
 

@@ -42,6 +42,9 @@ class WorkerContext:
     #: tree: models are shared across every project and must not be copied into
     #: each one.
     models_dir: Path
+    #: Where game profiles live (§22). Resolved against the repository rather
+    #: than the data root, because profiles ship with the code.
+    profiles_dir: Path
     config: AppConfig
     database: Database
     ffmpeg: FFmpegRunner

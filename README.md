@@ -114,7 +114,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 652 tests (~9 min)
+.venv/bin/python -m pytest              # 703 tests (~17 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
 ```

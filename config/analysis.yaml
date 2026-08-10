@@ -98,7 +98,12 @@ analysis:
   # much more accurate on stylised HUD fonts.
   ocr:
     enabled: true
-    engine: paddleocr        # paddleocr | easyocr | tesseract | auto
+    # `auto` picks the first engine that actually imports, probed in a
+    # subprocess. That matters more than it sounds: a broken PaddlePaddle
+    # install raises deep in protobuf and leaves the interpreter unable to
+    # import EasyOCR afterwards, so an in-process probe would report no usable
+    # engine on a machine that has a working one.
+    engine: auto             # paddleocr | easyocr | tesseract | auto
     min_confidence: 0.6
     languages: ["en"]
     use_profile_regions: true
