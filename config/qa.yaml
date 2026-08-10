@@ -1,0 +1,52 @@
+# QA engine (SPEC sections 76-77).
+#
+# Technical checks are deterministic and must pass. Content checks are advisory
+# and produce warnings a human resolves during review (§78).
+
+qa:
+  # Technical QA (§76).
+  technical:
+    enabled: true
+    checks:
+      file_exists: true
+      decodes: true
+      duration: true
+      resolution: true
+      fps: true
+      video_stream: true
+      audio_stream: true
+      black_frames: true
+      frozen_frames: true
+      missing_media: true
+      caption_sync: true
+      av_sync: true
+    thresholds:
+      duration_tolerance_seconds: 2.0
+      fps_tolerance: 0.5
+      black_frame_ratio: 0.98
+      max_black_run_seconds: 2.0
+      max_frozen_run_seconds: 3.0
+      max_av_desync_ms: 80
+      max_caption_desync_ms: 250
+      min_audio_lufs: -30.0
+
+  # Content QA (§77). AI-assisted, advisory only.
+  content:
+    enabled: true
+    checks:
+      unexpected_blank_screen: true
+      accidental_menu_section: true
+      broken_sequence: true
+      extreme_silence: true
+      bad_transition: true
+      caption_covers_hud: true
+    thresholds:
+      max_silence_seconds: 12.0
+      min_sequence_coherence: 0.5
+
+  # A failed technical check blocks export; warnings do not, but they are never
+  # hidden from the user.
+  policy:
+    fail_on_technical_error: true
+    fail_on_content_warning: false
+    max_warnings_before_review: 5

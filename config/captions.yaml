@@ -1,0 +1,46 @@
+# Caption system (SPEC section 71).
+#
+# Caption timing always derives from transcript timestamps; captions are never
+# generated from text alone.
+
+captions:
+  enabled: true
+  # Sidecar files always; burning in is a Remotion composition concern.
+  formats: [srt, vtt]
+  burn_in: true
+
+  style: animated            # standard | animated
+  word_highlighting: true
+  emphasis: true
+
+  timing:
+    min_duration_ms: 700
+    max_duration_ms: 5000
+    gap_ms: 60
+    lead_in_ms: 0
+    # A caption is dropped rather than shown for an unreadable flash.
+    min_readable_ms: 400
+
+  layout:
+    max_chars_per_line: 38
+    max_lines: 2
+    position: bottom_center
+    safe_area_bottom: 0.12
+    safe_area_horizontal: 0.06
+    # Captions must not cover important HUD regions (§77). The regions come from
+    # the game profile; the generic profile protects the standard corners.
+    avoid_hud_regions: true
+
+  appearance:
+    font_family: "Inter"
+    font_weight: 800
+    font_size_ratio: 0.048
+    primary_color: "#FFFFFF"
+    highlight_color: "#FFD400"
+    outline_color: "#000000"
+    outline_width: 3
+    shadow_opacity: 0.55
+
+  languages:
+    default: auto
+    rtl: [ar, he, fa, ur]

@@ -1,0 +1,118 @@
+# AI model configuration (SPEC sections 13, 49, 52, 53, 54).
+#
+# The AI layer is modular: no model name may be hardcoded in business logic.
+# Every provider is addressed through the ai/providers interfaces, so replacing
+# a model is a configuration change, not a code change.
+#
+# `version` is stored with every analysis result (§49) and participates in the
+# cache key (§48), so swapping a model invalidates exactly the results it
+# produced and nothing else.
+
+models:
+  speech:
+    provider: faster_whisper
+    model: "large-v3"
+    version: "faster-whisper-large-v3"
+    device: auto            # auto | cuda | cpu
+    compute_type: float16
+    batch_size: 8
+    language: null          # null -> detect
+    word_timestamps: true
+    vad_filter: true
+    timeout_seconds: 7200
+    estimated_vram_mb: 5120
+
+  vision:
+    provider: ollama
+    model: "qwen2.5vl:7b"
+    version: "qwen2.5vl-7b-q4_K_M"
+    quantization: q4_K_M
+    endpoint: "http://127.0.0.1:11434"
+    max_output_tokens: 1024
+    temperature: 0.1
+    timeout_seconds: 300
+    estimated_vram_mb: 7168
+
+  llm:
+    provider: ollama
+    model: "qwen2.5:7b-instruct"
+    version: "qwen2.5-7b-instruct-q4_K_M"
+    quantization: q4_K_M
+    endpoint: "http://127.0.0.1:11434"
+    context_tokens: 32768
+    max_output_tokens: 4096
+    temperature: 0.2
+    timeout_seconds: 300
+    estimated_vram_mb: 6144
+
+  ocr:
+    provider: paddleocr
+    model: "en_PP-OCRv4"
+    version: "paddleocr-v4-en"
+    device: cpu
+    timeout_seconds: 60
+    estimated_vram_mb: 0
+
+# Optional cloud provider (§13, §50). Disabled by default: gameplay footage
+# stays on the machine and nothing is uploaded automatically (§51).
+cloud:
+  enabled: false
+  provider: null
+
+# GPU management (§52, §54). Never assume unlimited VRAM.
+#
+# An 8 GB card cannot hold Whisper large-v3, a 7B VLM and an NVENC session at
+# once. Stages therefore run strictly one at a time and each releases its VRAM
+# before the next model loads:
+#
+#   load speech  -> transcribe -> unload + empty cache
+#   load vision  -> analyse    -> unload + empty cache
+#   load llm     -> decide     -> unload + empty cache
+#   encode with NVENC
+gpu:
+  enabled: true
+  device_index: 0
+  total_vram_mb: 8192
+  reserved_vram_mb: 1024
+  exclusive_model_slot: true
+  # Release the allocator's cached blocks between stages, not just the model
+  # reference; without this the next load still hits CUDA OOM.
+  empty_cache_between_stages: true
+  # Refuse to load a model whose estimate exceeds usable VRAM instead of
+  # discovering it as an OOM mid-analysis.
+  preflight_vram_check: true
+  fallback_to_cpu: true
+
+# Hardware strategy (§53). `auto` picks a profile from detected VRAM at startup;
+# the user can pin one in the UI.
+hardware:
+  profile: auto             # auto | low | medium | high
+  profiles:
+    low:
+      description: "CPU-focused. No vision model; OCR + audio + scenes only."
+      min_vram_mb: 0
+      vision_enabled: false
+      speech_compute_type: int8
+      frame_sampling_multiplier: 2.0
+      max_parallel_stages: 1
+    medium:
+      description: "GPU inference with moderate frame sampling."
+      min_vram_mb: 6144
+      vision_enabled: true
+      speech_compute_type: float16
+      frame_sampling_multiplier: 1.0
+      max_parallel_stages: 1
+    high:
+      description: "GPU with vision models and dense sampling."
+      min_vram_mb: 12288
+      vision_enabled: true
+      speech_compute_type: float16
+      frame_sampling_multiplier: 0.5
+      max_parallel_stages: 2
+
+# Graceful degradation (§95): what to fall back to when a layer is unavailable.
+fallbacks:
+  vision_failed: ["ocr", "audio", "scene_detection", "game_profile"]
+  speech_failed: ["video", "audio", "vision"]
+  llm_failed: ["rule_based_scoring"]
+  ocr_failed: ["vision", "audio"]

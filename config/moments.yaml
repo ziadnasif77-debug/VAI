@@ -1,0 +1,92 @@
+# Moment detection and scoring (SPEC sections 27-34, 79).
+
+moments:
+  # Event correlation (§27): the same instant seen by several detectors becomes
+  # one high-confidence event rather than four competing ones.
+  correlation:
+    window_seconds: 3.0
+    min_sources: 1
+    # Confidence multiplier applied per additional agreeing source.
+    multi_source_bonus: 0.12
+    max_confidence: 0.99
+
+  # Moment formation (§28): related events group into one moment.
+  formation:
+    max_event_gap_seconds: 12.0
+    min_moment_seconds: 4.0
+    max_moment_seconds: 180.0
+
+  # Context expansion (§29). Adaptive, not a fixed +/- 20 seconds.
+  context:
+    base_pre_roll_seconds: 8.0
+    base_post_roll_seconds: 6.0
+    max_pre_roll_seconds: 25.0
+    max_post_roll_seconds: 20.0
+    # Expansion stops at a scene boundary or a silence gap when one is nearby,
+    # so clips do not start mid-sentence or mid-action.
+    snap_to_scene_boundary: true
+    snap_window_seconds: 2.5
+    extend_to_speech_boundary: true
+
+  # Scoring dimensions (§32). Weights are configurable by definition.
+  scoring:
+    weights:
+      gameplay: 1.00
+      visual: 0.65
+      audio: 0.60
+      reaction: 0.85
+      novelty: 0.75
+      skill: 0.80
+      emotion: 0.70
+      narrative: 0.90
+      context: 0.55
+      entertainment: 0.95
+    penalties:
+      dead_time: 0.90
+      repetition: 0.85
+      low_confidence: 0.60
+    # Below this a moment is not offered for selection at all.
+    minimum_score: 0.20
+    # Below this a moment is surfaced but flagged "Needs Review" (§79).
+    needs_review_confidence: 0.60
+
+  # Dead time (§30). Removed only when removal does not damage context.
+  dead_time:
+    enabled: true
+    categories:
+      - walking
+      - waiting
+      - loading
+      - menu
+      - inventory
+      - travel
+      - afk
+      - long_silence
+      - repetitive_farming
+      - repeated_failed_attempts
+    min_segment_seconds: 6.0
+    silence_seconds_for_dead_time: 8.0
+    afk_motion_threshold: 0.02
+    # A dead-time segment is kept anyway when a retained moment depends on it.
+    protect_context: true
+    max_protected_seconds: 20.0
+
+  # Repetition (§31). Keep the strongest representative, not the first seen.
+  repetition:
+    enabled: true
+    similarity_threshold: 0.85
+    max_repeats_kept: 2
+    keep_strategy: highest_score
+    compare:
+      - event_type
+      - visual_similarity
+      - audio_similarity
+      - transcript_similarity
+
+  # Selection variety (§33): the highest scores alone make a monotonous video.
+  variety:
+    enabled: true
+    max_same_type_ratio: 0.4
+    min_distinct_types: 3
+    # Penalty applied to a moment whose type already dominates the selection.
+    saturation_penalty: 0.25

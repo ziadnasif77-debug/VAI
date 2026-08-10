@@ -1,0 +1,25 @@
+# Output duration policy (SPEC sections 6, 91).
+#
+# The absolute 10-60 minute band is a product rule and is asserted in code
+# (backend/core/duration.py). The values here may narrow that band but can never
+# widen it - the loader rejects a configuration that tries.
+
+output:
+  min_minutes: 10
+  max_minutes: 60
+
+  # Offered in the import screen (§6). "Custom" is any integer inside the band.
+  duration_presets_minutes: [10, 15, 20, 25, 30, 40, 45, 50, 60]
+  default_duration_minutes: 20
+
+  # How close the duration optimizer must land on the requested target (§39).
+  # The wider of the two wins, so short targets keep a usable absolute margin.
+  tolerance_seconds: 45
+  tolerance_ratio: 0.05
+
+  # Video modes (§35). Shorts/Reels are explicitly out of MVP scope (§5).
+  modes:
+    - story
+    - best_moments
+    - compilation
+  default_mode: story

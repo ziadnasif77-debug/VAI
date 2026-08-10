@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Rust / Tauri
+target/
+
+# Application data - never commit user media, models, logs or databases
+/projects/*
+!/projects/.gitkeep
+/models/*
+!/models/.gitkeep
+/logs/
+*.db
+*.db-wal
+*.db-shm
+
+# Local overrides
+config/*.local.yaml
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

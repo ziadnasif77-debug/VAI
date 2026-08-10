@@ -1,0 +1,53 @@
+# Application configuration (SPEC section 91: no critical business rule scattered
+# through source code).
+#
+# Any value can be overridden by environment variable using VAI__<SECTION>__<KEY>:
+#   VAI__APPLICATION__API__PORT=9000
+#   VAI__APPLICATION__LOGGING__LEVEL=DEBUG
+#
+# Relative paths resolve against the data root, which defaults to the repository
+# root and can be redirected with VAI_ROOT (gameplay recordings are large and
+# often live on a separate drive).
+
+application:
+  name: "AI Gaming Video Editor"
+  environment: development
+  data_root: null
+
+  directories:
+    projects: projects
+    models: models
+    logs: logs
+    cache: .cache
+    profiles: profiles
+
+  # SQLite for the MVP; PostgreSQL only if multi-user deployment appears (§44).
+  database:
+    filename: gaming_editor.db
+    journal_mode: WAL
+    synchronous: NORMAL
+    busy_timeout_ms: 5000
+    foreign_keys: true
+
+  # Local-first: loopback only, no telemetry, no automatic upload (§50, §51).
+  api:
+    host: "127.0.0.1"
+    port: 8765
+    cors_origins:
+      - "http://localhost:5173"
+      - "http://127.0.0.1:5173"
+
+  logging:
+    level: INFO
+    console: true
+    json_format: true
+    directory: logs
+    max_bytes: 10485760
+    backup_count: 5
+
+  # Disk management controls (§84). Long recordings generate large intermediates.
+  storage:
+    max_cache_gb: 50.0
+    keep_proxy_after_render: true
+    keep_frames_after_analysis: false
+    warn_free_space_gb: 20.0

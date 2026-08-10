@@ -1,0 +1,52 @@
+# Delivery configuration.
+#
+# The MVP exports to a local file and nothing else. This section exists so that
+# adding a destination later is a configuration + one class, not a pipeline
+# change.
+#
+# Two rules hold for any destination that is ever added:
+#   * Publishing is always an explicit user action. Nothing uploads on its own,
+#     and no analysis or telemetry containing footage leaves the machine (§51).
+#   * Credentials never live in this file. A publisher resolves them from the
+#     OS credential store at call time.
+
+publishing:
+  enabled: true
+
+  # Targets the running build will accept. A target listed here still needs a
+  # registered publisher; one without an implementation fails with
+  # PUBLISH_TARGET_NOT_CONFIGURED rather than doing nothing quietly.
+  enabled_targets:
+    - local_file
+
+  default_target: local_file
+
+  # Applied to every publication before it is sent.
+  defaults:
+    visibility: private
+    made_for_kids: false
+    category: null
+    # Chapters are generated from the story sections during narrative
+    # construction and are useful locally regardless of destination.
+    generate_chapters: true
+    min_chapter_seconds: 30
+
+  local_file:
+    # null -> the project's renders/ directory is offered as the default.
+    default_directory: null
+    overwrite: false
+
+  # Planned, not implemented. Present so the shape of the eventual settings is
+  # already fixed and the UI has something to bind to.
+  youtube:
+    enabled: false
+    # OAuth client is supplied at setup time and stored in the OS credential
+    # store; only its identifier is referenced here.
+    credential_id: null
+    channel_id: null
+    default_playlist: null
+    default_visibility: private
+    # An upload is never started without the user confirming it.
+    require_explicit_confirmation: true
+    upload_chunk_bytes: 8388608
+    max_retries: 5

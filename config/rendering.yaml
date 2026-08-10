@@ -1,0 +1,120 @@
+# Rendering configuration (SPEC sections 5, 55, 64-70, 75).
+#
+# FFmpeg is the low-level media layer and the final encoder (§65).
+# Remotion composes captions, motion graphics and effects (§66).
+# Neither decides which clips are good - the AI layer does (§64).
+
+video:
+  default_resolution: 1080
+  default_fps: 60
+  aspect_ratio: "16:9"
+  # "source" keeps the recording's frame rate instead of forcing a value.
+  fps_mode: explicit          # explicit | source
+  supported_resolutions: [720, 1080]
+  supported_fps: [30, 60]
+
+render:
+  container: mp4
+  video_codec: h264
+  audio_codec: aac
+  pixel_format: yuv420p
+  faststart: true
+  gop_seconds: 2.0
+  # Tried in order; first available wins. CUDA where present, CPU otherwise (§52).
+  encoder_preference:
+    - h264_nvenc
+    - libx264
+  bitrate:
+    "1080p60": "16M"
+    "1080p30": "12M"
+    "720p60": "9M"
+    "720p30": "6M"
+  max_bitrate_multiplier: 1.35
+  nvenc:
+    preset: p5
+    tune: hq
+    rate_control: vbr
+    rc_lookahead: 20
+  libx264:
+    preset: medium
+    crf: 19
+
+# YouTube preset (§75). Exposed as a single selectable target.
+youtube_preset:
+  name: "YouTube 1080p60"
+  resolution: 1080
+  fps: 60
+  video_codec: h264
+  audio_codec: aac
+  audio_bitrate: "384k"
+  audio_sample_rate: 48000
+  audio_channels: 2
+
+ffmpeg:
+  binary: ffmpeg
+  ffprobe_binary: ffprobe
+  threads: 0
+  loglevel: error
+  overwrite_output: true
+  timeout_seconds: 28800
+  # Hardware-accelerated decode for long recordings, when available.
+  hwaccel: auto
+
+# Proxy media for UI preview and analysis (§55). The original is used for the
+# final render and is never modified (§42).
+proxy:
+  enabled: true
+  resolution: 720
+  fps: 30
+  codec: libx264
+  preset: veryfast
+  crf: 28
+  audio_codec: aac
+  audio_bitrate: "128k"
+
+# Preview thumbnails for scenes, events, moments and timeline clips (§56).
+thumbnails:
+  enabled: true
+  width: 480
+  jpeg_quality: 5
+  per_moment: 3
+  per_scene: 1
+
+# Remotion renders motion graphics ONLY, as a transparent overlay.
+#
+# Remotion rasterises every frame through Chromium. That is the right tool for
+# captions, lower thirds and intro/outro, and the wrong tool for stitching
+# twenty minutes of raw gameplay: FFmpeg does that job with NVENC in a fraction
+# of the time. So the render is two passes:
+#
+#   1. FFmpeg   cut + concat + transitions + speed + audio mix  -> base.mp4
+#   2. Remotion captions + graphics on a transparent canvas     -> overlay.webm
+#   3. FFmpeg   overlay composite + final encode                -> output.mp4
+#
+# Remotion still receives a deterministic composition description and performs
+# no selection of its own (§64).
+remotion:
+  enabled: true
+  mode: overlay              # overlay | full  ("full" is for experiments only)
+  project_dir: remotion
+  composition_id: OverlayLayer
+  concurrency: 2
+  timeout_seconds: 28800
+  input_filename: composition.json
+  # Alpha-capable intermediate. VP9/WebM keeps the file small; ProRes 4444 is
+  # the lossless option when overlay quality matters more than disk.
+  overlay_format: webm_vp9_alpha
+  overlay_codec_options:
+    webm_vp9_alpha:
+      codec: libvpx-vp9
+      pixel_format: yuva420p
+      crf: 24
+    prores_4444:
+      codec: prores_ks
+      pixel_format: yuva444p10le
+      profile: 4444
+  # Skip the Remotion pass entirely when the timeline has no overlay elements,
+  # so a caption-free video never pays the Chromium cost.
+  skip_when_no_overlays: true
+
+# Effects live in config/effects.yaml -- the effects engine is its own module.

@@ -1,0 +1,127 @@
+# Analysis configuration (SPEC sections 7, 15-18, 24, 25, 91).
+
+analysis:
+  # Chunked analysis (§7): an 8-hour recording is never loaded into RAM.
+  chunk_seconds: 600
+  chunk_overlap_seconds: 15
+  event_overlap_seconds: 5
+
+  # Frame sampling (§16). Base rate is deliberately sparse; sampling density
+  # increases only around candidate regions.
+  frame_sampling:
+    base_interval_seconds: 3.0
+    high_activity_interval_seconds: 1.0
+    candidate_interval_seconds: 0.5
+    candidate_pre_roll_seconds: 20.0
+    candidate_post_roll_seconds: 20.0
+    max_frames_per_hour: 1800
+    max_frames_per_candidate: 40
+    jpeg_quality: 4
+
+    # Triggers that promote a region to high-activity sampling (§16).
+    triggers:
+      audio_spike: true
+      scene_change: true
+      hud_change: true
+      motion_spike: true
+      speech_activity: true
+
+  # Scene detection (§17). Scene boundaries are supporting information, never
+  # automatic edit points.
+  scenes:
+    detector: content
+    threshold: 27.0
+    min_scene_seconds: 1.0
+    downscale_factor: 2
+
+  # Audio analysis (§18).
+  audio:
+    window_seconds: 0.5
+    hop_seconds: 0.25
+    silence_threshold_db: -45.0
+    min_silence_seconds: 1.5
+    spike_threshold_db: 9.0
+    loudness_target_lufs: -14.0
+    detect:
+      rms: true
+      peak: true
+      lufs: true
+      silence: true
+      transients: true
+      spectral_activity: true
+
+  # Separate microphone track analysis (§19). Game explosion and player scream
+  # carry very different semantic weight.
+  microphone:
+    enabled: true
+    auto_detect_track: true
+    reaction_window_seconds: 4.0
+
+  # Player reaction detection (§20).
+  reactions:
+    enabled: true
+    min_confidence: 0.55
+    correlation_window_seconds: 6.0
+
+  # Vision analysis (§15). The vision model never sees every frame.
+  #
+  # Cascading strategy: a local VLM costs seconds per frame, so a 2-hour
+  # recording sampled every 3 seconds (2400 frames) would take hours. Cheap
+  # detectors run first and nominate candidate regions; only the keyframes of
+  # those regions reach the VLM.
+  #
+  #   audio spikes + frame difference + transcript  ->  candidate regions
+  #                                                 ->  VLM confirms and reads
+  vision:
+    enabled: true
+    only_candidate_regions: true
+    max_frames_per_request: 4
+    # Hard ceiling on VLM work per hour of source, so analysis time stays
+    # predictable no matter how eventful the recording is.
+    max_frames_per_source_hour: 240
+    min_confidence: 0.5
+    describe_hud: true
+    describe_scene: true
+    # Cheap detectors that nominate candidates before any VLM call runs.
+    candidate_detectors:
+      - audio_spike
+      - frame_difference
+      - speech_activity
+      - scene_change
+      - hud_change
+    frame_difference_threshold: 0.35
+
+  # OCR (§25). Every result carries a timestamp.
+  #
+  # Region-restricted by default: reading only the kill-feed and score boxes a
+  # game profile declares is far cheaper than scanning the whole frame, and
+  # much more accurate on stylised HUD fonts.
+  ocr:
+    enabled: true
+    engine: paddleocr        # paddleocr | easyocr | tesseract | auto
+    min_confidence: 0.6
+    languages: ["en"]
+    use_profile_regions: true
+    # Full-frame scanning is the fallback for an unknown game (§23). It runs at
+    # reduced resolution and only on candidate frames.
+    full_frame_fallback: true
+    full_frame_max_width: 960
+
+  # HUD detection (§24). Confidence-based, never assumed.
+  hud:
+    enabled: true
+    min_confidence: 0.6
+    fields:
+      - health
+      - armor
+      - ammo
+      - score
+      - kill_feed
+      - timer
+      - objective
+      - minimap
+      - round
+      - team_status
+      - boss_health
+      - victory
+      - defeat

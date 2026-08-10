@@ -1,0 +1,76 @@
+# Narrative construction (SPEC sections 35-39).
+
+narrative:
+  # Story mode optimises narrative coherence, not raw moment score (§36).
+  story:
+    structure:
+      - hook
+      - context
+      - build_up
+      - event
+      - escalation
+      - climax
+      - reaction
+      - ending
+    # A weaker moment may win a slot when it supplies necessary context (§36).
+    coherence_weight: 0.55
+    score_weight: 0.45
+    require_climax: true
+
+  best_moments:
+    # Ranked selection with variety enforcement; no story arc imposed.
+    ordering: descending_score
+    interleave_types: true
+
+  compilation:
+    group_by: moment_type
+    group_order:
+      - epic
+      - clutch
+      - skill
+      - outplay
+      - funny
+      - fail
+    separator_seconds: 0.5
+
+  # Hook engine (§37). The system selects an existing moment; it never invents
+  # narration or fabricates footage.
+  hook:
+    enabled: true
+    max_seconds: 25.0
+    min_seconds: 5.0
+    sources:
+      - epic
+      - clutch
+      - funny
+      - surprise
+      - outcome_preview
+    # A moment used as the hook may be replayed in its chronological position.
+    allow_replay_in_body: true
+
+  # Pacing (§38).
+  pacing:
+    min_clip_seconds: 2.0
+    max_clip_seconds: 120.0
+    target_clips_per_minute: 2.2
+    max_consecutive_same_type: 2
+    max_consecutive_low_intensity_seconds: 45.0
+    intensity_curve: rising
+
+  # Duration optimizer (§39). This is a constrained optimisation, not a sort:
+  # pick the subset of moments closest to the target while maximising
+  # entertainment, narrative and variety, minus repetition and dead time.
+  optimizer:
+    strategy: weighted_knapsack
+    objective_weights:
+      entertainment: 1.00
+      narrative: 0.90
+      variety: 0.70
+    objective_penalties:
+      repetition: 0.80
+      dead_time: 0.70
+    max_iterations: 500
+    # When the best subset still misses the band, trimming context is tried
+    # before dropping a moment entirely.
+    allow_context_trim: true
+    max_context_trim_ratio: 0.5

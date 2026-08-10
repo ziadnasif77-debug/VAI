@@ -1,0 +1,149 @@
+# Interaction layer: editing instructions, questions and commands.
+#
+# This layer is optional by design. With no instructions the system uses the
+# default preset and produces a video end to end. Instructions refine that
+# result; they are never required for it.
+#
+# Presets live here as data so a new one is a configuration change, and so the
+# UI can list them without asking the backend to enumerate code.
+
+interaction:
+  enabled: true
+  default_preset: best_moments
+
+  intent:
+    # Where an unspecified target duration comes from: the project's own
+    # setting always wins over a preset's suggestion.
+    project_settings_override_preset: true
+    max_updates_per_project: 500
+
+  qa:
+    # Questions are refused rather than guessed at until the analysis that
+    # would answer them has completed.
+    require_analysis_complete: true
+    max_results: 10
+    # Window searched around a timestamp in "what happened at 12:34".
+    timestamp_context_seconds: 15.0
+    min_confidence_to_answer: 0.35
+
+  # An LLM is a fallback, not the default path. Deterministic answers come from
+  # the analysis database: asking for the current duration must not cost an
+  # inference call.
+  llm_fallback:
+    enabled: true
+    max_input_records: 60
+    temperature: 0.1
+
+  commands:
+    enabled: true
+    # A command changes the EDL and triggers a re-render. It never re-runs the
+    # analysis.
+    auto_rerender: false
+    keep_versions: 20
+
+  conversation:
+    enabled: true
+    max_messages: 500
+    # Messages kept as context when interpreting a follow-up.
+    context_window_messages: 12
+
+# Editing presets. The user picks one, then refines it with instructions;
+# both are merged into the final intent.
+presets:
+  best_moments:
+    label: "Best Moments"
+    description: "Highest-scoring moments, ordered for watchability."
+    mode: best_moments
+    pacing: fast
+    dead_time_policy: aggressive
+    context_preservation: medium
+    effects: moderate
+    captions: important_only
+    music: subtle
+    variety: high
+    style: best_moments
+    priority_moment_types: [epic, clutch, skill, outplay, funny]
+
+  fast_gaming:
+    label: "Fast Gaming"
+    description: "High-energy cutting, minimal downtime."
+    mode: best_moments
+    pacing: very_fast
+    dead_time_policy: aggressive
+    context_preservation: low
+    effects: heavy
+    captions: important_only
+    music: prominent
+    variety: high
+    style: gaming_fast
+    priority_moment_types: [epic, clutch, chaos, outplay, skill]
+
+  cinematic:
+    label: "Cinematic"
+    description: "Longer takes, restrained cutting, atmosphere preserved."
+    mode: story
+    pacing: slow
+    dead_time_policy: balanced
+    context_preservation: high
+    effects: minimal
+    captions: important_only
+    music: prominent
+    variety: medium
+    style: cinematic
+    priority_moment_types: [epic, tension, boss, victory, comeback]
+
+  story_driven:
+    label: "Story Driven"
+    description: "A narrative arc: setup, escalation, payoff."
+    mode: story
+    pacing: medium
+    dead_time_policy: balanced
+    context_preservation: high
+    effects: minimal
+    captions: standard
+    music: subtle
+    variety: medium
+    style: story
+    priority_moment_types: [tension, comeback, boss, victory, defeat, discovery]
+
+  funny_gaming:
+    label: "Funny Gaming"
+    description: "Reactions, fails and comedy over mechanical skill."
+    mode: best_moments
+    pacing: fast
+    dead_time_policy: aggressive
+    context_preservation: medium
+    effects: moderate
+    captions: standard
+    music: subtle
+    variety: high
+    style: funny
+    priority_moment_types: [funny, fail, reaction, surprise, rage, chaos]
+
+  competitive:
+    label: "Competitive"
+    description: "Mechanical skill and decisive rounds; little decoration."
+    mode: best_moments
+    pacing: fast
+    dead_time_policy: aggressive
+    context_preservation: high
+    effects: minimal
+    captions: important_only
+    music: none
+    variety: low
+    style: competitive
+    priority_moment_types: [clutch, skill, outplay, victory]
+
+  minimal_effects:
+    label: "Minimal Effects"
+    description: "Cuts only. No zooms, ramps or motion graphics."
+    mode: best_moments
+    pacing: medium
+    dead_time_policy: balanced
+    context_preservation: high
+    effects: none
+    captions: none
+    music: none
+    variety: medium
+    style: minimal
+    priority_moment_types: []

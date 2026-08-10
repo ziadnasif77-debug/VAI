@@ -1,0 +1,65 @@
+# Audio engine configuration (SPEC sections 72-74).
+#
+# Final mix priority (§72):  Speech > Important game audio > Music
+
+audio:
+  # Dedicated analysis stream fed to the speech and audio-event engines.
+  analysis:
+    sample_rate: 16000
+    channels: 1
+    codec: pcm_s16le
+    format: wav
+
+  # Output mix (§72).
+  mix:
+    tracks:
+      - game
+      - microphone
+      - music
+      - effects
+    gains_db:
+      game: 0.0
+      microphone: 2.0
+      music: -18.0
+      effects: -3.0
+    normalization:
+      enabled: true
+      target_lufs: -14.0
+      true_peak_db: -1.0
+      loudness_range: 11.0
+    limiter:
+      enabled: true
+      ceiling_db: -0.3
+
+  # Ducking (§74): music drops for speech and for important game audio.
+  ducking:
+    enabled: true
+    speech_duck_db: -14.0
+    game_event_duck_db: -8.0
+    attack_ms: 120
+    release_ms: 700
+    hold_ms: 250
+
+  # Local user-provided music only. Nothing is downloaded automatically (§73).
+  music:
+    enabled: true
+    source: local_only
+    directory: assets/music
+    loop: true
+    fade_in_ms: 800
+    fade_out_ms: 1200
+    change_on_section: true
+
+  fades:
+    clip_fade_in_ms: 0
+    clip_fade_out_ms: 0
+    program_fade_in_ms: 250
+    program_fade_out_ms: 600
+    crossfade_ms: 60
+
+  clipping:
+    detect: true
+    threshold_db: -0.1
+
+  sync:
+    max_offset_ms: 40

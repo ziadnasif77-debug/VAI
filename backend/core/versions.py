@@ -1,0 +1,59 @@
+"""Version identifiers recorded with every analysis result.
+
+SPEC sections 48 (caching), 49 (model versioning), 92 (prompt architecture).
+
+Every AI-generated analysis stores ``model_name``, ``model_version``,
+``prompt_version`` and ``analysis_version``. Together with the video hash these
+decide whether an existing result can be reused (§48) and make a wrong result
+traceable to the exact code, prompt and model that produced it (§49).
+"""
+
+from __future__ import annotations
+
+from typing import Final
+
+#: Semantic version of the application as a whole.
+APPLICATION_VERSION: Final[str] = "0.1.0"
+
+#: Bumped when analysis *logic* changes in a way that invalidates stored
+#: results: sampling strategy, event correlation rules, scoring maths.
+#: Participates in every cache key (§48).
+ANALYSIS_VERSION: Final[int] = 1
+
+#: Bumped for every database migration. Must equal the highest migration number
+#: in backend/database/migrations.
+SCHEMA_VERSION: Final[int] = 1
+
+#: Version of the on-disk ``project.json`` manifest format (§43).
+PROJECT_MANIFEST_VERSION: Final[int] = 1
+
+#: Registry of production prompts (§92). Each prompt directory under
+#: ``prompts/`` registers its id here; using an unregistered prompt raises,
+#: because an unversioned prompt silently poisons the analysis cache.
+PROMPT_VERSIONS: Final[dict[str, int]] = {}
+
+
+def prompt_version(prompt_id: str) -> int:
+    """Return the registered version of ``prompt_id``.
+
+    Raises:
+        KeyError: if the prompt is not registered.
+    """
+    try:
+        return PROMPT_VERSIONS[prompt_id]
+    except KeyError as exc:
+        raise KeyError(
+            f"Unknown prompt id {prompt_id!r}. Register it in "
+            "backend/core/versions.py:PROMPT_VERSIONS before use (§92)."
+        ) from exc
+
+
+def version_manifest() -> dict[str, object]:
+    """Return the full version set stored on projects and analysis artefacts."""
+    return {
+        "application_version": APPLICATION_VERSION,
+        "analysis_version": ANALYSIS_VERSION,
+        "schema_version": SCHEMA_VERSION,
+        "project_manifest_version": PROJECT_MANIFEST_VERSION,
+        "prompt_versions": dict(PROMPT_VERSIONS),
+    }
