@@ -15,14 +15,15 @@ from backend.pipeline.workers.media_workers import (
     ProbeWorker,
     ProxyWorker,
 )
+from backend.pipeline.workers.speech_workers import AudioEventsWorker, TranscriptWorker
 
 
 def default_workers() -> dict[JobStage, StageWorker]:
     """Return the stages that can currently run.
 
-    Phase 2 covers the media engine: everything needed to turn a recording into
-    the artefacts the analysis stages read. TRANSCRIPT onward arrive with their
-    phases.
+    Phase 2 covers the media engine -- everything needed to turn a recording
+    into the artefacts the analysis stages read. Phase 3 adds speech and audio
+    understanding. SCENES onward arrive with their phases.
     """
     return {
         JobStage.IMPORT: ImportWorker(),
@@ -30,10 +31,13 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.PROXY: ProxyWorker(),
         JobStage.AUDIO: AudioWorker(),
         JobStage.FRAMES: FramesWorker(),
+        JobStage.TRANSCRIPT: TranscriptWorker(),
+        JobStage.AUDIO_EVENTS: AudioEventsWorker(),
     }
 
 
 __all__ = [
+    "AudioEventsWorker",
     "AudioWorker",
     "FramesWorker",
     "ImportWorker",
@@ -41,6 +45,7 @@ __all__ = [
     "ProgressReporter",
     "ProxyWorker",
     "StageWorker",
+    "TranscriptWorker",
     "WorkerContext",
     "default_workers",
 ]

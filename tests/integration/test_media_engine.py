@@ -29,7 +29,6 @@ from backend.media.frames import (
 )
 from backend.media.probe import probe_media
 from backend.media.proxy import SEGMENT_DIRNAME, generate_proxy
-from backend.pipeline.runner import PipelineRunner
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_ffmpeg]
 
@@ -335,15 +334,17 @@ class TestPipelineEndToEnd:
         return project, media
 
     def test_every_media_stage_completes(
-        self, media_service, project_manager, database, paths, config, test_clip: Path
+        self, media_service, project_manager, pipeline_runner, test_clip: Path
     ) -> None:
         project, _ = self._import(media_service, project_manager, test_clip)
-        runner = PipelineRunner(database, paths, config)
 
-        outcomes = runner.run_project(project.id)
+        outcomes = pipeline_runner.run_project(project.id)
 
         completed = [outcome.job.stage for outcome in outcomes if outcome.succeeded]
-        assert completed == [
+        # The media engine's own stages, in dependency order. Later stages run
+        # too once their phases land, so this asserts the prefix: adding a phase
+        # must not make a Phase 2 test wrong.
+        assert completed[:5] == [
             JobStage.IMPORT,
             JobStage.PROBE,
             JobStage.PROXY,
@@ -353,11 +354,11 @@ class TestPipelineEndToEnd:
         assert all(outcome.job.progress == 1.0 for outcome in outcomes)
 
     def test_the_probe_stage_persists_metadata_and_tracks(
-        self, media_service, project_manager, database, paths, config, two_track_clip: Path
+        self, media_service, project_manager, database, pipeline_runner,
+        two_track_clip: Path,
     ) -> None:
         project, media = self._import(media_service, project_manager, two_track_clip)
-        runner = PipelineRunner(database, paths, config)
-        runner.run_project(project.id, max_jobs=2)
+        pipeline_runner.run_project(project.id, max_jobs=2)
 
         stored = media_service.get_media(media.id)
         assert stored.state is MediaState.PROBED
@@ -369,22 +370,24 @@ class TestPipelineEndToEnd:
         assert len(MediaTrackRepository(database).audio_tracks(media.id)) == 2
 
     def test_artefacts_land_in_the_project_layout(
-        self, media_service, project_manager, database, paths, config, test_clip: Path
+        self, media_service, project_manager, paths, pipeline_runner, test_clip: Path
     ) -> None:
         # §43: proxy, audio and frames each in their own directory.
-        project, _ = self._import(media_service, project_manager, test_clip)
-        PipelineRunner(database, paths, config).run_project(project.id)
+        project, media = self._import(media_service, project_manager, test_clip)
+        pipeline_runner.run_project(project.id)
 
         project_paths = paths.project(project.id)
         assert list(project_paths.proxy.glob("*.mp4"))
-        assert (project_paths.audio / "analysis.wav").is_file()
+        # Audio and frames are namespaced per media: two gameplay files in one
+        # project must not overwrite each other's analysis stream.
+        assert (project_paths.audio / media.id / "analysis.wav").is_file()
         assert list(project_paths.frames.rglob("*.jpg"))
 
     def test_frames_are_recorded_for_the_vision_stage(
-        self, media_service, project_manager, database, paths, config, test_clip: Path
+        self, media_service, project_manager, database, pipeline_runner, test_clip: Path
     ) -> None:
         project, media = self._import(media_service, project_manager, test_clip)
-        PipelineRunner(database, paths, config).run_project(project.id)
+        pipeline_runner.run_project(project.id)
 
         frames = FrameRepository(database).list_for_media(media.id)
         assert frames
@@ -395,11 +398,13 @@ class TestPipelineEndToEnd:
         )
 
     def test_job_results_carry_what_the_next_stage_needs(
-        self, media_service, project_manager, database, paths, config, test_clip: Path
+        self, media_service, project_manager, pipeline_runner, test_clip: Path
     ) -> None:
         project, _ = self._import(media_service, project_manager, test_clip)
-        runner = PipelineRunner(database, paths, config)
-        outcomes = {outcome.job.stage: outcome.job for outcome in runner.run_project(project.id)}
+        outcomes = {
+            outcome.job.stage: outcome.job
+            for outcome in pipeline_runner.run_project(project.id)
+        }
 
         assert outcomes[JobStage.PROBE].result["duration_seconds"] > 0
         assert outcomes[JobStage.PROXY].result["proxy_path"].endswith(".mp4")
@@ -408,27 +413,28 @@ class TestPipelineEndToEnd:
         assert outcomes[JobStage.FRAMES].result["from_proxy"] is True
 
     def test_the_runner_stops_where_the_pipeline_ends(
-        self, media_service, project_manager, database, paths, config, test_clip: Path
+        self, media_service, project_manager, pipeline_runner, test_clip: Path
     ) -> None:
-        # TRANSCRIPT has no worker until Phase 3. That is a stopping point, not
-        # a failure -- a stage that was never implemented must not be reported
+        # The first stage with no worker yet is a stopping point, not a
+        # failure -- a stage that was never implemented must not be reported
         # as one that broke.
         project, _ = self._import(media_service, project_manager, test_clip)
-        runner = PipelineRunner(database, paths, config)
-        runner.run_project(project.id)
+        pipeline_runner.run_project(project.id)
 
-        assert runner.run_next(project.id) is None
-        transcript = next(
-            job for job in runner.jobs.list_jobs(project.id) if job.stage is JobStage.TRANSCRIPT
+        assert pipeline_runner.run_next(project.id) is None
+        frontier = next(
+            job
+            for job in pipeline_runner.jobs.list_jobs(project.id)
+            if job.stage not in pipeline_runner.supported_stages
         )
-        assert transcript.status is JobStatus.QUEUED
-        assert transcript.error_code is None
+        assert frontier.status is JobStatus.QUEUED
+        assert frontier.error_code is None
 
     def test_a_rerun_is_idempotent(
-        self, media_service, project_manager, database, paths, config, test_clip: Path
+        self, media_service, project_manager, database, pipeline_runner, test_clip: Path
     ) -> None:
         project, media = self._import(media_service, project_manager, test_clip)
-        runner = PipelineRunner(database, paths, config)
+        runner = pipeline_runner
         runner.run_project(project.id)
 
         frames_job = next(
@@ -445,25 +451,25 @@ class TestPipelineEndToEnd:
         assert len(stored) == outcome.job.result["frames"]
 
     def test_a_missing_source_fails_the_stage_not_the_runner(
-        self, media_service, project_manager, database, paths, config, tmp_path: Path,
+        self, media_service, project_manager, pipeline_runner, tmp_path: Path,
         clip_factory,
     ) -> None:
         clip = clip_factory(tmp_path / "temporary.mp4", seconds=2.0)
         project, media = self._import(media_service, project_manager, clip)
         clip.unlink()
 
-        outcomes = PipelineRunner(database, paths, config).run_project(project.id)
+        outcomes = pipeline_runner.run_project(project.id)
         assert outcomes[-1].error_code is ErrorCode.MEDIA_NOT_FOUND
         assert outcomes[-1].job.status is JobStatus.FAILED
         assert media_service.get_media(media.id).state is MediaState.FAILED
 
     def test_cancellation_stops_the_pipeline_cleanly(
-        self, media_service, project_manager, database, paths, config, job_manager, test_clip: Path
+        self, media_service, project_manager, job_manager, pipeline_runner,
+        test_clip: Path,
     ) -> None:
         # §82: cancelling never leaves the project half-written.
         project, _ = self._import(media_service, project_manager, test_clip)
         job_manager.cancel_project(project.id)
 
-        runner = PipelineRunner(database, paths, config)
-        outcome = runner.run_next(project.id)
+        outcome = pipeline_runner.run_next(project.id)
         assert outcome is None or outcome.cancelled

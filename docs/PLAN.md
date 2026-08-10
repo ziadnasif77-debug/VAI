@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-10, end of Phase 2 |
-| Current phase | **Phase 2 complete and verified.** Next: Phase 3 (Speech / Audio) |
-| Tests | 515 passing (including the §7 memory acceptance test) |
-| Backend code | ~15,000 lines across `backend/` and `ai/` |
+| Last updated | 2026-08-10, end of Phase 3 |
+| Current phase | **Phase 3 complete and verified.** Next: Phase 4 (Vision) |
+| Tests | 580 passing (2 opt-in model tests skipped by default) |
+| Backend code | ~18,000 lines across `backend/` and `ai/` |
 
 ---
 
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 515 passing (~5 min)
+.venv/bin/python -m pytest               # expect 580 passing (~5 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -38,7 +38,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 3 is the next work**. Start at §5 of this document.
+healthy and **Phase 4 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -53,8 +53,8 @@ Development order follows SPEC §126.
 | — | *Effects engine* | 22-effect library, planner, budgets | ✅ **done** (added mid-Phase-1) |
 | — | *Publishing seam* | local-file target, YouTube slot | ✅ **done** (added mid-Phase-1) |
 | 2 | **Media Engine** | FFmpeg/FFprobe, proxy, audio, frames, chunking | ✅ **done** |
-| 3 | **Speech / Audio** | Whisper transcript, audio events, reactions | ⬜ next |
-| 4 | **Vision** | scene detection, keyframes, VLM analysis | ⬜ |
+| 3 | **Speech / Audio** | Whisper transcript, audio events, reactions | ✅ **done** |
+| 4 | **Vision** | scene detection, keyframes, VLM analysis | ⬜ next |
 | 5 | **Gaming Intelligence** | OCR, HUD, game events, correlation | ⬜ |
 | 6 | **Moments** | formation, context expansion, scoring, dead time, repetition | ⬜ |
 | 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ⬜ |
@@ -90,7 +90,9 @@ moments → EDL → render` does not work, no interface saves the project.
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
 | `backend/pipeline` | `runner`, `workers/` for IMPORT · PROBE · PROXY · AUDIO · FRAMES | complete for the media stages |
-| `backend/{analysis,gaming,moments,narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
+| `backend/analysis` | `signal` (streaming features), `audio_events` (§18), `reactions` (§19, §20) | audio complete; vision pending |
+| `ai/speech` | `faster_whisper_provider`, `fake_provider`, factory | complete |
+| `backend/{gaming,moments,narrative,timeline,rendering,qa}` | package docstrings only | **empty — this is the remaining work** |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -228,7 +230,7 @@ Full write-up: [`docs/PHASE_2.md`](PHASE_2.md).
 
 ---
 
-### Phase 3 — Speech and Audio (next)
+### Phase 3 — Speech and Audio ✅ done
 
 **Goal (§14, §18, §19, §20):** transcript with word timestamps, audio events,
 reaction candidates.
@@ -240,18 +242,30 @@ reaction candidates.
 - `backend/analysis/reactions.py` — correlate microphone audio with gameplay.
 - `backend/pipeline/workers/transcript.py`, `audio_events.py`.
 
-**Acceptance:** transcript timestamps align with the source; a separate
-microphone track is analysed independently of gameplay audio.
+**Acceptance: passed.** Both halves executed against real files. Chunked
+transcription verified with a chunk size small enough that a six-second clip
+produces several chunks — offsets land on the source timeline and no utterance
+is stored twice across an overlap. Microphone independence verified on a
+recording carrying a real laugh and a real scream on its second audio track,
+each correlated with the gameplay impact that preceded it.
 
-**Traps**
-- Chunked transcription needs `start_offset` so each chunk's timestamps land on
-  the source timeline — already in the `SpeechProvider` signature.
-- Whisper hallucinates on silence. VAD is on by default; keep it on.
-- Load the model once per stage, not per chunk (C-8).
+**Traps — all three hit, all three handled**
+- `start_offset` is applied per chunk, and a segment belongs to the chunk whose
+  core contains its midpoint, so an overlap is never counted twice.
+- VAD stays on. Verified against the real model: 30 s of silence returns
+  nothing, where an unfiltered Whisper invents captions.
+- The model loads once per stage and is released; asserted, because the
+  regression is invisible otherwise.
+
+**Also found:** every media file was writing `analysis.wav` into the same
+directory, so a second gameplay file silently overwrote the first's analysis
+audio. Audio is now namespaced per media, as frames already were.
+
+Full write-up: [`docs/PHASE_3.md`](PHASE_3.md).
 
 ---
 
-### Phase 4 — Vision
+### Phase 4 — Vision (next)
 
 **Goal (§15, §16, §17):** scene boundaries and frame understanding, cheaply.
 
@@ -486,15 +500,15 @@ Consequences to keep in mind:
   written and unit-tested here with fake providers; they cannot be *accepted*
   here.
 
-### Target machine setup (do this before Phase 3)
+### Target machine setup (do this before Phase 4)
 
-FFmpeg is already installed (9.0, gyan.dev full build, NVENC present). The rest:
+Installed already: FFmpeg 9.0 (gyan.dev full build, NVENC present),
+faster-whisper 1.2.1, PaddleOCR, numpy/scipy, Ollama. Remaining:
 
 ```powershell
-# elevated shell for anything chocolatey installs
-ollama pull qwen2.5vl:7b
-ollama pull qwen2.5:7b-instruct
-pip install faster-whisper paddleocr scenedetect opencv-python av
+ollama pull qwen2.5vl:7b        # Phase 4 vision model
+ollama pull qwen2.5:7b-instruct # Phase 13 LLM
+pip install scenedetect opencv-python
 python scripts/doctor.py        # expect all OK
 ```
 

@@ -38,6 +38,10 @@ class WorkerContext:
     job: Job
     media: Media | None
     paths: ProjectPaths
+    #: Where downloaded model weights live (§43). Separate from the project
+    #: tree: models are shared across every project and must not be copied into
+    #: each one.
+    models_dir: Path
     config: AppConfig
     database: Database
     ffmpeg: FFmpegRunner
@@ -63,6 +67,26 @@ class WorkerContext:
                 recoverable=False,
             )
         return self.media
+
+    def stage_result(self, stage: JobStage) -> dict[str, Any]:
+        """Return what an upstream stage recorded for this job's media.
+
+        The job result is the contract between stages (§81), so a stage reads
+        its input from there rather than reconstructing paths from conventions.
+        Guessing works right up until a naming rule changes in one place and not
+        the other, and then it fails silently by finding nothing.
+
+        Returns an empty dict when the stage has not run for this media. The
+        dependency graph makes that impossible for a declared prerequisite, so
+        an empty result means the caller asked about a stage it does not
+        actually depend on.
+        """
+        # Imported here: the job repository knows the §45 tables, and the
+        # worker context is deliberately not a database module.
+        from backend.database.repositories.jobs import JobRepository
+
+        job = JobRepository(self.database).find(self.project_id, stage, self.job.media_id)
+        return dict(job.result) if job is not None else {}
 
     def source_path(self) -> Path:
         """The file this job reads, checked for existence.

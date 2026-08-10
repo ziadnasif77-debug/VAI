@@ -211,7 +211,11 @@ class AudioWorker:
 
         streams = extract_all_tracks(
             source,
-            context.paths.audio,
+            # Per media, not per project. The primary stream has a fixed name
+            # so consumers can find it without a lookup, and a project with two
+            # gameplay files would otherwise have the second overwrite the
+            # first's analysis audio.
+            context.paths.audio / media.id,
             context.ffmpeg,
             context.config.audio.analysis,
             probe=probe,

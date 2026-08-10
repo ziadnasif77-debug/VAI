@@ -13,38 +13,54 @@ machine without it.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import wave
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from ai.speech.fake_provider import FakeSpeechProvider
 from backend.api.dependencies import AppState, build_state
 from backend.config.loader import load_config, reset_config_cache
 from backend.config.paths import Paths, build_paths, find_repository_root
 from backend.config.schema import AppConfig
 from backend.core.logging import shutdown_logging
+from backend.core.models.enums import JobStage
 from backend.database.connection import Database
 from backend.database.migrator import migrate
 from backend.media.ffmpeg import FFmpegRunner
+from backend.pipeline.runner import PipelineRunner
+from backend.pipeline.workers import default_workers
+from backend.pipeline.workers.speech_workers import TranscriptWorker
 from backend.services.job_manager import JobManager
 from backend.services.media_ingestion import MediaIngestionService
 from backend.services.project_manager import ProjectManager
 
+#: Set to run tests against real AI models. Off by default because the first
+#: run downloads gigabytes of weights, and a suite that does that unasked is a
+#: suite nobody can run on a metered connection.
+MODELS_ENV_VAR = "VAI_TEST_MODELS"
+
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip FFmpeg-dependent tests when FFmpeg is not installed.
+    """Skip tests whose external dependency is absent.
 
     Reported as skips, not passes: a suite that goes green on a machine with no
     FFmpeg would be claiming the media engine works when nothing exercised it.
     """
-    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
-        return
-    skip = pytest.mark.skip(reason="ffmpeg/ffprobe not on PATH")
+    has_ffmpeg = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+    models_enabled = os.environ.get(MODELS_ENV_VAR, "").strip().lower() in {"1", "true", "yes"}
+
+    skip_ffmpeg = pytest.mark.skip(reason="ffmpeg/ffprobe not on PATH")
+    skip_models = pytest.mark.skip(reason=f"set {MODELS_ENV_VAR}=1 to run against real models")
     for item in items:
-        if "requires_ffmpeg" in item.keywords:
-            item.add_marker(skip)
+        if not has_ffmpeg and "requires_ffmpeg" in item.keywords:
+            item.add_marker(skip_ffmpeg)
+        if not models_enabled and "requires_models" in item.keywords:
+            item.add_marker(skip_models)
 
 
 @pytest.fixture(scope="session")
@@ -235,6 +251,92 @@ def hd_clip(media_fixtures_dir: Path) -> Path:
     )
 
 
+def write_wav(path: Path, samples, *, sample_rate: int = 16000) -> Path:
+    """Write a mono 16-bit PCM WAV. No FFmpeg involved.
+
+    Audio fixtures are built numerically rather than transcoded, because a test
+    for a 5 Hz amplitude modulation needs a signal with a 5 Hz amplitude
+    modulation in it, and no synthetic source generator produces that on
+    request.
+    """
+    import numpy as np
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = (np.clip(np.asarray(samples, dtype=np.float64), -1.0, 1.0) * 32767).astype("<i2")
+    with wave.open(str(path), "wb") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(sample_rate)
+        stream.writeframes(data.tobytes())
+    return path
+
+
+def make_reaction_audio(seconds: float = 40.0, sample_rate: int = 16000):
+    """Return ``(gameplay, microphone)`` signals with a known event structure.
+
+    Gameplay carries three impacts, at 5 s, 15 s and 25 s. The microphone
+    carries a laugh after the first (amplitude-modulated at 5 Hz, which is what
+    makes laughter identifiable) and a scream after the second (loud and
+    bright). Nothing follows the third, so a test can check that the detector
+    does not invent a reaction where there was none.
+    """
+    import numpy as np
+
+    time = np.arange(int(sample_rate * seconds)) / sample_rate
+
+    gameplay = 0.02 * np.sin(2 * np.pi * 220 * time)
+    for impact in (5.0, 15.0, 25.0):
+        window = (time >= impact) & (time < impact + 0.4)
+        gameplay[window] += 0.7 * np.sin(2 * np.pi * 900 * time[window])
+
+    microphone = 0.01 * np.sin(2 * np.pi * 200 * time)
+    laugh = (time >= 6.0) & (time < 8.0)
+    microphone[laugh] += (
+        0.35
+        * (0.5 + 0.5 * np.sin(2 * np.pi * 5.0 * time[laugh]))
+        * np.sin(2 * np.pi * 400 * time[laugh])
+    )
+    scream = (time >= 16.0) & (time < 17.2)
+    microphone[scream] += 0.85 * np.sin(2 * np.pi * 1400 * time[scream])
+
+    return gameplay, microphone
+
+
+@pytest.fixture(scope="session")
+def reaction_clip(media_fixtures_dir: Path) -> Path:
+    """A recording whose second audio track is the player's microphone (§19).
+
+    Built by muxing two numerically generated tracks into one file, which is
+    exactly the shape a capture tool produces when the user records their
+    microphone separately.
+    """
+    gameplay, microphone = make_reaction_audio()
+    game_wav = write_wav(media_fixtures_dir / "reaction_game.wav", gameplay)
+    mic_wav = write_wav(media_fixtures_dir / "reaction_mic.wav", microphone)
+    target = media_fixtures_dir / "reaction.mp4"
+
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
+            "-i", str(game_wav),
+            "-i", str(mic_wav),
+            "-map", "0:v", "-map", "1:a", "-map", "2:a",
+            "-t", "40",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+            "-pix_fmt", "yuv420p",
+            # PCM through to the analysis stage: an AAC pass at 64 kbit would
+            # smear the transients this fixture exists to carry.
+            "-c:a", "pcm_s16le",
+            str(target),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=600,
+    )
+    return target
+
+
 @pytest.fixture(scope="session")
 def long_clip(media_fixtures_dir: Path) -> Path:
     """Fifteen minutes: long enough to need more than one proxy segment.
@@ -251,3 +353,33 @@ def long_clip(media_fixtures_dir: Path) -> Path:
 @pytest.fixture
 def ffmpeg_runner(config: AppConfig) -> FFmpegRunner:
     return FFmpegRunner(config.ffmpeg)
+
+
+# ---------------------------------------------------------------------------
+# AI provider fixtures (Phase 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def speech_provider() -> FakeSpeechProvider:
+    """A deterministic speech provider.
+
+    Every test that runs the pipeline gets this one. Whisper large-v3 is a 3 GB
+    download and minutes per run, and a test suite that quietly fetches it is a
+    test suite nobody can run on a metered connection. Tests that genuinely
+    need the real model are marked ``requires_models`` and build it themselves.
+    """
+    return FakeSpeechProvider()
+
+
+@pytest.fixture
+def pipeline_runner(
+    database: Database,
+    paths: Paths,
+    config: AppConfig,
+    speech_provider: FakeSpeechProvider,
+) -> PipelineRunner:
+    """A runner whose model-backed stages use test doubles."""
+    workers = default_workers()
+    workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
+    return PipelineRunner(database, paths, config, workers=workers)

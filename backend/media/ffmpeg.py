@@ -239,19 +239,25 @@ class FFmpegRunner:
 
     # -- command construction -------------------------------------------
 
-    def base_arguments(self) -> list[str]:
+    def base_arguments(self, *, loglevel: str | None = None) -> list[str]:
         """The prefix every ffmpeg invocation shares.
 
         ``-nostdin`` matters more than it looks: without it FFmpeg reads the
         inherited stdin, and a backend started from a terminal can have a job
         silently swallow keystrokes or block.
+
+        Args:
+            loglevel: raise the verbosity for a command whose *output* is the
+                point. Measurement filters -- ``ebur128``, ``silencedetect``,
+                ``astats`` -- print their results at ``info``, so at the
+                configured ``error`` level they run and report nothing.
         """
         return [
             self.ffmpeg_path,
             "-hide_banner",
             "-nostdin",
             "-loglevel",
-            self.config.loglevel,
+            loglevel or self.config.loglevel,
             "-y" if self.config.overwrite_output else "-n",
         ]
 
