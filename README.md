@@ -100,12 +100,16 @@ VAI__MODELS__VISION__MODEL=llava:13b
 
 ## Documentation
 
+**Resuming work on this project? Start with [docs/PLAN.md](docs/PLAN.md).**
+
 | | |
 | --- | --- |
+| [docs/PLAN.md](docs/PLAN.md) | **master plan and progress** — what is done, what is next, how to resume |
+| [docs/SPEC.md](docs/SPEC.md) | the specification — every `§N` in the code points here |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, contracts, dependency direction |
-| [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks, roadmap |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | every choice the spec left open, and why |
 | [docs/PHASE_1.md](docs/PHASE_1.md) | what Phase 1 delivered and what it deferred |
+| [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
 
 ## Development
 

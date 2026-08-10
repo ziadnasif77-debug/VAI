@@ -1,8 +1,13 @@
 # Assessment — AI Gaming Video Editor
 
+> **This is the pre-implementation assessment, written before Phase 1.** It is kept
+> as a record of the starting conditions, the dependency reasoning and the risk
+> register. For **current status and the remaining plan, read [PLAN.md](PLAN.md)** —
+> the Phase 1 plan in §6 below is complete and superseded.
+
 Repository and environment assessment for the **Gaming-First Local AI Video Editor**
-specification (v1.0, 126 sections). Supersedes the earlier long-form-editor assessment;
-that spec was replaced by the gaming spec before any code was committed.
+specification (v1.0). Supersedes the earlier long-form-editor assessment; that spec
+was replaced by the gaming spec before any code was committed.
 
 | Field | Value |
 | --- | --- |
