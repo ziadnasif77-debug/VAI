@@ -7,9 +7,9 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-11, end of Phase 14 |
-| Current phase | **Phase 14 complete and verified.** Next: Phase 15 (quality) |
-| Tests | 1225 passing (4 opt-in model tests skipped by default) |
+| Last updated | 2026-08-12, end of Phase 15 |
+| Current phase | **All 15 phases complete.** Next: whatever the numbers in PHASE_15 point at |
+| Tests | 1259 passing (4 opt-in model tests skipped by default) |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
@@ -31,7 +31,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 1225 passing (~22 min)
+.venv/bin/python -m pytest               # expect 1259 passing (~23 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -63,7 +63,9 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 15 is the next work**. Start at §5 of this document.
+healthy, the checkout is sound. What to do next is in
+[`docs/PHASE_15.md`](PHASE_15.md): the first quality numbers, and what they
+point at.
 
 ---
 
@@ -90,7 +92,7 @@ Development order follows SPEC §126.
 | 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ✅ **done** |
 | 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ✅ **done** |
 | 14 | **Game Profiles** | one real game, then a profile API | ✅ **done** |
-| 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ⬜ next |
+| 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ✅ **done** |
 
 **Rule that governs the order (§126):** do not build a large UI before the
 pipeline produces a convincing video. If `gameplay → analysis → events →
@@ -664,10 +666,32 @@ values the tuning footage never produced.
 
 Full write-up: [`docs/PHASE_14.md`](PHASE_14.md).
 
-### Phase 15 — Quality
+### Phase 15 — Quality ✅ done
 
-Golden dataset (§117), precision/recall metrics (§118), user-edit metrics
-(§119), performance tuning, packaging.
+**Goal (§112, §117–§119):** the first numbers about whether the moments it
+picks are the moments a person would have picked.
+
+`backend/quality/` — the dataset format (§117), the metrics (§118), and §119
+read from the edit history the interaction layer already keeps. `scripts/
+annotate.py` builds contact sheets at a **fixed** interval so labels cannot
+agree with the system by construction; `scripts/evaluate.py` scores a project
+and prints the cases, not just the ratios.
+
+**First measurement**, ten minutes of real GTA V against 16 labels written
+before the pipeline ran: **events P 0.38 / R 0.86**, **moments P 0.33 /
+R 1.00**, and 6 seconds of selected footage overlapping stretches marked
+boring. Recall is strong, precision is weak — and precision is a *lower bound*,
+because 16 labels over ten minutes is sparse and many unlabelled detections are
+probably real.
+
+**Also found:** the measurement tool was wrong first. It reported a death as
+missed that the pipeline had found at 0.97 confidence — §27 merges detectors,
+so the death arrived as a 26-second span whose midpoint sat 8 seconds from the
+label. Matching now works in either direction and recall went 0.71 → 0.86 on
+the same data. And `scripts/serve.py` exits silently when its port is taken,
+**taking the worker with it**, which cost one wasted analysis.
+
+Full write-up: [`docs/PHASE_15.md`](PHASE_15.md).
 
 ---
 

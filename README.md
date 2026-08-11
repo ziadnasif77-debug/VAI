@@ -13,11 +13,12 @@ while preserving context, constructs a story, and renders it.
 3 hours of gameplay  →  Story / Best Moments  →  20 minutes  →  YouTube-ready MP4
 ```
 
-**Status:** Phases 1–14 complete — import, analysis, moments, narrative, EDL,
-overlay, render, QA, the web interface, natural-language editing, and game
-profiles. A real 21-minute recording goes in and a finished, QA'd video comes
-out, entirely through the browser. Remaining: quality measurement (Phase 15).
-Progress and next steps: [docs/PLAN.md](docs/PLAN.md).
+**Status:** all 15 phases complete. A real recording goes in and a finished,
+QA'd video comes out, entirely through the browser. The first quality
+measurement against hand-written labels is in
+[docs/PHASE_15.md](docs/PHASE_15.md) — events recall 0.86, moments recall 1.00,
+precision weaker and honestly a lower bound. Progress and what to do next:
+[docs/PLAN.md](docs/PLAN.md).
 
 ---
 
@@ -131,7 +132,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 1229 tests (~22 min)
+.venv/bin/python -m pytest              # 1263 tests (~23 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
 ```

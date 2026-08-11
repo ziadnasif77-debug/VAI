@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "name": "gta-v-2026-05-16",
+  "description": "Ten minutes of a GTA V session, annotated by watching a contact sheet at 10-second intervals and then sampling at 3 seconds around anything that looked like an event. Written before running the pipeline over this window, so the labels owe nothing to what it found. A seed, not a comprehensive benchmark: one window of one recording of one game.",
+  "recordings": [
+    {
+      "source_path": "D:\\Gaming 2026\\2026-05-16 22-24-49.mkv",
+      "size_bytes": 2964982803,
+      "duration_seconds": 3756.4,
+      "game": "gta_v",
+      "annotated_from_seconds": 1800.0,
+      "annotated_to_seconds": 2400.0,
+      "note": "A cheat-enabled sandbox session, not a mission run: invincibility and weapon cheats are toggled repeatedly, and the notification box is busy throughout. Worth knowing before reading any number computed against it -- 'boring' here includes several stretches of standing in a hospital car park turning cheats on.",
+      "spans": [
+        {
+          "kind": "event",
+          "event_type": "death",
+          "start_seconds": 1945.0,
+          "end_seconds": 1953.0,
+          "confidence": "certain",
+          "note": "WASTED. Present at 32:27 and 32:30, absent at 32:24, black by 32:33."
+        },
+        {
+          "kind": "event",
+          "event_type": "death",
+          "start_seconds": 2290.0,
+          "end_seconds": 2299.0,
+          "confidence": "certain",
+          "note": "WASTED. Absent at 38:09, bright at 38:12, fading at 38:15, nearly gone at 38:18."
+        },
+        {
+          "kind": "event",
+          "event_type": "chase",
+          "start_seconds": 1800.0,
+          "end_seconds": 1840.0,
+          "confidence": "certain",
+          "note": "Driving a police car with wanted stars showing."
+        },
+        {
+          "kind": "event",
+          "event_type": "high_damage",
+          "start_seconds": 2010.0,
+          "end_seconds": 2020.0,
+          "confidence": "certain",
+          "note": "A vehicle explodes beside the player at 33:30."
+        },
+        {
+          "kind": "event",
+          "event_type": "boss_fight",
+          "start_seconds": 2050.0,
+          "end_seconds": 2070.0,
+          "confidence": "opinion",
+          "note": "Police helicopter overhead at 34:10, player firing up at it. Not a boss in the game's terms; labelled because it is the shape of encounter a highlight reel wants and no other type fits."
+        },
+        {
+          "kind": "event",
+          "event_type": "high_damage",
+          "start_seconds": 2120.0,
+          "end_seconds": 2130.0,
+          "confidence": "certain",
+          "note": "A vehicle flips and explodes at 35:20; debris in the air."
+        },
+        {
+          "kind": "event",
+          "event_type": "high_damage",
+          "start_seconds": 2150.0,
+          "end_seconds": 2160.0,
+          "confidence": "certain",
+          "note": "Large fire with police cars at 35:50."
+        },
+
+        {
+          "kind": "highlight",
+          "moment_type": "chaos",
+          "start_seconds": 1880.0,
+          "end_seconds": 1953.0,
+          "confidence": "opinion",
+          "note": "Street firefight ending in the first death. Start is where the shooting begins; a reasonable person might start it ten seconds either side."
+        },
+        {
+          "kind": "highlight",
+          "moment_type": "chaos",
+          "start_seconds": 2000.0,
+          "end_seconds": 2160.0,
+          "confidence": "certain",
+          "note": "The strongest stretch in the window: carjacking, repeated explosions, a police helicopter, a five-star chase on foot. Anyone making a highlight reel from this recording takes something from here."
+        },
+        {
+          "kind": "highlight",
+          "moment_type": "clutch",
+          "start_seconds": 2220.0,
+          "end_seconds": 2299.0,
+          "confidence": "opinion",
+          "note": "Hilltop firefight down onto the highway, ending in the second death."
+        },
+
+        {
+          "kind": "boring",
+          "start_seconds": 1956.0,
+          "end_seconds": 1998.0,
+          "confidence": "certain",
+          "note": "Death fade, respawn, then standing in the hospital car park toggling cheats. Nothing happens and nothing is on screen but a notification list."
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 2160.0,
+          "end_seconds": 2220.0,
+          "confidence": "opinion",
+          "note": "Driving between places. Not nothing -- there is still a wanted level -- but it is transit, and a 20-minute video does not want a minute of it."
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 2302.0,
+          "end_seconds": 2340.0,
+          "confidence": "certain",
+          "note": "The second respawn: black, hospital car park, cheat notifications."
+        },
+
+        {
+          "kind": "game_state",
+          "start_seconds": 2040.0,
+          "end_seconds": 2160.0,
+          "state": {"wanted_level": 5},
+          "confidence": "certain",
+          "note": "Five stars showing across the whole action stretch."
+        },
+        {
+          "kind": "game_state",
+          "start_seconds": 2340.0,
+          "end_seconds": 2400.0,
+          "state": {"wanted_level": 4},
+          "confidence": "certain",
+          "note": "Four stars while driving after the second respawn."
+        },
+        {
+          "kind": "game_state",
+          "start_seconds": 1956.0,
+          "end_seconds": 1990.0,
+          "state": {"wanted_level": 0},
+          "confidence": "certain",
+          "note": "No stars drawn at all in the hospital car park. The row is hidden, which is the reading the profile calls absent_value."
+        }
+      ]
+    }
+  ]
+}
