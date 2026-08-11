@@ -699,7 +699,7 @@ Not blocking, but worth settling before the phase that needs them.
 | Do we ship model weights or download at setup? | Packaging | Download at setup; the repo stays small. |
 | Desktop shell — Tauri or plain localhost? | Phase 12 | Localhost web app first (§9 allows it), shell later. |
 | Multi-recording projects (multicam) | later | Sources are already independent; true sync is out of MVP scope. |
-| **NVIDIA driver too old for this FFmpeg's NVENC** | when convenient | The development machine runs driver 581.15; the gyan.dev FFmpeg 9.0 build wants nvenc API 13.1, which needs 610+. `nvidia-display-driver 610.88.0` is available through Chocolatey. Rendering falls back to libx264 in the meantime — correct output, several times slower. |
+| ~~NVIDIA driver too old for this FFmpeg's NVENC~~ | ~~when convenient~~ | **Settled 2026-08-11:** updated 581.15 → 610.88. NVENC now opens, and a 10.4-minute render fell from **942 s to 293 s** — 3.2× faster. The fallback path stays, because the machine this ships to may not have it. |
 | ~~Remotion licence for commercial use~~ | ~~Phase 9~~ | **Settled 2026-08-11:** free for individuals and for-profit organisations with up to 3 employees; above that, a company licence. This project is inside the free tier. |
 | **This repository has no LICENSE file** | before any release | Nothing has been published, so nothing is currently mis-licensed. Worth settling before the repo is shared. |
 
@@ -715,4 +715,5 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-10 | Interaction layer added as an independent layer above the pipeline. |
 | 2026-08-10 | Effects engine added as an independent module with a 22-effect library. |
 | 2026-08-10 | **Phase 1 complete** — 414 tests, committed and pushed. |
+| 2026-08-11 | NVIDIA driver 581.15 → 610.88, so NVENC opens. The same 10.4-minute render fell from 942 s to 293 s. Also revealed that the frozen-frames QA check gives different verdicts per encoder — recorded as a known sensitivity. |
 | 2026-08-11 | **First run on a real recording** (21 min, 1080p60). Found two defects 919 tests had missed: the transcript read the gameplay track instead of the microphone (§19), and both audio tracks of every recording on the machine are byte-identical, so the copy was being analysed twice and labelled "microphone". Write-up: [`docs/FIRST_REAL_RUN.md`](FIRST_REAL_RUN.md). |

@@ -134,6 +134,28 @@ finishes with nothing failed — because that is what every caller meant.
 
 ---
 
+## A sensitivity worth knowing about
+
+The frozen-frames check gives **different verdicts for the same content
+depending on the encoder**. On this project, rendered from one timeline:
+
+| Encoder | Verdict |
+| --- | --- |
+| libx264, CRF 19 | failed — "3.2 s of frozen picture", export blocked |
+| h264_nvenc, 16 Mbps | no frozen-frames finding at all |
+
+`freezedetect=n=-60dB` wants near-identical frames, and libx264 at a quality
+target can emit bit-identical ones through a low-motion passage where NVENC's
+rate-targeted quantisation always varies slightly. So the check is partly
+measuring the *encoder* rather than the video — and the earlier block was
+probably an artefact rather than a defect in the footage.
+
+It is recorded rather than hurriedly retuned: raising the threshold trades one
+kind of wrong answer for another, and picking the trade wants the golden
+dataset Phase 15 builds.
+
+---
+
 ## Not built, and why
 
 | Deferred | Phase |
