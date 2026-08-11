@@ -39,9 +39,13 @@ function describeProfile(
     return 'No profile for this game yet; analysis falls back to the generic path.';
   }
   const parts: string[] = [];
-  if (profile.event_rules) parts.push(`${profile.event_rules} text rules`);
-  if (profile.hud_indicators) parts.push(`${profile.hud_indicators} HUD indicator(s)`);
+  if (profile.event_rules) parts.push(plural(profile.event_rules, 'text rule'));
+  if (profile.hud_indicators) parts.push(plural(profile.hud_indicators, 'HUD indicator'));
   return parts.length ? `Adds ${parts.join(' and ')}.` : 'This profile declares nothing yet.';
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 export function ImportScreen({
