@@ -19,6 +19,13 @@ A/V sync is checked from stream start times rather than by correlating audio
 against video: the desync this pipeline can actually produce comes from a
 mistimed mux, and a cross-correlation over twenty minutes would cost more than
 the render did.
+
+One check reads a second file. A frozen picture in the render means one of two
+opposite things -- the render broke, or the footage was a menu -- and the
+render alone cannot tell them apart. So `frozen_frames` maps each freeze back
+through the timeline and asks the *recording* whether it was holding still
+there too. That is still a measurement of files rather than of anyone's report
+of them; it is just that answering "did the render invent this" takes both.
 """
 
 from __future__ import annotations
@@ -58,6 +65,12 @@ _FREEZE_START_RE = re.compile(r"freeze_start: (?P<start>[\d.]+)")
 _FREEZE_DURATION_RE = re.compile(r"freeze_duration: (?P<duration>[\d.]+)")
 _LOUDNESS_RE = re.compile(r"I:\s*(?P<lufs>-?[\d.]+) LUFS")
 
+#: Seconds of recording read either side of a freeze when checking the source.
+#: A freeze is bounded by the render's own timing; the stillness that explains
+#: it usually starts a moment earlier and ends a moment later, and the seek is
+#: by index so the extra costs nothing.
+_SOURCE_PAD_SECONDS: Final[float] = 1.0
+
 
 @dataclass(frozen=True, slots=True)
 class Expected:
@@ -67,6 +80,37 @@ class Expected:
     width: int
     height: int
     fps: float
+
+
+@dataclass(frozen=True, slots=True)
+class SourceSpan:
+    """One clip of the render, and the recording it was cut from (§42, §80).
+
+    Enough to turn "the picture stopped at 4:12 of the video" into "was the
+    recording holding still at 8:03 of that .mkv", which is the difference
+    between a broken render and a menu screen someone chose to keep.
+
+    A flat projection of the timeline rather than the timeline itself: QA needs
+    the mapping, not the edit, and the caller already has both.
+    """
+
+    path: Path
+    timeline_start: float
+    timeline_end: float
+    source_in: float
+    #: 1.0 is real time; slow motion stretches the timeline span, not the source.
+    speed: float = 1.0
+
+    def window(self, start: float, end: float) -> tuple[float, float] | None:
+        """The source window behind a stretch of the render, if this clip covers it."""
+        first = max(start, self.timeline_start)
+        last = min(end, self.timeline_end)
+        if last <= first:
+            return None
+        return (
+            self.source_in + (first - self.timeline_start) * self.speed,
+            (last - first) * self.speed,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,8 +138,15 @@ def inspect(
     *,
     runner: FFmpegRunner,
     config: QaConfig,
+    sources: Sequence[SourceSpan] = (),
 ) -> list[Finding]:
-    """Run every enabled technical check against a rendered file (§76)."""
+    """Run every enabled technical check against a rendered file (§76).
+
+    ``sources`` is where each second of the render came from. Given it, a
+    frozen picture can be checked against the recording and a static menu told
+    apart from a stalled render. Without it every freeze is unexplained, which
+    is the safe reading but a blunter one.
+    """
     checks = set(enabled_checks(CHECKS, config.technical.checks))
     findings: list[Finding] = []
 
@@ -131,7 +182,11 @@ def inspect(
 
     if _needs_decode(checks):
         measurements = decode(path, runner, config, total_seconds=probe.duration_seconds)
-        findings.extend(_decode_findings(measurements, expected, config, checks))
+        findings.extend(
+            _decode_findings(
+                measurements, config, checks, runner=runner, sources=sources
+            )
+        )
 
     if "av_sync" in checks:
         findings.append(_av_sync(probe, config))
@@ -163,7 +218,8 @@ def decode(
     thresholds = config.technical.thresholds
     graph = (
         f"[0:v]blackdetect=d=0.5:pix_th=0.10[bd];"
-        f"[bd]freezedetect=n=-60dB:d={max(0.5, thresholds.max_frozen_run_seconds):.2f}[v]"
+        f"[bd]freezedetect=n={_noise(config)}:"
+        f"d={max(0.5, thresholds.max_frozen_run_seconds):.2f}[v]"
     )
     argv = [
         *runner.base_arguments(loglevel="info"),
@@ -296,9 +352,11 @@ def _format_findings(
 
 def _decode_findings(
     measurements: DecodeMeasurements,
-    expected: Expected,
     config: QaConfig,
     checks: set[str],
+    *,
+    runner: FFmpegRunner,
+    sources: Sequence[SourceSpan],
 ) -> list[Finding]:
     thresholds = config.technical.thresholds
     findings: list[Finding] = []
@@ -336,21 +394,7 @@ def _decode_findings(
             )
 
     if "frozen_frames" in checks:
-        longest = measurements.longest_freeze
-        if longest > thresholds.max_frozen_run_seconds:
-            findings.append(
-                failure(
-                    "frozen_frames",
-                    f"{longest:.1f}s of frozen picture",
-                    remedy=(
-                        "The source may be corrupt at that timestamp, or a segment "
-                        "was encoded from a bad seek. Check the clip covering it."
-                    ),
-                    longest_seconds=round(longest, 2),
-                )
-            )
-        else:
-            findings.append(passed("frozen_frames", f"longest freeze {longest:.2f}s"))
+        findings.append(_frozen_frames(measurements, config, runner, sources))
 
     if "loudness" in checks and measurements.integrated_lufs is not None:
         lufs = measurements.integrated_lufs
@@ -371,6 +415,158 @@ def _decode_findings(
         else:
             findings.append(passed("loudness", f"{lufs:.1f} LUFS"))
     return findings
+
+
+def _frozen_frames(
+    measurements: DecodeMeasurements,
+    config: QaConfig,
+    runner: FFmpegRunner,
+    sources: Sequence[SourceSpan],
+) -> Finding:
+    """Did the picture stop, and if so did the *recording* stop too? (§76)
+
+    A frozen render is two different events wearing one face. If the recording
+    was holding still -- a menu, a loading screen, a paused game -- the render
+    is faithful and the video plays; that is a judgement about the edit, and
+    §77 gives judgements to a human. If the recording was moving, the render
+    invented the freeze: a bad seek, a corrupt segment, a swallowed decode
+    error. Only that is a fact about the file, and only that blocks export.
+
+    Asking the source is also what makes the answer independent of the encoder.
+    Both files are measured at the same noise floor, so what is compared is two
+    pictures rather than two quantisers.
+    """
+    limit = config.technical.thresholds.max_frozen_run_seconds
+    longest = measurements.longest_freeze
+    if longest <= limit:
+        return passed("frozen_frames", f"longest freeze {longest:.2f}s")
+
+    over = [run for run in measurements.freeze_runs if run[1] > limit]
+    moving: list[tuple[float, float]] = []
+    unverified: list[tuple[float, float]] = []
+    explained: list[tuple[float, float]] = []
+    for start, seconds in over:
+        held = _source_stillness(start, seconds, runner, config, sources)
+        if held is None:
+            unverified.append((start, seconds))
+        elif held > limit:
+            explained.append((start, seconds))
+        else:
+            moving.append((start, seconds))
+
+    if moving:
+        start, seconds = max(moving, key=lambda run: run[1])
+        return failure(
+            "frozen_frames",
+            f"{seconds:.1f}s of frozen picture at {start:.1f}s, which the "
+            f"recording does not account for",
+            remedy=(
+                "The recording is moving there, so the render stopped on its own: "
+                "a bad seek, or a corrupt segment. Check the clip covering that "
+                "timestamp and re-render."
+            ),
+            longest_seconds=round(seconds, 2),
+            at_seconds=round(start, 2),
+            runs=len(moving),
+        )
+
+    if unverified:
+        # Nothing was read back, so nothing is claimed about the recording.
+        start, seconds = max(unverified, key=lambda run: run[1])
+        return failure(
+            "frozen_frames",
+            f"{seconds:.1f}s of frozen picture at {start:.1f}s",
+            remedy=(
+                "The source may be corrupt at that timestamp, or a segment was "
+                "encoded from a bad seek. Check the clip covering it."
+            ),
+            longest_seconds=round(seconds, 2),
+            at_seconds=round(start, 2),
+            runs=len(unverified),
+        )
+
+    start, seconds = max(explained, key=lambda run: run[1])
+    return warning(
+        "frozen_frames",
+        f"{seconds:.1f}s of the edit does not move, starting at {start:.1f}s -- "
+        f"the recording is still there too",
+        remedy=(
+            "The render is faithful, so this is an editing call: a menu, a "
+            "loading screen or a pause survived into the video. Trim that clip "
+            "if it was not deliberate."
+        ),
+        category="content",
+        longest_seconds=round(seconds, 2),
+        at_seconds=round(start, 2),
+        runs=len(explained),
+    )
+
+
+def _source_stillness(
+    start: float,
+    seconds: float,
+    runner: FFmpegRunner,
+    config: QaConfig,
+    sources: Sequence[SourceSpan],
+) -> float:
+    """How long the recording behind this stretch of render holds still.
+
+    Zero when there is no timeline to map through, which reads as "nothing
+    accounts for this freeze" -- the safe answer, and the one that keeps a
+    bare file honest.
+    """
+    longest = 0.0
+    for span in sources:
+        window = span.window(start, start + seconds)
+        if window is None:
+            continue
+        source_start, source_seconds = window
+        longest = max(
+            longest, _freeze_in(span.path, source_start, source_seconds, runner, config)
+        )
+    return longest
+
+
+def _freeze_in(
+    path: Path,
+    start: float,
+    seconds: float,
+    runner: FFmpegRunner,
+    config: QaConfig,
+) -> float:
+    """The longest still run in one window of one recording.
+
+    Seeks by index rather than decoding from the start, so this costs a few
+    seconds of decode however long the recording is.
+    """
+    if not path.is_file():
+        return 0.0
+    padded = seconds + 2 * _SOURCE_PAD_SECONDS
+    argv = [
+        *runner.base_arguments(loglevel="info"),
+        *runner.input_arguments(
+            path, start=max(0.0, start - _SOURCE_PAD_SECONDS), duration=padded
+        ),
+        "-an",
+        "-vf", f"freezedetect=n={_noise(config)}:d=0.5",
+        "-f", "null", "-",
+    ]
+    result = runner.run(argv, check=False)
+    if not result.ok:
+        # An unreadable window is not evidence that the footage was moving, but
+        # it is not evidence that it was still either. Nothing is claimed.
+        logger.warning(
+            "Could not read the source behind a frozen stretch",
+            extra={"path": str(path), "start": round(start, 2)},
+        )
+        return 0.0
+    runs = _parse_freeze(result.stderr, padded)
+    return max((duration for _, duration in runs), default=0.0)
+
+
+def _noise(config: QaConfig) -> str:
+    """``freezedetect``'s noise floor, as the filter spells it."""
+    return f"{config.technical.thresholds.freeze_noise_db:g}dB"
 
 
 def _av_sync(probe: ProbeResult, config: QaConfig) -> Finding:
@@ -485,6 +681,7 @@ __all__ = [
     "CHECKS",
     "DecodeMeasurements",
     "Expected",
+    "SourceSpan",
     "check_names",
     "decode",
     "inspect",

@@ -569,6 +569,12 @@ nothing to make a video from". And adding the RENDER worker made every earlier
 phase's integration test encode an MP4; `tests/conftest.py::workers_through`
 now limits each file to its own phase.
 
+**Revisited since:** the frozen-frames check was measuring the encoder rather
+than the video. Its noise floor is configuration now (`freeze_noise_db`, -45 dB,
+chosen by measuring real footage through both encoders), and a freeze is
+checked against the *recording* before it blocks — so a menu that survived into
+the edit warns, and only a render that stopped on its own fails.
+
 Full write-up: [`docs/PHASE_11.md`](PHASE_11.md).
 
 ---

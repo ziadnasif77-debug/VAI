@@ -17,6 +17,7 @@ then it protects nothing.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,27 @@ from backend.qa.report import build_report
 pytestmark = [pytest.mark.integration, pytest.mark.requires_ffmpeg]
 
 WIDTH, HEIGHT, FPS, SECONDS = 320, 240, 15, 6
+
+#: One frame of `testsrc`, held for the whole clip.
+_HELD = (
+    f"trim=start_frame=0:end_frame=1,"
+    f"loop=loop={FPS * SECONDS - 1}:size=1:start=0,setpts=N/{FPS}/TB"
+)
+#: A picture that is *almost* still: a held frame carrying faint temporal
+#: noise, which is what a captured menu screen is. A perfectly still source
+#: encodes to bit-identical frames whatever the encoder, so it cannot tell an
+#: encoder-dependent detector from an encoder-independent one. The seed is
+#: pinned because a fixture whose verdict is random is worse than no fixture.
+NEAR_STATIC = f"{_HELD},noise=alls=2:allf=t:all_seed=20260812"
+
+#: The two rate controls `config/rendering.yaml` chooses between: a quality
+#: target and a bitrate target. They quantise differently, and that difference
+#: is what used to decide the frozen-frames verdict.
+QUALITY_TARGET = ("-c:v", "libx264", "-preset", "medium", "-crf", "19")
+BITRATE_TARGET = (
+    "-c:v", "libx264", "-preset", "medium",
+    "-b:v", "2M", "-minrate", "2M", "-maxrate", "2M", "-bufsize", "4M",
+)
 
 
 @pytest.fixture(scope="module")
@@ -49,13 +71,25 @@ def expected() -> technical.Expected:
     )
 
 
-def _make(target: Path, video: str, audio: str | None, *, seconds: int = SECONDS) -> Path:
+def _make(
+    target: Path,
+    video: str,
+    audio: str | None,
+    *,
+    seconds: int = SECONDS,
+    filters: str = "",
+    encode: Sequence[str] = ("-c:v", "libx264", "-preset", "ultrafast"),
+) -> Path:
     """Build one deliberately shaped clip.
 
     ``video`` is a lavfi source without its size and duration. The separator
     differs by source -- ``testsrc`` takes ``=`` for its first option while
     ``color=c=black`` already has one and takes ``:`` -- so it is chosen here
     rather than left for each caller to get wrong.
+
+    ``encode`` is a parameter because one of these fixtures exists to be built
+    twice: the same picture through two rate controls, to check the verdict is
+    about the picture.
     """
     separator = ":" if "=" in video else "="
     source = f"{video}{separator}s={WIDTH}x{HEIGHT}:r={FPS}:d={seconds}"
@@ -65,7 +99,9 @@ def _make(target: Path, video: str, audio: str | None, *, seconds: int = SECONDS
     ]
     if audio is not None:
         argv += ["-f", "lavfi", "-i", f"{audio}:d={seconds}"]
-    argv += ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"]
+    if filters:
+        argv += ["-vf", filters]
+    argv += [*encode, "-pix_fmt", "yuv420p"]
     argv += ["-c:a", "aac", "-shortest"] if audio is not None else ["-an"]
     argv += [str(target)]
     subprocess.run(argv, check=True, capture_output=True, timeout=300)
@@ -84,6 +120,22 @@ def clips(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
         "silent": _make(directory / "silent.mp4", "testsrc", "anullsrc=r=48000:cl=stereo"),
         "no_audio": _make(directory / "no_audio.mp4", "testsrc", None),
         "short": _make(directory / "short.mp4", "testsrc", tone, seconds=2),
+    }
+
+
+@pytest.fixture(scope="module")
+def near_static(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
+    """One almost-still picture, encoded by each rate control."""
+    directory = tmp_path_factory.mktemp("rate")
+    return {
+        name: _make(
+            directory / f"{name}.mp4", "testsrc", None,
+            filters=NEAR_STATIC, encode=encode,
+        )
+        for name, encode in (
+            ("quality", QUALITY_TARGET),
+            ("bitrate", BITRATE_TARGET),
+        )
     }
 
 
@@ -125,6 +177,73 @@ class TestAcceptance:
         # A freeze that runs to the end of the file has a start and no
         # duration; pairing them naively drops exactly this case.
         findings, report = _inspect(clips, "frozen", expected, runner, qa_config)
+
+        assert _status_of(findings, "frozen_frames") is QAStatus.FAILED
+        assert report.blocks_export
+
+    def test_the_verdict_is_about_the_picture_not_the_encoder(
+        self, near_static, expected, runner, qa_config
+    ) -> None:
+        # The bug this replaces: one project, one timeline, two encoders, two
+        # answers -- libx264 blocked the export and NVENC found nothing. At a
+        # noise floor near bit-identical, what the detector measures is the
+        # quantiser, and rate control decides whether consecutive frames come
+        # out the same. So the same picture is encoded to a quality target and
+        # to a bitrate target, and the two must agree.
+        verdicts = {}
+        for name, path in near_static.items():
+            findings = technical.inspect(
+                path, expected, runner=runner, config=qa_config.qa
+            )
+            verdicts[name] = _status_of(findings, "frozen_frames")
+
+        assert verdicts["quality"] == verdicts["bitrate"], (
+            f"the same picture got {verdicts['quality']} from a quality target "
+            f"and {verdicts['bitrate']} from a bitrate target"
+        )
+
+    def test_a_freeze_the_recording_also_has_does_not_block(
+        self, clips, expected, runner, qa_config
+    ) -> None:
+        # A menu, a loading screen, a paused game: the picture is still and the
+        # render is right. §77 makes that a judgement for a person, not a fact
+        # about the file, so it must not stop the export.
+        source = (
+            technical.SourceSpan(
+                path=clips["frozen"],
+                timeline_start=0.0,
+                timeline_end=float(SECONDS),
+                source_in=0.0,
+            ),
+        )
+        findings = technical.inspect(
+            clips["frozen"], expected, runner=runner, config=qa_config.qa,
+            sources=source,
+        )
+        report = build_report(findings, qa_config.qa)
+
+        assert _status_of(findings, "frozen_frames") is QAStatus.WARNING
+        assert not report.blocks_export
+
+    def test_a_freeze_the_recording_does_not_have_still_blocks(
+        self, clips, expected, runner, qa_config
+    ) -> None:
+        # The same frozen render, but the recording behind it is moving -- so
+        # the render stopped on its own. That is the defect the check exists
+        # for, and it is the one case that should block.
+        source = (
+            technical.SourceSpan(
+                path=clips["good"],
+                timeline_start=0.0,
+                timeline_end=float(SECONDS),
+                source_in=0.0,
+            ),
+        )
+        findings = technical.inspect(
+            clips["frozen"], expected, runner=runner, config=qa_config.qa,
+            sources=source,
+        )
+        report = build_report(findings, qa_config.qa)
 
         assert _status_of(findings, "frozen_frames") is QAStatus.FAILED
         assert report.blocks_export
@@ -200,6 +319,29 @@ class TestWhatWasChecked:
         )
 
         assert _status_of(findings, "black_frames") is None
+
+    def test_the_noise_floor_is_configuration_not_a_constant(
+        self, near_static, expected, runner, qa_config
+    ) -> None:
+        # It was baked into the filter string, which is how it went untuned for
+        # a phase. Driven far enough down, the almost-still picture stops
+        # counting as still at all -- so the knob reaches the detector.
+        strict = qa_config.qa.model_copy(
+            update={
+                "technical": qa_config.qa.technical.model_copy(
+                    update={
+                        "thresholds": qa_config.qa.technical.thresholds.model_copy(
+                            update={"freeze_noise_db": -90.0}
+                        )
+                    }
+                )
+            }
+        )
+        findings = technical.inspect(
+            near_static["quality"], expected, runner=runner, config=strict
+        )
+
+        assert _status_of(findings, "frozen_frames") is QAStatus.PASSED
 
     def test_the_explanation_carries_the_remedies(
         self, clips, expected, runner, qa_config

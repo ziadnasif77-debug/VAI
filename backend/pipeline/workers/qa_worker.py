@@ -82,7 +82,11 @@ class QaWorker:
             fps=float(render.get("fps") or 0.0),
         )
         findings = technical.inspect(
-            path, expected, runner=context.ffmpeg, config=context.config.qa
+            path,
+            expected,
+            runner=context.ffmpeg,
+            config=context.config.qa,
+            sources=self._sources(context, timeline),
         )
 
         context.report(0.7, "Checking the edit")
@@ -135,6 +139,35 @@ class QaWorker:
         if result.get("skipped"):
             return str(result.get("reason") or "the render stage was skipped")
         return None
+
+    def _sources(self, context: WorkerContext, timeline) -> list[technical.SourceSpan]:
+        """Where each second of the render came from (§42, §80).
+
+        The frozen-frames check needs it to tell a stalled render from a menu
+        someone left in, and only the video track can answer that. A clip whose
+        recording has since been removed is skipped rather than guessed at: the
+        check then treats its stretch as unexplained, which is the safe way to
+        be wrong.
+        """
+        media = MediaRepository(context.database)
+        paths: dict[str, Path] = {}
+        spans: list[technical.SourceSpan] = []
+        for clip in timeline.video_clips():
+            if clip.media_id not in paths:
+                item = media.get(clip.media_id)
+                if item is None:
+                    continue
+                paths[clip.media_id] = Path(item.source_path)
+            spans.append(
+                technical.SourceSpan(
+                    path=paths[clip.media_id],
+                    timeline_start=clip.timeline_start,
+                    timeline_end=clip.timeline_end,
+                    source_in=clip.source_in,
+                    speed=clip.speed,
+                )
+            )
+        return spans
 
     def _content(
         self, context: WorkerContext, timeline, technical_findings
