@@ -1,0 +1,68 @@
+{
+  "id": "interaction.command",
+  "version": 2,
+  "purpose": "Read an editing command the rule-based parser could not, and return one validated EditCommand or none (SPEC 63, 85, 93). The command changes project state through the application's own tool layer; the model never touches a file.",
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "text",
+      "clip_count",
+      "duration"
+    ],
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "What the person typed, verbatim."
+      },
+      "clip_count": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Clips in the current edit."
+      },
+      "duration": {
+        "type": "string",
+        "description": "Length of the current edit, as m:ss."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "kind",
+      "confidence"
+    ],
+    "properties": {
+      "kind": {
+        "type": "string",
+        "enum": [
+          "delete_clip",
+          "restore_clip",
+          "delete_at_timestamp",
+          "revert_version",
+          "none"
+        ]
+      },
+      "clip_index": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "timestamp_seconds": {
+        "type": "number",
+        "minimum": 0
+      },
+      "version": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "reason": {
+        "type": "string",
+        "description": "Why no command applies, when kind is none."
+      }
+    }
+  }
+}

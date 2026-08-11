@@ -1,0 +1,223 @@
+{
+  "id": "interaction.instruction",
+  "version": 2,
+  "purpose": "Read an editing instruction the rule-based parser could not, and return the preference changes it asks for as a validated IntentDelta (SPEC 63, 93). Never a file operation and never prose: the result is checked against the delta model before anything is stored.",
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "text",
+      "intent",
+      "moment_types"
+    ],
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "What the person typed, verbatim."
+      },
+      "intent": {
+        "type": "string",
+        "description": "The current preferences, one per line."
+      },
+      "moment_types": {
+        "type": "string",
+        "description": "The valid moment type names."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "confidence"
+    ],
+    "properties": {
+      "mode": {
+        "type": "string",
+        "enum": [
+          "story",
+          "best_moments",
+          "compilation"
+        ]
+      },
+      "pacing": {
+        "type": "string",
+        "enum": [
+          "slow",
+          "medium",
+          "fast",
+          "very_fast"
+        ]
+      },
+      "dead_time_policy": {
+        "type": "string",
+        "enum": [
+          "keep",
+          "balanced",
+          "aggressive"
+        ]
+      },
+      "context_preservation": {
+        "type": "string",
+        "enum": [
+          "none",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "effects": {
+        "type": "string",
+        "enum": [
+          "none",
+          "minimal",
+          "moderate",
+          "heavy"
+        ]
+      },
+      "captions": {
+        "type": "string",
+        "enum": [
+          "none",
+          "important_only",
+          "standard",
+          "full"
+        ]
+      },
+      "music": {
+        "type": "string",
+        "enum": [
+          "none",
+          "subtle",
+          "prominent"
+        ]
+      },
+      "variety": {
+        "type": "string",
+        "enum": [
+          "none",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "priority_moment_types": {
+        "type": "object",
+        "properties": {
+          "add": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "epic",
+                "clutch",
+                "funny",
+                "fail",
+                "reaction",
+                "skill",
+                "outplay",
+                "chaos",
+                "tension",
+                "surprise",
+                "rage",
+                "comeback",
+                "boss",
+                "victory",
+                "defeat",
+                "discovery",
+                "rare"
+              ]
+            }
+          },
+          "remove": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "epic",
+                "clutch",
+                "funny",
+                "fail",
+                "reaction",
+                "skill",
+                "outplay",
+                "chaos",
+                "tension",
+                "surprise",
+                "rage",
+                "comeback",
+                "boss",
+                "victory",
+                "defeat",
+                "discovery",
+                "rare"
+              ]
+            }
+          }
+        }
+      },
+      "avoid_moment_types": {
+        "type": "object",
+        "properties": {
+          "add": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "epic",
+                "clutch",
+                "funny",
+                "fail",
+                "reaction",
+                "skill",
+                "outplay",
+                "chaos",
+                "tension",
+                "surprise",
+                "rage",
+                "comeback",
+                "boss",
+                "victory",
+                "defeat",
+                "discovery",
+                "rare"
+              ]
+            }
+          },
+          "remove": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "epic",
+                "clutch",
+                "funny",
+                "fail",
+                "reaction",
+                "skill",
+                "outplay",
+                "chaos",
+                "tension",
+                "surprise",
+                "rage",
+                "comeback",
+                "boss",
+                "victory",
+                "defeat",
+                "discovery",
+                "rare"
+              ]
+            }
+          }
+        }
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "unsupported": {
+        "type": "string",
+        "description": "Why the instruction cannot be expressed, when no field is set."
+      }
+    }
+  }
+}

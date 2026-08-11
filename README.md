@@ -13,9 +13,11 @@ while preserving context, constructs a story, and renders it.
 3 hours of gameplay  →  Story / Best Moments  →  20 minutes  →  YouTube-ready MP4
 ```
 
-**Status:** Phase 1 (Foundation) complete. See [docs/PHASE_1.md](docs/PHASE_1.md).
-The analysis, moment, narrative and render stages are scaffolded but not yet
-implemented — the roadmap is in [docs/ASSESSMENT.md](docs/ASSESSMENT.md).
+**Status:** Phases 1–13 complete — import, analysis, moments, narrative, EDL,
+overlay, render, QA, the web interface, and natural-language editing. A real
+21-minute recording goes in and a finished, QA'd video comes out, entirely
+through the browser. Remaining: game profiles (Phase 14) and quality
+measurement (Phase 15). Progress and next steps: [docs/PLAN.md](docs/PLAN.md).
 
 ---
 
@@ -63,11 +65,21 @@ python -m venv .venv
 python scripts/doctor.py               # check the environment
 python scripts/db_init.py              # create the database
 
-.venv/bin/python -m uvicorn backend.api.app:create_app --factory --port 8765
+python scripts/serve.py                # the API and the job worker, together
 ```
 
 `doctor.py` reports what is missing and what the pipeline will fall back to. A
 missing GPU or model is a warning, not a failure.
+
+Optional, for the natural-language editing in the chat panel (§63):
+
+```bash
+ollama pull qwen2.5:7b-instruct
+```
+
+Without it the chat still works — the rule parser understands the common
+phrasings, and only the unusual ones are lost (§95).
+`python scripts/verify_phase13.py` shows what the model adds when it is there.
 
 ## Configuration
 
@@ -108,13 +120,13 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/SPEC.md](docs/SPEC.md) | the specification — every `§N` in the code points here |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, contracts, dependency direction |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | every choice the spec left open, and why |
-| [docs/PHASE_1.md](docs/PHASE_1.md) | what Phase 1 delivered and what it deferred |
+| `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
 | [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
 
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 1088 tests (~23 min)
+.venv/bin/python -m pytest              # 1185 tests (~21 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
 ```

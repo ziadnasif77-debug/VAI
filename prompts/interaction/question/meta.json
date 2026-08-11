@@ -1,0 +1,51 @@
+{
+  "id": "interaction.question",
+  "version": 1,
+  "purpose": "Answer a question about the finished video from retrieved records only (SPEC 59, 80, 93). Grounded: every claim traces to a record, and a question the records cannot answer is refused rather than guessed.",
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "question",
+      "records"
+    ],
+    "properties": {
+      "question": {
+        "type": "string",
+        "description": "What the person asked, verbatim."
+      },
+      "records": {
+        "type": "string",
+        "description": "The retrieved moments, events and clips, one per line with an id."
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "answer",
+      "confidence"
+    ],
+    "properties": {
+      "answer": {
+        "type": "string",
+        "description": "Two or three sentences, from the records."
+      },
+      "citations": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Ids of the records the answer relied on."
+      },
+      "answered": {
+        "type": "boolean",
+        "description": "False when the records do not contain the answer."
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    }
+  }
+}

@@ -24,6 +24,7 @@ from backend.interaction.knowledge import (
     MomentRecord,
     VideoKnowledgeBase,
 )
+from backend.interaction.llm_fallback import LlmInterpreter
 from backend.interaction.models import Answer, AnswerSource, Evidence, EvidenceKind
 from backend.interaction.parser import normalise
 
@@ -66,9 +67,21 @@ _EVENT_WORDS: dict[str, tuple[str, ...]] = {
 class QuestionAnswering:
     """Answers questions about a project from its analysis data."""
 
-    def __init__(self, config: AppConfig, knowledge: VideoKnowledgeBase) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        knowledge: VideoKnowledgeBase,
+        interpreter: LlmInterpreter | None = None,
+    ) -> None:
+        """
+        Args:
+            interpreter: the §63 fallback for questions the resolvers below do
+                not recognise. Built lazily, so a machine without a model pays
+                nothing until a question actually falls through.
+        """
         self._config = config
         self._knowledge = knowledge
+        self._llm = interpreter if interpreter is not None else LlmInterpreter(config)
 
     # -- entry point ----------------------------------------------------
 
@@ -100,14 +113,59 @@ class QuestionAnswering:
         if kind is QuestionKind.EXCLUDED_MOMENTS:
             return self._excluded_moments(project_id)
 
+        # Nothing deterministic recognised it, so try the model -- grounded in
+        # the same records the resolvers above would have used, and refused if
+        # it cannot cite them (§80).
+        reading = self._llm.answer_question(question, self._evidence_pool(project_id))
+        if isinstance(reading.value, Answer):
+            return reading.value
+
+        suffix = f" {reading.reason.capitalize()}." if reading.consulted and reading.reason else ""
         return Answer(
             text=(
                 "I can answer questions about the detected moments, events, the current "
-                "edit, and what happened at a given timestamp. I could not read this one."
+                f"edit, and what happened at a given timestamp. I could not read this one.{suffix}"
             ),
             confidence=0.0,
             source=AnswerSource.UNAVAILABLE,
         )
+
+    def _evidence_pool(self, project_id: str, *, limit: int | None = None) -> dict[str, Evidence]:
+        """The records a free-form question may be answered from (§80).
+
+        Bounded by ``interaction.llm_fallback.max_input_records``: a
+        two-hour session has hundreds of moments, and a prompt carrying all of
+        them would cost more context than the answer is worth and bury the
+        relevant ones. The strongest moments and events come first, because a
+        question about a video is usually a question about its highlights.
+        """
+        cap = limit or self._config.interaction.llm_fallback.max_input_records
+        pool: dict[str, Evidence] = {}
+
+        for index, moment in enumerate(self._knowledge.top_moments(project_id, limit=cap)):
+            pool[f"m{index + 1}"] = Evidence(
+                kind=EvidenceKind.MOMENT,
+                id=moment.id,
+                start_seconds=moment.start_seconds,
+                end_seconds=moment.end_seconds,
+                detail=(
+                    f"{moment.moment_type} -- "
+                    f"{'; '.join(moment.explanation) or 'no explanation recorded'}"
+                ),
+                score=moment.score,
+            )
+
+        remaining = max(0, cap - len(pool))
+        for index, event in enumerate(self._knowledge.events(project_id, limit=remaining)):
+            pool[f"e{index + 1}"] = Evidence(
+                kind=EvidenceKind.GAME_EVENT,
+                id=event.id,
+                start_seconds=event.start_seconds,
+                end_seconds=event.end_seconds,
+                detail=f"{event.event_type} detected by {event.sources or 'one detector'}",
+                score=event.confidence,
+            )
+        return pool
 
     def classify(self, question: str) -> QuestionKind:
         """Recognise the question shape. Order matters: specific before general."""

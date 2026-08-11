@@ -7,9 +7,9 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-11, end of Phase 12 |
-| Current phase | **Phase 12 complete and verified.** Next: Phase 13 (NL editing) |
-| Tests | 1088 passing (4 opt-in model tests skipped by default) |
+| Last updated | 2026-08-11, end of Phase 13 |
+| Current phase | **Phase 13 complete and verified.** Next: Phase 14 (game profiles) |
+| Tests | 1181 passing (4 opt-in model tests skipped by default) |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
@@ -31,7 +31,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 1088 passing (~23 min)
+.venv/bin/python -m pytest               # expect 1181 passing (~21 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -63,7 +63,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 13 is the next work**. Start at §5 of this document.
+healthy and **Phase 14 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -88,8 +88,8 @@ Development order follows SPEC §126.
 | 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ✅ **done** |
 | 11 | **QA** | technical + content verification | ✅ **done** |
 | 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ✅ **done** |
-| 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ⬜ next |
-| 14 | **Game Profiles** | one real game, then a profile API | ⬜ |
+| 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ✅ **done** |
+| 14 | **Game Profiles** | one real game, then a profile API | ⬜ next |
 | 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ⬜ |
 
 **Rule that governs the order (§126):** do not build a large UI before the
@@ -108,17 +108,18 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/config` | `schema.py` (every YAML typed), `loader.py` (merge + env overrides), `paths.py` (§43 layout) | complete |
 | `backend/database` | `connection.py` (WAL, FK on), `migrator.py`, `migrations/0001_initial.sql`, `repositories/` | complete |
 | `backend/services` | `project_manager`, `media_ingestion`, `job_manager`, `health`, `worker` | complete |
-| `backend/interaction` | `models`, `intent`, `parser`, `knowledge`, `qa`, `store`, `service` | complete (LLM fallback pending Phase 13) |
+| `backend/interaction` | `models`, `intent`, `parser`, `knowledge`, `qa`, `store`, `service`, `llm_fallback` | complete |
 | `backend/effects` | `models`, `library`, `planner` | complete (renderers pending Phases 9–10) |
 | `backend/publishing` | `base` (Publisher protocol + registry), `local_file` | local target complete |
 | `backend/api` | `app`, `dependencies`, `routers/` × 7 (health, projects, media, jobs, interaction, editing, files) | complete for current scope |
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
+| `ai/llm` | `ollama_provider` (§93, §94), `fake_provider`, factory | complete |
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
 | `backend/pipeline` | `runner`, `workers/` for **every stage the runner queues** | complete through QA |
 | `backend/analysis` | `signal`, `audio_events` (§18), `reactions` (§19, §20), `scenes` (§17), `candidates` (the §15/§16 cascade) | complete |
 | `ai/speech`, `ai/vision`, `ai/ocr` | real provider + deterministic fake + factory each | complete |
 | `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27) | complete; HUD extraction pending a real profile |
-| `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | one prompt so far |
+| `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | vision + the three interaction prompts |
 | `backend/moments` | `formation` (§28), `context` (§29), `dead_time` (§30), `repetition` (§31, §33), `scoring` (§32) | complete |
 | `backend/narrative` | `optimizer` (§39), `story` (§35, §36), `hook` (§37), `pacing` (§38) | complete |
 | `backend/timeline` | `models`, `builder`, `operations`, `validation` (§40-§42), `captions` (§71) | complete |
@@ -597,14 +598,39 @@ Full write-up: [`docs/PHASE_12.md`](PHASE_12.md).
 
 ---
 
-### Phase 13 — LLM fallback for interaction
+### Phase 13 — LLM fallback for interaction ✅ done
 
-The rule-based parser already reports `confidence == 0.0` on text it cannot
-read. This phase wires that signal to an LLM that returns a validated
-`IntentDelta` or `EditCommand` — never free prose, never a file operation.
+**Goal (§63, §85, §92–§95):** the one thing rules are genuinely bad at —
+reading a sentence someone typed.
 
-Also: LLM-assisted Q&A for questions the deterministic resolvers do not cover,
-still grounded in retrieved records.
+The rule parser already reported `confidence == 0.0` on text it could not read;
+this phase wires that signal to a local `qwen2.5:7b-instruct` that returns a
+validated `IntentDelta`, `EditCommand` or grounded `Answer` — never free prose,
+never a file operation. Rules run first, so a machine without Ollama loses the
+unusual phrasings, not the feature (§95).
+
+**Acceptance: passed**, both halves. In the suite, "give it the feel of a
+wildlife documentary" and "delete the part right after the opener" — both
+rejected by the parser, both asserted so — change the stored brief and shorten
+the real edit, while writing no file and re-queuing no analysis job. Against
+the real model on Ollama, the same sentences through the same service.
+
+**Also found**, and only by running the real model: **four enum values in the
+prompts did not exist** (`dead_time_policy: keep_context` is really `keep`;
+`captions: animated` never existed). Ollama enforces a schema as a *grammar*,
+so the model was forced to emit the wrong value and then rejected for it —
+four of eight dimensions failed permanently, and the only symptom was a refusal
+that blamed the model. The same mechanism turned "make it 30 seconds" into a
+50-minute video: `minimum: 600` made 30 unemittable, so the model produced
+3000. Durations came out of both prompts entirely — that is arithmetic, which
+the rule parser does exactly.
+
+Also: a model reading that changed nothing reported "updated the editing
+brief"; and an edit command naming no clip landed on the *instruction* path, so
+the instruction path now escalates to the command prompt before giving up.
+Preference first, then edit.
+
+Full write-up: [`docs/PHASE_13.md`](PHASE_13.md).
 
 ---
 

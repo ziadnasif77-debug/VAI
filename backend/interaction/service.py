@@ -23,6 +23,7 @@ from backend.database.repositories.projects import ProjectRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.interaction.intent import IntentResolver
 from backend.interaction.knowledge import VideoKnowledgeBase
+from backend.interaction.llm_fallback import LlmInterpreter, Reading
 from backend.interaction.models import (
     Answer,
     AnswerSource,
@@ -53,16 +54,32 @@ logger = get_logger("interaction.service", LogChannel.APPLICATION)
 class InteractionService:
     """Handles editing instructions, questions and commands for a project."""
 
-    def __init__(self, database: Database, config: AppConfig) -> None:
+    def __init__(
+        self,
+        database: Database,
+        config: AppConfig,
+        *,
+        interpreter: LlmInterpreter | None = None,
+    ) -> None:
+        """
+        Args:
+            interpreter: the §63 fallback, injectable for tests and for callers
+                that already hold one. Built lazily otherwise.
+        """
         self._db = database
         self._config = config
         self._projects = ProjectRepository(database)
         self._resolver = IntentResolver(config)
         self._knowledge = VideoKnowledgeBase(database)
-        self._qa = QuestionAnswering(config, self._knowledge)
         self._intents = IntentStore(database)
         self._conversation = ConversationStore(database)
         self._versions = EditVersionStore(database)
+        # §63's fallback. Constructed here but silent until something is
+        # unparsed: it does not reach for a model until one is needed. One
+        # instance, shared with question answering, so the availability check
+        # and the loaded model are shared too (§54).
+        self._llm = interpreter if interpreter is not None else LlmInterpreter(config)
+        self._qa = QuestionAnswering(config, self._knowledge, self._llm)
 
     # -- intent ---------------------------------------------------------
 
@@ -265,7 +282,12 @@ class InteractionService:
                 recoverable=False,
             )
 
-        version = self._snapshot(project.id, reason=command.kind.value)
+        # §80: the version list is what a person scrolls to understand how the
+        # edit got here, so it records what they asked for. The kind alone --
+        # "delete_clip" -- is the least informative true thing available, and
+        # for a command the model read from a sentence it is the only record
+        # outside the chat log.
+        version = self._snapshot(project.id, reason=command.raw_text or command.kind.value)
         duration = self._knowledge.edit_duration_seconds(project.id)
         return InteractionResult(
             interaction_type=InteractionType.COMMAND,
@@ -334,14 +356,30 @@ class InteractionService:
     def _handle_command(self, project: Project, message: str) -> InteractionResult:
         command = parse_command(message)
         if command is None:
+            # §63: the rules did not recognise it, so ask the model to read it.
+            # What comes back is an EditCommand like any other and goes through
+            # apply_command, which validates it exactly as it validates a typed
+            # one -- there is no shortcut from a sentence to an edit (§85).
+            reading = self._llm.read_command(
+                message,
+                clip_count=self._knowledge.clip_count(project.id, enabled_only=False),
+                duration=_timecode(self._knowledge.edit_duration_seconds(project.id)),
+            )
+            if isinstance(reading.value, EditCommand):
+                logger.info(
+                    "The model read an edit command",
+                    extra={
+                        "project_id": project.id,
+                        "kind": reading.value.kind.value,
+                        "confidence": reading.confidence,
+                    },
+                )
+                return self.apply_command(project.id, reading.value)
             return InteractionResult(
                 interaction_type=InteractionType.COMMAND,
-                message=(
-                    "I could not read that as an edit command. Try 'delete clip 5' or "
-                    "'delete the clip at 12:34'."
-                ),
+                message=_command_help(reading),
                 answer=Answer(
-                    text="Command not understood.",
+                    text=reading.reason or "Command not understood.",
                     confidence=0.0,
                     source=AnswerSource.UNAVAILABLE,
                 ),
@@ -351,12 +389,48 @@ class InteractionService:
     def _handle_instruction(self, project_id: str, message: str) -> InteractionResult:
         intent, confidence = self.apply_instruction(project_id, message)
         if confidence == 0.0:
+            # The parser reports 0.0 for text it could not read at all, which
+            # is precisely the signal §63's fallback exists for.
+            reading = self._llm.read_instruction(message, intent)
+            # A delta that resolves to the intent already in force is not an
+            # instruction that was followed -- it is the model restating the
+            # status quo. The real qwen answers "delete the part right after
+            # the opener" with `pacing: fast` when the pacing is already fast,
+            # and reporting that as "updated the editing brief" would tell
+            # someone their edit had been made when nothing happened at all.
+            if isinstance(reading.value, IntentDelta) and (
+                self._resolver.apply(intent, reading.value) != intent
+            ):
+                logger.info(
+                    "The model read an editing instruction",
+                    extra={"project_id": project_id, "confidence": reading.confidence},
+                )
+                self._intents.append(
+                    project_id,
+                    reading.value,
+                    source=IntentSource.INSTRUCTION,
+                    raw_text=message,
+                )
+                intent = self.current_intent(project_id)
+                return InteractionResult(
+                    interaction_type=InteractionType.EDITING_INSTRUCTION,
+                    message=f"Updated the editing brief: {self._resolver.describe(intent)}.",
+                    intent=intent,
+                    requires_rerender=True,
+                )
+            # Nothing changed the brief, so the last thing worth trying is that
+            # it was an edit all along. The classifier routes a sentence here
+            # unless it names a clip or a timestamp -- deliberately, because
+            # before there was a model the alternative was rules deleting
+            # footage on a vague phrase. "Delete the part right after the
+            # opener" names neither and lands here; the model can read it, and
+            # what it returns is validated exactly as a typed command is (§85).
+            escalated = self._escalate_to_command(project_id, message)
+            if escalated is not None:
+                return escalated
             return InteractionResult(
                 interaction_type=InteractionType.EDITING_INSTRUCTION,
-                message=(
-                    "I did not recognise an editing preference in that. Try something like "
-                    "'focus on clutches', 'fewer effects', or 'make it 25 minutes'."
-                ),
+                message=_instruction_help(reading),
                 intent=intent,
             )
         return InteractionResult(
@@ -366,6 +440,41 @@ class InteractionService:
             # The intent feeds the STORY stage onward; the analysis is untouched.
             requires_rerender=True,
         )
+
+    def _escalate_to_command(self, project_id: str, message: str) -> InteractionResult | None:
+        """Read an unreadable instruction as an edit command, or give up.
+
+        Returns ``None`` unless the model reads a command it is confident
+        about, which is the common case: the command prompt answers ``none``
+        for anything that is not an edit, and that is a real answer, not a
+        failure. The cost is one extra local call on a message that has
+        already failed everything else.
+        """
+        if not self._config.interaction.commands.enabled:
+            return None
+        clip_count = self._knowledge.clip_count(project_id, enabled_only=False)
+        if clip_count == 0:
+            # Nothing to edit yet, so every command would be refused anyway --
+            # and `apply_command` refuses by *raising*, which is right for a
+            # command someone deliberately sent and wrong for a guess made
+            # about an instruction.
+            return None
+        reading = self._llm.read_command(
+            message,
+            clip_count=clip_count,
+            duration=_timecode(self._knowledge.edit_duration_seconds(project_id)),
+        )
+        if not isinstance(reading.value, EditCommand):
+            return None
+        logger.info(
+            "The model read an edit command from an instruction",
+            extra={
+                "project_id": project_id,
+                "kind": reading.value.kind.value,
+                "confidence": reading.confidence,
+            },
+        )
+        return self.apply_command(project_id, reading.value)
 
     def _validate_duration(self, seconds: int | None) -> int:
         policy = self._config.duration_policy
@@ -445,6 +554,66 @@ def _clip_by_index(clips: list, index: int | None) -> Any:
 #: The pipeline stage the intent first influences. Everything before it is
 #: analysis and is never re-run because an instruction changed (§10).
 FIRST_INTENT_DEPENDENT_STAGE = JobStage.STORY
+
+
+def _timecode(seconds: float) -> str:
+    """Seconds as m:ss, for telling the model how long the edit is."""
+    minutes, rest = divmod(int(max(0.0, seconds)), 60)
+    return f"{minutes}:{rest:02d}"
+
+
+def _clause(reason: str) -> str:
+    """A reason fit to follow "I read that, but ...".
+
+    The reasons this code writes are already clauses. The ones a model writes
+    are sentences, and dropping one in unedited produces "I read that, but The
+    instruction does not correspond to any preference.." -- which reads like a
+    bug even when the answer is right.
+    """
+    text = reason.strip().rstrip(".")
+    if text[:2].isupper():
+        # An acronym or a quoted term; leave the capitalisation alone.
+        return text
+    return text[:1].lower() + text[1:] if text else text
+
+
+def _instruction_help(reading: Reading) -> str:
+    """What to say when an instruction could not be applied.
+
+    The distinction matters more than it looks. "No model is installed" and
+    "that preference does not exist" send a person to completely different next
+    steps, and a single polite refusal for both would strand whoever hit the
+    first one.
+    """
+    if reading.consulted and reading.reason:
+        return (
+            f"I read that, but {_clause(reading.reason)}. Try something like "
+            "'focus on clutches', 'fewer effects', or 'make it 25 minutes'."
+        )
+    if reading.reason:
+        return (
+            f"I did not recognise an editing preference in that, and {_clause(reading.reason)}. "
+            "Try 'focus on clutches', 'fewer effects', or 'make it 25 minutes'."
+        )
+    return (
+        "I did not recognise an editing preference in that. Try something like "
+        "'focus on clutches', 'fewer effects', or 'make it 25 minutes'."
+    )
+
+
+def _command_help(reading: Reading) -> str:
+    """What to say when a command could not be applied."""
+    if reading.consulted and reading.reason:
+        return f"I read that, but {_clause(reading.reason)}."
+    if reading.reason:
+        return (
+            f"I could not read that as an edit command, and {_clause(reading.reason)}. "
+            "Try 'delete clip 5' or 'delete the clip at 12:34'."
+        )
+    return (
+        "I could not read that as an edit command. Try 'delete clip 5' or "
+        "'delete the clip at 12:34'."
+    )
 
 
 __all__ = ["FIRST_INTENT_DEPENDENT_STAGE", "InteractionService"]

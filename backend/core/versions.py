@@ -38,6 +38,15 @@ PROJECT_MANIFEST_VERSION: Final[int] = 1
 #: results.
 PROMPT_VERSIONS: Final[dict[str, int]] = {
     "vision.frame_description": 1,
+    # v2 of both: the model no longer sets the video's length. Ollama enforces
+    # a schema as a grammar, so `minimum: 600` meant a model asked for "30
+    # seconds" could not emit 30 -- it emitted 3000, and the person was told
+    # their 30-second request had become a 50-minute video. Asked for "25
+    # minutes" it produced 2500. Durations are arithmetic, which the rule
+    # parser does exactly and this model does not; there was nothing to gain.
+    "interaction.instruction": 2,
+    "interaction.command": 2,
+    "interaction.question": 1,
 }
 
 
