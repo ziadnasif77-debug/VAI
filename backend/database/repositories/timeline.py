@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 from backend.core.ids import derived_id
 from backend.core.models.enums import MomentType, TrackKind, TransitionType
@@ -81,29 +82,9 @@ class TimelineRepository:
         preserved = self._enabled_states(project_id) if preserve_user_state else {}
         rows = [
             {
-                "id": clip.id,
-                "project_id": project_id,
-                "media_id": clip.media_id,
-                "moment_id": clip.moment_id,
-                "track": clip.track.value,
-                "clip_index": clip.clip_index,
-                "source_in": clip.source_in,
-                "source_out": clip.source_out,
-                "timeline_start": clip.timeline_start,
-                "timeline_end": clip.timeline_end,
-                "speed": clip.speed,
-                "transition_in": clip.transition_in.value,
-                "transition_out": clip.transition_out.value,
+                **_clip_row(project_id, clip),
                 # The stored decision wins over the freshly built default.
                 "enabled": int(preserved.get(clip.id, clip.enabled)),
-                "metadata": dumps(
-                    {
-                        **clip.metadata,
-                        "moment_type": clip.moment_type.value if clip.moment_type else None,
-                        "score": clip.score,
-                        "role": clip.role,
-                    }
-                ),
             }
             for clip in timeline.clips
         ]
@@ -129,11 +110,17 @@ class TimelineRepository:
     def save_edit(self, project_id: str, timeline: Timeline) -> int:
         """Persist an edit to an existing timeline, carrying its captions along.
 
-        Distinct from :meth:`replace`, which rebuilds. An edit changes where
-        clips sit, not which rows exist, so this updates rather than deletes --
-        deleting would cascade to the captions and effects that hang off the
-        clips, and re-deriving those needs the transcript this layer does not
-        have.
+        Distinct from :meth:`replace`, which rebuilds. This *syncs*: a row that
+        survives is updated in place, so the captions and effects hanging off it
+        survive too -- deleting and re-inserting would cascade those away, and
+        re-deriving them needs the transcript this layer does not have.
+
+        "Update the positions" is not enough, and the first version of this
+        method did only that. A split adds a clip and a trim changes a source
+        span, so a split wrote a row whose stored source span no longer matched
+        its timeline span -- which the model then refused to load. Inserts and
+        removals are handled here, and the source points are written with the
+        rest.
 
         Captions are stored in timeline coordinates, so a clip that moves takes
         its captions with it: each one shifts by exactly its clip's delta. That
@@ -153,8 +140,17 @@ class TimelineRepository:
                 (project_id,),
             )
         }
-        updated = 0
+        surviving = {clip.id for clip in timeline.clips}
+        written = 0
         with self._db.transaction():
+            # A clip the edit removed takes its captions and effects with it,
+            # which is right: they described footage that is no longer there.
+            for clip_id in set(before) - surviving:
+                self._db.execute(
+                    "DELETE FROM timeline_clips WHERE id = ? AND project_id = ?",
+                    (clip_id, project_id),
+                )
+
             # ``UNIQUE (project_id, track, clip_index)`` is checked per
             # statement, so reordering row by row collides the moment two clips
             # want to swap places. Parking every index out of range first makes
@@ -165,19 +161,33 @@ class TimelineRepository:
                 (_INDEX_PARKING_OFFSET, project_id),
             )
             for clip in timeline.clips:
-                cursor = self._db.execute(
-                    "UPDATE timeline_clips SET clip_index = ?, timeline_start = ?, "
-                    "timeline_end = ?, enabled = ? WHERE id = ? AND project_id = ?",
-                    (
-                        clip.clip_index,
-                        clip.timeline_start,
-                        clip.timeline_end,
-                        int(clip.enabled),
-                        clip.id,
-                        project_id,
-                    ),
-                )
-                updated += cursor.rowcount
+                if clip.id in before:
+                    self._db.execute(
+                        "UPDATE timeline_clips SET clip_index = ?, source_in = ?, "
+                        "source_out = ?, timeline_start = ?, timeline_end = ?, "
+                        "enabled = ? WHERE id = ? AND project_id = ?",
+                        (
+                            clip.clip_index,
+                            clip.source_in,
+                            clip.source_out,
+                            clip.timeline_start,
+                            clip.timeline_end,
+                            int(clip.enabled),
+                            clip.id,
+                            project_id,
+                        ),
+                    )
+                else:
+                    # A split's second half: a new row, with no captions of its
+                    # own. The half it came from keeps them.
+                    self._db.execute(
+                        f"INSERT INTO timeline_clips ({_CLIP_COLUMNS}) VALUES ("
+                        ":id, :project_id, :media_id, :moment_id, :track, :clip_index, "
+                        ":source_in, :source_out, :timeline_start, :timeline_end, "
+                        ":speed, :transition_in, :transition_out, :enabled, :metadata)",
+                        _clip_row(project_id, clip),
+                    )
+                written += 1
                 delta = clip.timeline_start - before.get(clip.id, clip.timeline_start)
                 if abs(delta) > 1e-9:
                     self._db.execute(
@@ -185,7 +195,7 @@ class TimelineRepository:
                         "timeline_end = timeline_end + ? WHERE clip_id = ? AND project_id = ?",
                         (delta, delta, clip.id, project_id),
                     )
-        return updated
+        return written
 
     def set_enabled(self, project_id: str, clip_id: str, *, enabled: bool) -> bool:
         """Enable or disable one clip and re-flow the timeline (§78).
@@ -390,6 +400,34 @@ class TimelineRepository:
                 ":duration_seconds, :parameters, :enabled)",
                 rows,
             )
+
+
+def _clip_row(project_id: str, clip: TimelineClip) -> dict[str, Any]:
+    """One clip as its database row. Shared, so the two writers cannot drift."""
+    return {
+        "id": clip.id,
+        "project_id": project_id,
+        "media_id": clip.media_id,
+        "moment_id": clip.moment_id,
+        "track": clip.track.value,
+        "clip_index": clip.clip_index,
+        "source_in": clip.source_in,
+        "source_out": clip.source_out,
+        "timeline_start": clip.timeline_start,
+        "timeline_end": clip.timeline_end,
+        "speed": clip.speed,
+        "transition_in": clip.transition_in.value,
+        "transition_out": clip.transition_out.value,
+        "enabled": int(clip.enabled),
+        "metadata": dumps(
+            {
+                **clip.metadata,
+                "moment_type": clip.moment_type.value if clip.moment_type else None,
+                "score": clip.score,
+                "role": clip.role,
+            }
+        ),
+    }
 
 
 def _clip(row: sqlite3.Row) -> TimelineClip:

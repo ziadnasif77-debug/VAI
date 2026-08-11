@@ -20,7 +20,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.api.dependencies import AppState, build_state
-from backend.api.routers import health, interaction, jobs, media, projects
+from backend.api.routers import (
+    editing,
+    files,
+    health,
+    interaction,
+    jobs,
+    media,
+    projects,
+)
 from backend.config.schema import AppConfig
 from backend.core.errors import ErrorCode, GamingEditorError, http_status_for
 from backend.core.logging import LogChannel, get_logger
@@ -139,6 +147,8 @@ def create_app(
     app.include_router(projects.router, prefix=API_PREFIX)
     app.include_router(media.router, prefix=API_PREFIX)
     app.include_router(jobs.router, prefix=API_PREFIX)
+    app.include_router(editing.router, prefix=API_PREFIX)
+    app.include_router(files.router, prefix=API_PREFIX)
     app.include_router(interaction.router, prefix=API_PREFIX)
     app.include_router(interaction.presets_router, prefix=API_PREFIX)
 

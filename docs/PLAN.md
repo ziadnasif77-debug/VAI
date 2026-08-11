@@ -7,14 +7,21 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-11, end of Phase 11 |
-| Current phase | **Phase 11 complete and verified.** Next: Phase 12 (UI) |
-| Tests | 1048 passing (4 opt-in model tests skipped by default) |
+| Last updated | 2026-08-11, end of Phase 12 |
+| Current phase | **Phase 12 complete and verified.** Next: Phase 13 (NL editing) |
+| Tests | 1088 passing (4 opt-in model tests skipped by default) |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
 
 ## 1. Resume here
+
+Run it:
+
+```bash
+python scripts/serve.py          # API + the worker that runs jobs
+npm run dev -w apps/web          # the interface, on http://127.0.0.1:5173
+```
 
 ```bash
 git clone https://github.com/ziadnasif77-debug/VAI.git
@@ -24,7 +31,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 1048 passing (~21 min)
+.venv/bin/python -m pytest               # expect 1088 passing (~23 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -56,7 +63,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 12 is the next work**. Start at §5 of this document.
+healthy and **Phase 13 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -80,8 +87,8 @@ Development order follows SPEC §126.
 | 9 | **Remotion** | overlay composition | ✅ **done** |
 | 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ✅ **done** |
 | 11 | **QA** | technical + content verification | ✅ **done** |
-| 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ⬜ next |
-| 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ⬜ |
+| 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ✅ **done** |
+| 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ⬜ next |
 | 14 | **Game Profiles** | one real game, then a profile API | ⬜ |
 | 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ⬜ |
 
@@ -100,11 +107,11 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/core` | `duration` (the 10–60 min policy), `errors` (typed codes), `logging` (5 channels), `ids`, `fs`, `cache_keys`, `versions`, `models/` | complete |
 | `backend/config` | `schema.py` (every YAML typed), `loader.py` (merge + env overrides), `paths.py` (§43 layout) | complete |
 | `backend/database` | `connection.py` (WAL, FK on), `migrator.py`, `migrations/0001_initial.sql`, `repositories/` | complete |
-| `backend/services` | `project_manager`, `media_ingestion`, `job_manager`, `health` | complete |
+| `backend/services` | `project_manager`, `media_ingestion`, `job_manager`, `health`, `worker` | complete |
 | `backend/interaction` | `models`, `intent`, `parser`, `knowledge`, `qa`, `store`, `service` | complete (LLM fallback pending Phase 13) |
 | `backend/effects` | `models`, `library`, `planner` | complete (renderers pending Phases 9–10) |
 | `backend/publishing` | `base` (Publisher protocol + registry), `local_file` | local target complete |
-| `backend/api` | `app`, `dependencies`, `routers/` × 5 | complete for current scope |
+| `backend/api` | `app`, `dependencies`, `routers/` × 7 (health, projects, media, jobs, interaction, editing, files) | complete for current scope |
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
 | `backend/pipeline` | `runner`, `workers/` for **every stage the runner queues** | complete through QA |
@@ -163,10 +170,10 @@ POST   /projects/{id}/intent/reset         GET    /projects/{id}/chat/history
 GET    /projects/{id}/edit-versions
 ```
 
-Still to add: `POST /projects/{id}/generate-edit`, `GET|PUT /projects/{id}/timeline`,
-`POST /projects/{id}/render`, `GET /projects/{id}/render-status`,
-`GET /projects/{id}/qa`, `GET /projects/{id}/events`,
-`GET /projects/{id}/moments`, `POST /projects/{id}/publish` (§89).
+All of these now exist: `generate-edit`, `timeline` and `timeline/operations`,
+`render`, `render-status`, `qa`, `events`, `moments`, plus `preview` and
+`files/{category}/{filename}` for the browser. Still to add:
+`POST /projects/{id}/publish` (§89), which waits for a real destination.
 
 ### 3.5 Tests (414)
 
@@ -565,16 +572,28 @@ Full write-up: [`docs/PHASE_11.md`](PHASE_11.md).
 
 ---
 
-### Phase 12 — UI
+### Phase 12 — UI ✅ done
 
 **Goal (§57–§62):** the smallest interface that makes the pipeline usable.
 
 `apps/web` — React + TypeScript + Vite against the local API. Screens:
 Dashboard, Import, Analysis, Moments, Timeline, Preview, Export, and the Chat
-panel (§16 of the interaction addendum: `Ask about your video…` with example
-prompts).
+panel.
 
-**Only after the pipeline produces a convincing video** (§126).
+**Acceptance: passed**, against the real 21-minute recording rather than a
+fixture — imported, analysed, moments reviewed with their reasoning, a clip
+removed and restored, rendered to 852 MB, QA'd, and played back in the browser
+with seeking.
+
+**Also found:** the API queued jobs and **nothing ran them** — every test had
+called the runner directly, so the missing half was invisible until a browser
+was pointed at it. `backend/services/worker.py` is that half, and
+`scripts/serve.py` now starts the whole application with one command. Recovery
+of interrupted jobs then raced the worker for a job it had just claimed, and
+lost: a render two clips in was reported as "queued". Recovery now runs on the
+worker's own thread, before its first poll.
+
+Full write-up: [`docs/PHASE_12.md`](PHASE_12.md).
 
 ---
 

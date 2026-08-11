@@ -872,3 +872,41 @@ class TestPersistence:
         moved = reloaded.clip(third.id)
         stored_caption = repository.list_captions(project.id)[0]
         assert stored_caption.timeline_start == pytest.approx(moved.timeline_start + 1.0)
+
+    def test_a_split_adds_a_row_rather_than_being_lost(self, stored) -> None:
+        # save_edit was written for edits that only move clips, so a split --
+        # which adds one and changes a source span -- wrote a row whose stored
+        # span no longer matched its timeline span, and the model refused to
+        # load it.
+        project, repository, timeline = stored
+        clip = timeline.video_clips()[2]
+        middle = (clip.timeline_start + clip.timeline_end) / 2
+
+        repository.save_edit(project.id, operations.split(timeline, clip.id, middle))
+
+        reloaded = repository.load(project.id)
+        assert len(reloaded.video_clips()) == 6
+        assert reloaded.duration == pytest.approx(timeline.duration)
+
+    def test_a_trim_writes_the_new_source_points(self, stored) -> None:
+        project, repository, timeline = stored
+        clip = timeline.video_clips()[1]
+
+        repository.save_edit(
+            project.id, operations.trim(timeline, clip.id, start_delta=2.0, end_delta=-3.0)
+        )
+
+        trimmed = repository.load(project.id).clip(clip.id)
+        assert trimmed.source_in == pytest.approx(clip.source_in + 2.0)
+        assert trimmed.source_out == pytest.approx(clip.source_out - 3.0)
+
+    def test_removing_a_clip_takes_it_out_of_the_rows(self, stored) -> None:
+        # `remove` is not `delete`: the row goes, and so do the captions that
+        # described footage no longer in the edit.
+        project, repository, timeline = stored
+        clip = timeline.video_clips()[0]
+
+        repository.save_edit(project.id, operations.remove(timeline, clip.id))
+
+        assert repository.clip_count(project.id) == 4
+        assert repository.load(project.id).clip(clip.id) is None
