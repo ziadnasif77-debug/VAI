@@ -148,9 +148,28 @@ def media_service(
 
 @pytest.fixture
 def app_state(config: AppConfig, tmp_path: Path) -> Iterator[AppState]:
-    """A fully wired application state on temporary storage."""
+    """A fully wired application state on temporary storage.
+
+    ``profiles_dir`` is redirected for the same reason the ``paths`` fixture
+    redirects it: game profiles ship with the code, and a test that writes one
+    would be writing into the developer's checkout. That is not hypothetical --
+    the profile API tests wrote a deliberately broken profile into the real
+    ``profiles/`` directory before this existed, and the next test run found it
+    and failed.
+    """
+    from backend.gaming.profiles import clear_profile_cache
+
     state = build_state(config=config, data_root=tmp_path)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    for shipped in state.paths.profiles_dir.glob("*/profile.json"):
+        target = profiles / shipped.parent.name
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(shipped, target / shipped.name)
+    state.paths = dataclasses.replace(state.paths, profiles_dir=profiles)
+    clear_profile_cache()
     yield state
+    clear_profile_cache()
     state.close()
     shutdown_logging()
 

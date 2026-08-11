@@ -13,11 +13,11 @@ while preserving context, constructs a story, and renders it.
 3 hours of gameplay  →  Story / Best Moments  →  20 minutes  →  YouTube-ready MP4
 ```
 
-**Status:** Phases 1–13 complete — import, analysis, moments, narrative, EDL,
-overlay, render, QA, the web interface, and natural-language editing. A real
-21-minute recording goes in and a finished, QA'd video comes out, entirely
-through the browser. Remaining: game profiles (Phase 14) and quality
-measurement (Phase 15). Progress and next steps: [docs/PLAN.md](docs/PLAN.md).
+**Status:** Phases 1–14 complete — import, analysis, moments, narrative, EDL,
+overlay, render, QA, the web interface, natural-language editing, and game
+profiles. A real 21-minute recording goes in and a finished, QA'd video comes
+out, entirely through the browser. Remaining: quality measurement (Phase 15).
+Progress and next steps: [docs/PLAN.md](docs/PLAN.md).
 
 ---
 
@@ -40,6 +40,11 @@ from the data, not from a language model's imagination.
 
 **It works without talking to it.** Import, pick a duration, press analyze. The
 chat is a control surface, not a requirement.
+
+**It reads the HUD when it knows the game.** A profile declares where the game
+puts its state, and the pipeline reads what no OCR can — GTA V's wanted level
+is five star glyphs and no text. Without a profile, nothing changes: vision,
+OCR, audio and speech carry the analysis on their own.
 
 ---
 
@@ -126,7 +131,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 1185 tests (~21 min)
+.venv/bin/python -m pytest              # 1229 tests (~22 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
 ```

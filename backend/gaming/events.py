@@ -255,6 +255,36 @@ def observations_from_scenes(
     ]
 
 
+def observations_from_hud(
+    readings: Sequence[Any], profile: GameProfile
+) -> list[EventObservation]:
+    """Read event suggestions out of HUD state changes (§24 → §21).
+
+    The HUD is the one detector that reads a *number*, and the number is only
+    evidence when it moves: a wanted level held at four for six minutes is
+    context, and the second it went from two to four is the event. The tracking
+    and the rules both live in :mod:`backend.gaming.hud`; this is the adapter
+    that puts the result alongside every other detector's, so §27 weighs them
+    the same way.
+    """
+    if not readings or not profile.hud:
+        return []
+
+    from backend.gaming.hud import changes_to_events, track
+
+    return [
+        EventObservation(
+            event_type=item["event_type"],
+            start_seconds=float(item["start_seconds"]),
+            end_seconds=float(item["end_seconds"]),
+            source="hud",
+            confidence=float(item["confidence"]),
+            detail=dict(item.get("metadata", {})),
+        )
+        for item in changes_to_events(track(readings), profile)
+    ]
+
+
 def detect(
     *,
     vision: Iterable[StoredObservation] = (),
@@ -262,6 +292,7 @@ def detect(
     audio: Iterable[AudioEvent] = (),
     reactions: Iterable[ReactionCandidate] = (),
     scenes: Sequence[Scene] = (),
+    hud_readings: Sequence[Any] = (),
     profile: GameProfile,
     vision_min_confidence: float = 0.0,
     scene_min_change: float = 0.0,
@@ -273,6 +304,7 @@ def detect(
         *observations_from_audio(audio),
         *observations_from_reactions(reactions),
         *observations_from_scenes(scenes, min_change=scene_min_change),
+        *observations_from_hud(hud_readings, profile),
     ]
     found.sort(key=lambda item: (item.start_seconds, item.source))
     logger.info(
@@ -303,6 +335,7 @@ __all__ = [
     "EventObservation",
     "detect",
     "observations_from_audio",
+    "observations_from_hud",
     "observations_from_ocr",
     "observations_from_reactions",
     "observations_from_scenes",

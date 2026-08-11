@@ -17,11 +17,32 @@ import {useCallback, useState} from 'react';
 import {usePolling} from '../lib/usePolling';
 import {api, timecode, type Project, type VideoMode} from '../lib/api';
 
+/** The value that means "no profile"; the backend treats it as generic (§23). */
+const NO_GAME = 'auto';
+
 const MODES: ReadonlyArray<{value: VideoMode; label: string; blurb: string}> = [
   {value: 'story', label: 'Story', blurb: 'An arc: hook, build-up, climax, ending.'},
   {value: 'best_moments', label: 'Best moments', blurb: 'The strongest moments, types interleaved.'},
   {value: 'compilation', label: 'Compilation', blurb: 'Grouped by kind rather than by session.'},
 ];
+
+/** What naming a game buys, in the terms the profile itself declares (§22). */
+function describeProfile(
+  game: string | null | undefined,
+  items: ReadonlyArray<{id: string; event_rules: number; hud_indicators: number}> | undefined,
+): string {
+  if (!game || game === NO_GAME) {
+    return 'Vision, OCR, audio and speech only. Nothing about a specific game is assumed.';
+  }
+  const profile = items?.find((item) => item.id === game);
+  if (!profile) {
+    return 'No profile for this game yet; analysis falls back to the generic path.';
+  }
+  const parts: string[] = [];
+  if (profile.event_rules) parts.push(`${profile.event_rules} text rules`);
+  if (profile.hud_indicators) parts.push(`${profile.hud_indicators} HUD indicator(s)`);
+  return parts.length ? `Adds ${parts.join(' and ')}.` : 'This profile declares nothing yet.';
+}
 
 export function ImportScreen({
   project,
@@ -33,6 +54,12 @@ export function ImportScreen({
   onAnalyse: () => void;
 }) {
   const media = usePolling(() => api.media.list(project.id), {intervalMs: 4000});
+  // Profiles ship with the code and cannot change while the page is open, so
+  // `active: false` fetches once and stops. `intervalMs: 0` would busy-loop.
+  const profiles = usePolling(() => api.profiles.list(), {
+    intervalMs: 60_000,
+    active: () => false,
+  });
   const [path, setPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +80,7 @@ export function ImportScreen({
   }, [media, path, project.id]);
 
   const update = useCallback(
-    async (changes: {mode?: VideoMode; target_duration_seconds?: number}) => {
+    async (changes: {mode?: VideoMode; target_duration_seconds?: number; game?: string}) => {
       try {
         await api.projects.update(project.id, changes);
         onChanged();
@@ -150,9 +177,31 @@ export function ImportScreen({
             </button>
           ))}
         </div>
+        <div className="row">
+          <label className="inline">
+            Game
+            <select
+              value={project.game || NO_GAME}
+              onChange={(event) => void update({game: event.target.value})}
+            >
+              <option value={NO_GAME}>No profile — generic analysis</option>
+              {(profiles.data?.items ?? [])
+                .filter((profile) => !profile.generic)
+                .map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <span className="muted">
+            {describeProfile(project.game, profiles.data?.items)}
+          </span>
+        </div>
         <p className="muted">
-          Both can be changed later: re-editing costs seconds and never re-analyses the
-          source (§127).
+          All three can be changed later: re-editing costs seconds and never re-analyses
+          the source (§127). The game is the exception — it decides what the analysis
+          looks for, so changing it after analysing means analysing again.
         </p>
       </section>
 

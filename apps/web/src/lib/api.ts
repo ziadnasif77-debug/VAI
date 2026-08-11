@@ -69,9 +69,23 @@ export type Project = {
   status: string;
   mode: VideoMode;
   target_duration_seconds: number;
+  /** Empty or "auto" means no profile: analysis runs on the generic path (§23). */
+  game?: string | null;
   project_directory: string;
   created_at: string;
   updated_at: string;
+};
+
+/** A game profile as the import screen needs to list it (§22, §111). */
+export type ProfileSummary = {
+  id: string;
+  name: string;
+  description: string;
+  generic: boolean;
+  regions: number;
+  ocr_regions: number;
+  event_rules: number;
+  hud_indicators: number;
 };
 
 export type Media = {
@@ -237,11 +251,18 @@ export const api = {
     get: (id: string) => get<Project>(`/projects/${id}`),
     create: (body: {name: string; target_duration_seconds: number; mode: VideoMode}) =>
       post<Project>('/projects', body),
-    update: (id: string, body: Partial<Pick<Project, 'name' | 'mode' | 'target_duration_seconds'>>) =>
+    update: (
+      id: string,
+      body: Partial<Pick<Project, 'name' | 'mode' | 'target_duration_seconds' | 'game'>>,
+    ) =>
       patch<Project>(`/projects/${id}`, body),
     status: (id: string) => get<{project: Project; stages: StageStatus[]}>(`/projects/${id}/status`),
     analyze: (id: string) => post<{queued_stages: string[]}>(`/projects/${id}/analyze`),
     cancel: (id: string) => post<{cancelled_jobs: number}>(`/projects/${id}/cancel`),
+  },
+
+  profiles: {
+    list: () => get<{generic: string; items: ProfileSummary[]}>('/profiles'),
   },
 
   media: {

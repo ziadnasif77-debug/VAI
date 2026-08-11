@@ -27,6 +27,7 @@ from backend.api.routers import (
     interaction,
     jobs,
     media,
+    profiles,
     projects,
 )
 from backend.config.schema import AppConfig
@@ -151,6 +152,7 @@ def create_app(
     app.include_router(files.router, prefix=API_PREFIX)
     app.include_router(interaction.router, prefix=API_PREFIX)
     app.include_router(interaction.presets_router, prefix=API_PREFIX)
+    app.include_router(profiles.router, prefix=API_PREFIX)
 
     return app
 

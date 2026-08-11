@@ -1,0 +1,97 @@
+{
+  "id": "gta_v",
+  "name": "Grand Theft Auto V",
+  "description": "Written against real 1920x1080 capture. Regions were measured from frames, not guessed: the wanted-star row and the ammo counter share a corner, and the star row is right-anchored, so its search window is deliberately wider than the glyphs.",
+
+  "regions": {
+    "wanted_stars": { "x": 0.9130, "y": 0.0120, "width": 0.0740, "height": 0.0350 },
+    "ammo": { "x": 0.9000, "y": 0.0400, "width": 0.0900, "height": 0.0400 },
+    "minimap": { "x": 0.0100, "y": 0.8200, "width": 0.1600, "height": 0.1700 },
+    "health_bar": { "x": 0.0170, "y": 0.9720, "width": 0.0900, "height": 0.0060 },
+    "centre_banner": { "x": 0.2000, "y": 0.3600, "width": 0.6000, "height": 0.2000 },
+    "notification": { "x": 0.0100, "y": 0.0400, "width": 0.3000, "height": 0.2000 },
+    "location": { "x": 0.7000, "y": 0.9200, "width": 0.2900, "height": 0.0600 }
+  },
+
+  "ocr_regions": ["centre_banner", "notification"],
+
+  "event_rules": [
+    {
+      "event_type": "death",
+      "patterns": ["\\bWASTED\\b"],
+      "regions": ["centre_banner"],
+      "confidence": 0.95,
+      "duration_seconds": 4.0
+    },
+    {
+      "event_type": "death",
+      "patterns": ["\\bBUSTED\\b"],
+      "regions": ["centre_banner"],
+      "confidence": 0.9,
+      "duration_seconds": 4.0
+    },
+    {
+      "event_type": "objective",
+      "patterns": ["MISSION\\s+PASSED", "MISSION\\s+COMPLETE"],
+      "regions": ["centre_banner"],
+      "confidence": 0.9,
+      "duration_seconds": 5.0
+    },
+    {
+      "event_type": "objective_failure",
+      "patterns": ["MISSION\\s+FAILED"],
+      "regions": ["centre_banner"],
+      "confidence": 0.9,
+      "duration_seconds": 5.0
+    }
+  ],
+
+  "ignore_patterns": [
+    "DIRECTOR\\s+MODE",
+    "INVINCIBILITY",
+    "^\\s*CURRENT\\s+SCENE",
+    "^\\s*DYNAMIC\\s+PROPS",
+    "^\\s*PROPS\\s+PLACED",
+    "Cheat\\s+activated",
+    "^\\s*Scene\\s+\\d+\\s*$",
+    "^\\s*(Move|Rotate|Place|Back|Lower)\\b"
+  ],
+
+  "hud": [
+    {
+      "name": "wanted_level",
+      "kind": "glyph_row",
+      "region": { "x": 0.9080, "y": 0.0080, "width": 0.0850, "height": 0.0400 },
+      "count": 5,
+      "confidence": 0.6,
+      "absent_value": 0.0,
+      "absent_confidence": 0.55,
+      "change_rules": [
+        {
+          "event_type": "unexpected_event",
+          "direction": "rise",
+          "at_least": 3,
+          "min_change": 1,
+          "confidence": 0.7,
+          "duration_seconds": 8.0
+        },
+        {
+          "event_type": "chase",
+          "direction": "rise",
+          "at_least": 1,
+          "min_change": 1,
+          "confidence": 0.55,
+          "duration_seconds": 6.0
+        },
+        {
+          "event_type": "escape",
+          "direction": "fall",
+          "at_most": 0,
+          "min_change": 2,
+          "confidence": 0.6,
+          "duration_seconds": 5.0
+        }
+      ]
+    }
+  ]
+}

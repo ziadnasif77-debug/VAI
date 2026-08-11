@@ -24,6 +24,7 @@ from backend.core.models.enums import GameEventType, JobStage
 from backend.core.models.media import MediaImport
 from backend.core.models.project import ProjectCreate
 from backend.database.repositories.gaming import GameEventRepository, OcrRepository
+from backend.database.repositories.jobs import JobRepository
 from backend.gaming.profiles import clear_profile_cache
 from backend.pipeline.runner import PipelineRunner
 from backend.pipeline.workers.gaming_workers import OcrWorker
@@ -311,3 +312,88 @@ def _install_profile(profiles_dir: Path, game: str) -> Path:
     )
     clear_profile_cache()
     return directory
+
+
+class TestReadingTheHud:
+    """§24: the state a game shows without words, all the way to an event.
+
+    Everything else about the HUD is tested against synthetic frames in
+    `test_hud.py`. What only an integration test can prove is the *wiring*:
+    that a profile's declaration reaches the stage that opens frames, that the
+    readings survive the job result into the next stage, and that they come out
+    the other end as a stored game event alongside every other detector's.
+    """
+
+    def _install_hud_profile(self, profiles_dir: Path, game: str) -> None:
+        directory = Path(profiles_dir) / game
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "profile.json").write_text(
+            json.dumps(
+                {
+                    "id": game,
+                    "name": "HUD Game",
+                    "hud": [
+                        {
+                            "name": "threat",
+                            "kind": "glyph_row",
+                            # The whole frame: the test clip is a colour bar,
+                            # so there is no real HUD to aim at and the reader
+                            # has to find the drawn row wherever it is.
+                            "region": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
+                            "count": 5,
+                            "confidence": 0.6,
+                            "absent_value": 0.0,
+                            "change_rules": [
+                                {
+                                    "event_type": "chase",
+                                    "direction": "rise",
+                                    "at_least": 1,
+                                    "min_change": 1,
+                                    "confidence": 0.6,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        clear_profile_cache()
+
+    def test_a_declared_indicator_is_read_and_travels_to_the_next_stage(
+        self, database, paths, config, speech_provider, vision_provider, ocr_provider,
+        media_service, project_manager, test_clip,
+    ) -> None:
+        self._install_hud_profile(paths.profiles_dir, "hud_game")
+        project, media = _project_with(
+            media_service, project_manager, test_clip, game="hud_game"
+        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
+        while runner.run_next(project.id) is not None:
+            pass
+
+        jobs = JobRepository(database)
+        ocr_job = jobs.find(project.id, JobStage.OCR, media_id=media.id)
+        readings = (ocr_job.result or {}).get("hud_readings")
+
+        assert readings, "the OCR stage opens these frames; the HUD is read from them"
+        assert {row["indicator"] for row in readings} == {"threat"}
+        assert all("confidence" in row for row in readings)
+
+        events_job = jobs.find(project.id, JobStage.GAME_EVENTS, media_id=media.id)
+        assert (events_job.result or {})["inputs"]["hud_readings"] == len(readings)
+
+    def test_a_profile_with_no_hud_reads_nothing_and_costs_nothing(
+        self, database, paths, config, speech_provider, vision_provider, ocr_provider,
+        media_service, project_manager, test_clip,
+    ) -> None:
+        # §23: the unknown-game path opens no frames for a HUD nobody declared.
+        project, media = _project_with(media_service, project_manager, test_clip)
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
+        while runner.run_next(project.id) is not None:
+            pass
+
+        jobs = JobRepository(database)
+        ocr_job = jobs.find(project.id, JobStage.OCR, media_id=media.id)
+
+        assert (ocr_job.result or {}).get("hud_readings") == []

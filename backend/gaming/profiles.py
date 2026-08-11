@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Final
@@ -117,6 +118,85 @@ class EventRule(_Model):
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in self.patterns)
 
 
+class HudKind(str, Enum):
+    """The shapes of HUD indicator this reader knows (§24)."""
+
+    #: A row of identical glyphs, some filled: wanted stars, lives, pips.
+    GLYPH_ROW = "glyph_row"
+    #: A horizontal fill bar: health, armour, boss health, a charge meter.
+    BAR = "bar"
+
+
+class HudChangeRule(_Model):
+    """What a transition in an indicator means (§24, §26).
+
+    Separate from :class:`EventRule` because that reads *text* and this reads a
+    *number that moved*. "Rose to at least 3" and "fell to 0" are different
+    events in every game that has a threat level, and neither is a string.
+    """
+
+    event_type: GameEventType
+    #: Only fire when the value moved in this direction.
+    direction: str = Field(default="any", pattern="^(rise|fall|any)$")
+    #: Only fire when the new value is at least / at most this.
+    at_least: float | None = None
+    at_most: float | None = None
+    #: Only fire when the value moved by at least this much, which is what
+    #: separates "the police noticed" from "the police are now a helicopter".
+    min_change: float = Field(default=0.0, ge=0.0)
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+    duration_seconds: float = Field(default=4.0, gt=0.0)
+
+    def matches(self, change: Any) -> bool:
+        """Whether ``change`` (a :class:`backend.gaming.hud.HudChange`) fires this."""
+        if self.direction == "rise" and not change.rising:
+            return False
+        if self.direction == "fall" and change.rising:
+            return False
+        if change.magnitude < self.min_change:
+            return False
+        current = change.current if change.current is not None else 0.0
+        if self.at_least is not None and current < self.at_least:
+            return False
+        return not (self.at_most is not None and current > self.at_most)
+
+
+class HudIndicator(_Model):
+    """One thing a game draws that has a value (§24).
+
+    ``region`` is a *search window*, not the exact rectangle: the reader locates
+    the indicator inside it. GTA V's wanted row is right-anchored and grows
+    leftwards, so a fixed rectangle misreads it by a whole star as the level
+    changes -- silently, and in the direction that matters most.
+    """
+
+    name: str = Field(min_length=1)
+    kind: HudKind
+    region: Region
+    #: For ``glyph_row``: how many glyph positions the row has.
+    count: int = Field(default=1, ge=1, le=32)
+    #: What one clean reading of this indicator is worth. Deliberately below
+    #: 1.0: a pixel heuristic that claims certainty is lying, and §27 exists to
+    #: combine it with detectors that saw the same instant.
+    confidence: float = Field(default=0.6, ge=0.0, le=1.0)
+
+    #: What it means when the indicator is not drawn at all. GTA V hides the
+    #: star row at wanted level zero, so absence *is* the reading -- but in a
+    #: game that hides its health bar in cutscenes, absence means nothing and
+    #: this stays ``None``.
+    absent_value: float | None = None
+    absent_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    change_rules: tuple[HudChangeRule, ...] = ()
+
+    def rule_for(self, change: Any) -> HudChangeRule | None:
+        """The first rule this change satisfies, if any."""
+        for rule in self.change_rules:
+            if rule.matches(change):
+                return rule
+        return None
+
+
 class GameProfile(_Model):
     """What is known about one game's interface (§22).
 
@@ -144,6 +224,20 @@ class GameProfile(_Model):
     #: detection usable.
     ignore_patterns: tuple[str, ...] = ()
 
+    #: Indicators read as state rather than text (§24).
+    hud: tuple[HudIndicator, ...] = ()
+
+    @model_validator(mode="after")
+    def _hud_names_unique(self) -> GameProfile:
+        names = [indicator.name for indicator in self.hud]
+        duplicated = {name for name in names if names.count(name) > 1}
+        if duplicated:
+            raise ValueError(
+                "Two HUD indicators share a name, so their readings would be "
+                f"tracked as one: {sorted(duplicated)}."
+            )
+        return self
+
     @model_validator(mode="after")
     def _regions_exist(self) -> GameProfile:
         unknown = [name for name in self.ocr_regions if name not in self.regions]
@@ -164,7 +258,7 @@ class GameProfile(_Model):
     @property
     def is_generic(self) -> bool:
         """Whether this profile declares nothing game-specific."""
-        return not self.regions and not self.event_rules
+        return not self.regions and not self.event_rules and not self.hud
 
     @property
     def has_ocr_regions(self) -> bool:
@@ -199,6 +293,7 @@ class GameProfile(_Model):
             "regions": len(self.regions),
             "ocr_regions": len(self.ocr_regions),
             "event_rules": len(self.event_rules),
+            "hud_indicators": len(self.hud),
         }
 
 
@@ -306,6 +401,9 @@ __all__ = [
     "PROFILE_FILENAME",
     "EventRule",
     "GameProfile",
+    "HudChangeRule",
+    "HudIndicator",
+    "HudKind",
     "ProfileResolution",
     "Region",
     "available_profiles",

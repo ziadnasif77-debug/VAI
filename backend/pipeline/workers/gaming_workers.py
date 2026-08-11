@@ -19,6 +19,7 @@ recording is an afternoon of work to find the four minutes that mattered.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +32,13 @@ from backend.core.models.media import Media
 from backend.database.repositories.audio_events import AudioEventRepository
 from backend.database.repositories.frames import FrameRepository
 from backend.database.repositories.gaming import GameEventRepository, OcrRepository
+from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.scenes import SceneRepository
 from backend.database.repositories.vision import VisionRepository
 from backend.gaming import events as detectors
 from backend.gaming.correlation import correlate
 from backend.gaming.ocr import CROP_DIRNAME, read_frames
-from backend.gaming.profiles import ProfileResolution, load_profile
+from backend.gaming.profiles import GameProfile, ProfileResolution, load_profile
 from backend.pipeline.workers.base import WorkerContext
 from backend.pipeline.workers.vision_workers import CANDIDATE_LEVEL
 
@@ -64,6 +66,15 @@ class OcrWorker:
             context.report(1.0, "OCR disabled")
             return {"skipped": True, "reason": "ocr disabled in configuration"}
 
+        resolution = _profile_for(context)
+        frames = _candidate_frames(context, media)
+
+        # The HUD is read here rather than in its own stage because this stage
+        # already opens these frames, and decoding them twice is exactly the
+        # waste §15 and §16 exist to prevent. It runs before the OCR engine is
+        # checked, so a machine with no OCR still gets HUD events (§95).
+        hud_readings = _read_hud(resolution.profile, frames)
+
         provider = self._provider or create_ocr_provider(context.config)
         if provider is None or not provider.is_available():
             # §95: OCR failing degrades to vision and audio. It does not fail
@@ -73,10 +84,13 @@ class OcrWorker:
                 "No usable OCR engine; continuing without on-screen text",
                 extra={"media_id": media.id, "engine": config.engine},
             )
-            return {"skipped": True, "reason": "no usable OCR engine", "detections": 0}
+            return {
+                "skipped": True,
+                "reason": "no usable OCR engine",
+                "detections": 0,
+                "hud_readings": hud_readings,
+            }
 
-        resolution = _profile_for(context)
-        frames = _candidate_frames(context, media)
         if not frames:
             context.report(1.0, "No candidate frames")
             return {"skipped": True, "reason": "no candidate frames", "detections": 0}
@@ -117,6 +131,9 @@ class OcrWorker:
             "frames_with_text": len(results),
             "engine": provider.info().provider,
             "mode": "regions" if resolution.profile.has_ocr_regions else "full_frame",
+            # §81: the next stage reads this rather than re-deriving it, and a
+            # reading is small enough to travel in a job result.
+            "hud_readings": hud_readings,
             **resolution.profile.summary(),
         }
 
@@ -149,6 +166,7 @@ class GameEventsWorker:
             audio=audio,
             reactions=reactions,
             scenes=scenes,
+            hud_readings=_stored_hud_readings(context, media.id),
             profile=resolution.profile,
             vision_min_confidence=analysis.vision.min_confidence,
             scene_min_change=analysis.scenes.threshold,
@@ -182,6 +200,7 @@ class GameEventsWorker:
                 "scenes": len(scenes),
                 "ocr_frames": len(ocr_frames),
                 "reactions": len(reactions),
+                "hud_readings": len(_stored_hud_readings(context, media.id)),
             },
         }
 
@@ -189,6 +208,74 @@ class GameEventsWorker:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _read_hud(
+    profile: GameProfile, frames: Sequence[tuple[float, Path]]
+) -> list[dict[str, Any]]:
+    """Read every declared HUD indicator off the candidate frames (§24).
+
+    Returns plain dictionaries so the readings can travel in a job result and
+    survive a restart. A profile that declares no HUD does no work and opens no
+    files, which is the unknown-game path (§23).
+    """
+    if not profile.hud or not frames:
+        return []
+
+    from backend.gaming.hud import read_frame
+
+    readings: list[dict[str, Any]] = []
+    for timestamp, path in frames:
+        try:
+            image = _load_image(Path(path))
+        except Exception as error:  # a corrupt frame is not a failed analysis
+            logger.warning(
+                "Could not open a frame for HUD reading",
+                extra={"path": str(path), "error": str(error)[:200]},
+            )
+            continue
+        for reading in read_frame(image, profile, timestamp_seconds=float(timestamp)):
+            readings.append(
+                {
+                    "indicator": reading.indicator,
+                    "timestamp_seconds": reading.timestamp_seconds,
+                    "value": reading.value,
+                    "quality": reading.quality.value,
+                    "confidence": reading.confidence,
+                }
+            )
+    logger.info("Read the HUD", extra={"readings": len(readings), "frames": len(frames)})
+    return readings
+
+
+def _load_image(path: Path) -> Any:
+    import numpy as np
+    from PIL import Image
+
+    with Image.open(path) as handle:
+        return np.asarray(handle.convert("RGB"))
+
+
+def _stored_hud_readings(context: WorkerContext, media_id: str) -> list[Any]:
+    """The HUD readings the OCR stage recorded, as reading objects (§81)."""
+    from backend.gaming.hud import HudReading, ReadingQuality
+
+    job = JobRepository(context.database).find(
+        context.project_id, JobStage.OCR, media_id=media_id
+    )
+    rows = (job.result or {}).get("hud_readings") if job else None
+    if not rows:
+        return []
+    return [
+        HudReading(
+            indicator=str(row["indicator"]),
+            timestamp_seconds=float(row["timestamp_seconds"]),
+            value=None if row.get("value") is None else float(row["value"]),
+            quality=ReadingQuality(row.get("quality", "uncertain")),
+            confidence=float(row.get("confidence", 0.0)),
+        )
+        for row in rows
+    ]
 
 
 def _profile_for(context: WorkerContext) -> ProfileResolution:

@@ -7,9 +7,9 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-11, end of Phase 13 |
-| Current phase | **Phase 13 complete and verified.** Next: Phase 14 (game profiles) |
-| Tests | 1181 passing (4 opt-in model tests skipped by default) |
+| Last updated | 2026-08-11, end of Phase 14 |
+| Current phase | **Phase 14 complete and verified.** Next: Phase 15 (quality) |
+| Tests | 1225 passing (4 opt-in model tests skipped by default) |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
@@ -31,7 +31,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 1181 passing (~21 min)
+.venv/bin/python -m pytest               # expect 1225 passing (~22 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -63,7 +63,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 14 is the next work**. Start at §5 of this document.
+healthy and **Phase 15 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -89,8 +89,8 @@ Development order follows SPEC §126.
 | 11 | **QA** | technical + content verification | ✅ **done** |
 | 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ✅ **done** |
 | 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ✅ **done** |
-| 14 | **Game Profiles** | one real game, then a profile API | ⬜ next |
-| 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ⬜ |
+| 14 | **Game Profiles** | one real game, then a profile API | ✅ **done** |
+| 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ⬜ next |
 
 **Rule that governs the order (§126):** do not build a large UI before the
 pipeline produces a convincing video. If `gameplay → analysis → events →
@@ -118,7 +118,7 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/pipeline` | `runner`, `workers/` for **every stage the runner queues** | complete through QA |
 | `backend/analysis` | `signal`, `audio_events` (§18), `reactions` (§19, §20), `scenes` (§17), `candidates` (the §15/§16 cascade) | complete |
 | `ai/speech`, `ai/vision`, `ai/ocr` | real provider + deterministic fake + factory each | complete |
-| `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27) | complete; HUD extraction pending a real profile |
+| `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27), `hud` (§24) | complete |
 | `prompts/` | §92 versioned prompts, loader in `backend/core/prompts.py` | vision + the three interaction prompts |
 | `backend/moments` | `formation` (§28), `context` (§29), `dead_time` (§30), `repetition` (§31, §33), `scoring` (§32) | complete |
 | `backend/narrative` | `optimizer` (§39), `story` (§35, §36), `hook` (§37), `pacing` (§38) | complete |
@@ -634,9 +634,35 @@ Full write-up: [`docs/PHASE_13.md`](PHASE_13.md).
 
 ---
 
-### Phase 14 — Game profiles
+### Phase 14 — Game profiles ✅ done
 
-One real game end to end, then a profile API, then more (§111).
+**Goal (§22–§25, §111):** one real game validated before any others are
+written, then the API that makes the second one a data change.
+
+`profiles/gta_v/profile.json` — regions measured off real 1080p frames, not
+guessed. `backend/gaming/hud.py` reads the indicators a game shows *without
+words* (§24): GTA V's wanted level is five star glyphs in a corner, and no
+amount of OCR will ever read it. Changes become §26 events; the steady state is
+context. `backend/api/routers/profiles.py` lists, fetches and validates.
+
+**Acceptance: passed**, on a 62.6-minute GTA V capture the reader was not tuned
+against: **3 events the generic profile cannot produce at all** — an escape, a
+chase, and a 3+-star spike — from 40 sampled frames. The generic count is zero
+by construction, which is §23 holding.
+
+**Also found:** the wanted-star row **flashes** while the police search, driving
+every glyph bright then every glyph empty about twice a second, so a frame
+caught mid-flash carries no count at all. That is why three successive pixel
+discriminators disagreed on the same footage — they were reading a value that
+does not exist in those frames. The reader now detects the flash and declines.
+It also declines when the **ammo counter** slides into the same corner at
+wanted level zero, which before a glyph-shape test read as three stars *at full
+confidence*. Twelve hand-labelled frames: 12/12, zero confidently wrong. On a **held-out**
+96-minute recording the reader had never seen, the wanted level traces a
+coherent arc — 0 → 3 → 4 → 3 → 2 → 0 across 95 minutes — with intermediate
+values the tuning footage never produced.
+
+Full write-up: [`docs/PHASE_14.md`](PHASE_14.md).
 
 ### Phase 15 — Quality
 
