@@ -145,6 +145,10 @@ class Paths:
     logs_dir: Path
     cache_dir: Path
     profiles_dir: Path
+    #: Where a person puts recordings, and where they collect finished videos.
+    #: The pipeline never works in either: a project owns its own tree (§43).
+    input_dir: Path
+    output_dir: Path
     database_path: Path
 
     def project(self, project_id: str) -> ProjectPaths:
@@ -163,6 +167,8 @@ class Paths:
             self.models_dir,
             self.logs_dir,
             self.cache_dir,
+            self.input_dir,
+            self.output_dir,
             self.database_path.parent,
         ):
             directory.mkdir(parents=True, exist_ok=True)
@@ -210,6 +216,8 @@ def build_paths(
         # Game profiles ship with the code, so they resolve against the
         # repository root rather than the (possibly relocated) data root.
         profiles_dir=_resolve(repository_root, directories.profiles),
+        input_dir=_resolve(resolved_data_root, directories.input),
+        output_dir=_resolve(resolved_data_root, directories.output),
         database_path=_resolve(resolved_data_root, config.application.database.filename),
     )
 

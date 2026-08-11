@@ -20,6 +20,10 @@ application:
     logs: logs
     cache: .cache
     profiles: profiles
+    # Drop a recording in `input`, collect the finished video from `output`.
+    # Both may be absolute: recordings are large and often live elsewhere.
+    input: input
+    output: output
 
   # SQLite for the MVP; PostgreSQL only if multi-user deployment appears (§44).
   database:

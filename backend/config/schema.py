@@ -43,6 +43,13 @@ class DirectoriesConfig(_Section):
     cache: str = ".cache"
     profiles: str = "profiles"
 
+    #: Drop a recording in ``input`` and the finished video appears in
+    #: ``output``. Neither is where the pipeline works -- a project still owns
+    #: its own tree under ``projects`` (§43) -- they are the two ends a person
+    #: touches, kept apart from the machinery in between.
+    input: str = "input"
+    output: str = "output"
+
 
 class DatabaseConfig(_Section):
     filename: str = "gaming_editor.db"
