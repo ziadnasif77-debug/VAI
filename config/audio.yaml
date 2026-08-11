@@ -36,6 +36,9 @@ audio:
     enabled: true
     speech_duck_db: -14.0
     game_event_duck_db: -8.0
+    # §72's priority: gameplay gives way to speech, but only a little. It is
+    # the subject of the video, not a background bed.
+    game_under_speech_db: -4.0
     attack_ms: 120
     release_ms: 700
     hold_ms: 250

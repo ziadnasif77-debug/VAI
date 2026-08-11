@@ -7,10 +7,10 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-11, end of Phase 9 |
-| Current phase | **Phase 9 complete and verified.** Next: Phase 10 (Final Render) |
-| Tests | 965 passing (4 opt-in model tests skipped by default) |
-| Backend code | ~34,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
+| Last updated | 2026-08-11, end of Phase 11 |
+| Current phase | **Phase 11 complete and verified.** Next: Phase 12 (UI) |
+| Tests | 1048 passing (4 opt-in model tests skipped by default) |
+| Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
 
@@ -24,7 +24,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 965 passing (~18 min)
+.venv/bin/python -m pytest               # expect 1048 passing (~21 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -56,7 +56,7 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy and **Phase 10 is the next work**. Start at §5 of this document.
+healthy and **Phase 12 is the next work**. Start at §5 of this document.
 
 ---
 
@@ -78,9 +78,9 @@ Development order follows SPEC §126.
 | 7 | **Narrative** | story / best-moments / compilation, hook, pacing, duration optimizer | ✅ **done** |
 | 8 | **EDL & Timeline** | clips, tracks, effects placement, captions | ✅ **done** |
 | 9 | **Remotion** | overlay composition | ✅ **done** |
-| 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ⬜ next |
-| 11 | **QA** | technical + content verification | ⬜ |
-| 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ⬜ |
+| 10 | **Final Render** | FFmpeg encode, audio mix, YouTube preset | ✅ **done** |
+| 11 | **QA** | technical + content verification | ✅ **done** |
+| 12 | **UI** | dashboard, import, analysis, moments, timeline, export, chat | ⬜ next |
 | 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ⬜ |
 | 14 | **Game Profiles** | one real game, then a profile API | ⬜ |
 | 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ⬜ |
@@ -107,7 +107,7 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/api` | `app`, `dependencies`, `routers/` × 5 | complete for current scope |
 | `ai/providers` | `base.py` — Speech / Vision / LLM protocols, registry | interfaces only |
 | `backend/media` | `ffmpeg` (process layer), `probe`, `proxy`, `audio`, `frames`, `chunking` | complete |
-| `backend/pipeline` | `runner`, `workers/` for every stage through EDL | RENDER is the frontier |
+| `backend/pipeline` | `runner`, `workers/` for **every stage the runner queues** | complete through QA |
 | `backend/analysis` | `signal`, `audio_events` (§18), `reactions` (§19, §20), `scenes` (§17), `candidates` (the §15/§16 cascade) | complete |
 | `ai/speech`, `ai/vision`, `ai/ocr` | real provider + deterministic fake + factory each | complete |
 | `backend/gaming` | `profiles` (§22, §23), `ocr` (§25), `events` (§21), `correlation` (§27) | complete; HUD extraction pending a real profile |
@@ -115,9 +115,9 @@ moments → EDL → render` does not work, no interface saves the project.
 | `backend/moments` | `formation` (§28), `context` (§29), `dead_time` (§30), `repetition` (§31, §33), `scoring` (§32) | complete |
 | `backend/narrative` | `optimizer` (§39), `story` (§35, §36), `hook` (§37), `pacing` (§38) | complete |
 | `backend/timeline` | `models`, `builder`, `operations`, `validation` (§40-§42), `captions` (§71) | complete |
-| `backend/rendering` | `composition` (§64), `remotion` (§66, D-008) | overlay complete; encode is Phase 10 |
+| `backend/rendering` | `composition`, `remotion`, `encoder`, `audio_mix`, `ffmpeg_renderer`, `composite` | complete |
 | `remotion/` | `OverlayLayer`, captions, 7 overlay effects | complete |
-| `backend/qa` | package docstring only | **empty — this is the remaining work** |
+| `backend/qa` | `report` (§76-§79), `technical` (§76), `content` (§77) | complete |
 
 ### 3.2 Configuration (13 files in `config/`)
 
@@ -507,36 +507,61 @@ Full write-up: [`docs/PHASE_9.md`](PHASE_9.md).
 
 ---
 
-### Phase 10 — Final Render
+### Phase 10 — Final Render ✅ done
 
 **Goal (§65, §72–§75):** the MP4.
 
 **Create**
-- `backend/rendering/ffmpeg_renderer.py` — cut, concat, transitions, speed
+- `backend/rendering/ffmpeg_renderer.py` — cut, concat, resumable segments
 - `backend/rendering/audio_mix.py` — mix, ducking, normalisation (§72–§74)
-- `backend/rendering/composite.py` — overlay + final encode
+- `backend/rendering/composite.py` — overlay + final encode, one pass
 - `backend/rendering/encoder.py` — NVENC with libx264 fallback
-- `backend/pipeline/workers/render.py`
+- `backend/pipeline/workers/render_worker.py`
 
-**Acceptance:** the final MP4 opens in standard players; duration inside the
-10–60 minute band.
+**Acceptance: passed.** The finished file decodes end to end with empty stderr,
+is an MP4 with the configured codecs, carries both a picture and a sound, and
+lasts as long as the edit said it would. The §6 band is checked where it is
+decided, in the timeline.
+
+**Also found:** `ffmpeg -encoders` lists `h264_nvenc` on this machine while the
+driver is one nvenc API version too old to open it — every render would have
+failed minutes in, and `doctor.py` reported hardware encoding as available
+because it read the same list. Both now *try* the encoder rather than asking
+it, which is the PaddleOCR lesson from Phase 5 applied again. Also: music
+looped with `apad` pads with silence rather than repeating, and `amix` left to
+normalise drops the whole mix ~9 dB the moment music is added.
+
+Full write-up: [`docs/PHASE_10.md`](PHASE_10.md).
 
 ---
 
-### Phase 11 — QA
+### Phase 11 — QA ✅ done
 
 **Goal (§76, §77):** catch bad renders automatically.
 
 **Create**
 - `backend/qa/technical.py` — decode, duration, resolution, fps, streams,
-  black/frozen frames, A/V sync, caption sync
-- `backend/qa/content.py` — blank screens, accidental menus, broken sequence,
-  extreme silence, captions covering HUD
+  black/frozen frames, A/V sync, loudness
+- `backend/qa/content.py` — menus in the edit, extreme silence, broken
+  sequence, flash cuts, captions covering HUD
 - `backend/qa/report.py`
-- `backend/pipeline/workers/qa.py`
+- `backend/pipeline/workers/qa_worker.py`
 
-**Acceptance:** a deliberately broken render is detected. Technical failures
-block export; content warnings go to human review.
+**Acceptance: passed.** Five deliberately broken renders — black, frozen,
+silent, no audio stream, wrong length — are each caught **by name**, and a good
+render comes back clean. Technical failures block export; content warnings go
+to human review and never stop the file.
+
+**Also found:** `freezedetect` prints no duration for a freeze still running at
+the end of the file, so pairing starts with durations dropped exactly the
+entirely-frozen case — the most obviously broken video was the one that passed.
+QA also *raised* when the render had legitimately skipped, so a recording with
+nothing worth editing produced a failed project rather than a plain "there was
+nothing to make a video from". And adding the RENDER worker made every earlier
+phase's integration test encode an MP4; `tests/conftest.py::workers_through`
+now limits each file to its own phase.
+
+Full write-up: [`docs/PHASE_11.md`](PHASE_11.md).
 
 ---
 
@@ -655,6 +680,7 @@ Not blocking, but worth settling before the phase that needs them.
 | Do we ship model weights or download at setup? | Packaging | Download at setup; the repo stays small. |
 | Desktop shell — Tauri or plain localhost? | Phase 12 | Localhost web app first (§9 allows it), shell later. |
 | Multi-recording projects (multicam) | later | Sources are already independent; true sync is out of MVP scope. |
+| **NVIDIA driver too old for this FFmpeg's NVENC** | when convenient | The development machine runs driver 581.15; the gyan.dev FFmpeg 9.0 build wants nvenc API 13.1, which needs 610+. `nvidia-display-driver 610.88.0` is available through Chocolatey. Rendering falls back to libx264 in the meantime — correct output, several times slower. |
 | ~~Remotion licence for commercial use~~ | ~~Phase 9~~ | **Settled 2026-08-11:** free for individuals and for-profit organisations with up to 3 employees; above that, a company licence. This project is inside the free tier. |
 | **This repository has no LICENSE file** | before any release | Nothing has been published, so nothing is currently mis-licensed. Worth settling before the repo is shared. |
 

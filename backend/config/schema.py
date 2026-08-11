@@ -925,6 +925,12 @@ class DuckingConfig(_Section):
     enabled: bool = True
     speech_duck_db: float = -14.0
     game_event_duck_db: float = -8.0
+    #: How far the *gameplay* track drops under speech. §72 orders the mix
+    #: Speech > Important Game Audio > Music, and without this the order holds
+    #: only until the game gets loud -- which is exactly when someone shouts.
+    #: Much shallower than the music duck: the gameplay is the subject of the
+    #: video, and burying it would be a worse mix than a slightly crowded one.
+    game_under_speech_db: float = -4.0
     attack_ms: int = Field(default=120, ge=0)
     release_ms: int = Field(default=700, ge=0)
     hold_ms: int = Field(default=250, ge=0)

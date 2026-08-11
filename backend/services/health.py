@@ -189,9 +189,11 @@ class HealthService:
     def _check_nvenc(self, *, gpu_present: bool) -> HealthCheck:
         """Check for a usable NVENC encoder. Absence falls back to CPU x264 (§52).
 
-        The encoder being compiled into FFmpeg is not enough: without an NVIDIA
-        GPU it is listed and then fails at runtime. Reporting "available" in
-        that case would be a lie the first render exposes.
+        Compiled in is not enough, and neither is a GPU being present. On the
+        machine this was written for, ``-encoders`` lists ``h264_nvenc`` beside
+        an RTX 3070 while the driver is one API version too old for the build
+        to open it -- so the check *encodes a frame*, which is the only answer
+        that survives contact with a real render.
         """
         preferred = self._config.render.encoder_preference
         hardware_encoders = [name for name in preferred if name.endswith("_nvenc")]
@@ -213,14 +215,40 @@ class HealthService:
                 remediation="Verify the FFmpeg installation.",
             )
 
-        available = [name for name in hardware_encoders if name in output]
-        if available and gpu_present:
+        listed = [name for name in hardware_encoders if name in output]
+        working: list[str] = []
+        broken: list[str] = []
+        if listed and gpu_present:
+            from backend.media.ffmpeg import FFmpegRunner
+            from backend.rendering.encoder import encoder_works
+
+            runner = FFmpegRunner(self._config.ffmpeg)
+            for name in listed:
+                ok, why = encoder_works(name, runner)
+                (working if ok else broken).append(name if ok else f"{name} ({why})")
+
+        if working:
             return HealthCheck(
                 name="nvenc",
                 status=HealthStatus.OK,
                 required=False,
-                detail=f"Hardware encoding available: {', '.join(available)}.",
+                detail=f"Hardware encoding available: {', '.join(working)}.",
             )
+        if broken:
+            fallback = next(
+                (name for name in preferred if not name.endswith("_nvenc")), "libx264"
+            )
+            return HealthCheck(
+                name="nvenc",
+                status=HealthStatus.WARNING,
+                required=False,
+                detail=(
+                    f"Hardware encoding is listed but does not work: {'; '.join(broken)}. "
+                    f"Rendering will use {fallback}."
+                ),
+                remediation="Update the NVIDIA driver, or accept slower CPU encoding.",
+            )
+        available = listed
         if available:
             fallback = next(
                 (name for name in preferred if not name.endswith("_nvenc")), "libx264"

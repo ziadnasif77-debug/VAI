@@ -26,10 +26,10 @@ from backend.core.models.project import ProjectCreate
 from backend.database.repositories.moments import MomentRepository
 from backend.moments.scoring import DIMENSIONS
 from backend.pipeline.runner import PipelineRunner
-from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.gaming_workers import OcrWorker
 from backend.pipeline.workers.speech_workers import TranscriptWorker
 from backend.pipeline.workers.vision_workers import VisionWorker
+from tests.conftest import workers_through
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_ffmpeg]
 
@@ -41,7 +41,7 @@ def ocr_provider() -> FakeOcrProvider:
 
 @pytest.fixture
 def runner(database, paths, config, speech_provider, vision_provider, ocr_provider):
-    workers = default_workers()
+    workers = workers_through("moments")
     workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
     workers[JobStage.VISION] = VisionWorker(vision_provider)
     workers[JobStage.OCR] = OcrWorker(ocr_provider)

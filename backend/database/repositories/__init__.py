@@ -7,6 +7,8 @@ from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository, MediaTrackRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.projects import ProjectRepository
+from backend.database.repositories.qa import QaRepository
+from backend.database.repositories.renders import RenderRepository
 from backend.database.repositories.scenes import SceneRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.database.repositories.transcript import TranscriptRepository
@@ -23,6 +25,8 @@ __all__ = [
     "MomentRepository",
     "OcrRepository",
     "ProjectRepository",
+    "QaRepository",
+    "RenderRepository",
     "SceneRepository",
     "StoredObservation",
     "TimelineRepository",

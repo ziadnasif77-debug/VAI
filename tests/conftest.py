@@ -499,34 +499,67 @@ def speech_provider() -> FakeSpeechProvider:
     return FakeSpeechProvider()
 
 
+def workers_through(stage) -> dict:
+    """The default workers, stopping after ``stage``.
+
+    A phase's integration test should exercise that phase, not every phase
+    after it. Once RENDER gained a worker, ``run_project`` in a Phase 4 vision
+    test began encoding an MP4 -- minutes of CPU to prove something about
+    keyframes. Limiting the registry restores both the runtime and the meaning:
+    the runner stops at the first stage this file does not care about, and
+    :func:`assert_frontier_waits` sees it waiting.
+    """
+    from backend.core.models.enums import JobStage
+    from backend.core.models.jobs import stages_in_order
+
+    order = list(stages_in_order())
+    limit = order.index(JobStage(stage))
+    keep = set(order[: limit + 1])
+    return {name: worker for name, worker in default_workers().items() if name in keep}
+
+
 def assert_frontier_waits(runner, project_id: str) -> None:
-    """The first stage with no worker yet waits; it does not fail.
+    """The runner stops cleanly: nothing is left running, and nothing failed.
 
     A helper rather than an assertion each phase rewrites: naming the frontier
     stage means every landed phase breaks the previous phase's test, which
-    happened four times before this existed. What matters is the property --
-    an unimplemented stage is a stopping point, not a failure.
+    happened four times before this existed.
+
+    It covers both eras on purpose. While a stage had no worker, the property
+    was "an unimplemented stage waits, it does not fail". Now that every queued
+    stage has one, the property is "the run finished and nothing failed" --
+    which is what each caller was really asserting all along.
     """
     from backend.core.models.enums import JobStatus
 
-    assert runner.run_next(project_id) is None
+    assert runner.run_next(project_id) is None, "the runner still had work to do"
+    jobs = runner.jobs.list_jobs(project_id)
+
+    failed = [job for job in jobs if job.status is JobStatus.FAILED]
+    assert not failed, [f"{job.stage.value}: {job.error_message}" for job in failed]
+
     frontier = next(
-        (
-            job
-            for job in runner.jobs.list_jobs(project_id)
-            if job.stage not in runner.supported_stages
-        ),
-        None,
+        (job for job in jobs if job.stage not in runner.supported_stages), None
     )
-    assert frontier is not None, "every stage has a worker; this helper needs retiring"
-    assert frontier.status is JobStatus.QUEUED
-    assert frontier.error_code is None
+    if frontier is not None:
+        assert frontier.status is JobStatus.QUEUED
+        assert frontier.error_code is None
+    else:
+        # Every queued stage ran. Delivery is excluded by design (§46: publishing
+        # is always an explicit action), so there is nothing left waiting.
+        assert all(job.status is JobStatus.COMPLETED for job in jobs)
 
 
 @pytest.fixture
 def frontier_check():
     """Return :func:`assert_frontier_waits`, handed over rather than imported."""
     return assert_frontier_waits
+
+
+@pytest.fixture
+def workers_up_to():
+    """Return :func:`workers_through` for tests that stop at their own phase."""
+    return workers_through
 
 
 @pytest.fixture
@@ -548,8 +581,13 @@ def pipeline_runner(
     speech_provider: FakeSpeechProvider,
     vision_provider: FakeVisionProvider,
 ) -> PipelineRunner:
-    """A runner whose model-backed stages use test doubles."""
-    workers = default_workers()
+    """A runner whose model-backed stages use test doubles.
+
+    Stops at VISION: its users are the media-engine and vision phases, and a
+    registry that reached RENDER would have those tests encoding an MP4 to
+    prove something about frame extraction.
+    """
+    workers = workers_through(JobStage.VISION)
     workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
     workers[JobStage.VISION] = VisionWorker(vision_provider)
     return PipelineRunner(database, paths, config, workers=workers)

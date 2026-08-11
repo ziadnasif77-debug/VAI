@@ -62,6 +62,10 @@ class TrackInfo:
     channels: int | None = None
     bitrate: int | None = None
     duration_seconds: float | None = None
+    #: Where this stream begins, in container time. Two streams that start at
+    #: different moments are a mux-level A/V desync, which is the kind this
+    #: pipeline can actually produce (§76).
+    start_seconds: float | None = None
     is_default: bool = False
     #: Cover art, thumbnails: a video stream that is not moving pictures.
     is_image: bool = False
@@ -291,6 +295,7 @@ def _track_from_stream(stream: dict[str, Any]) -> TrackInfo:
         channels=_positive(stream.get("channels")),
         bitrate=_integer(stream.get("bit_rate")),
         duration_seconds=_stream_duration(stream),
+        start_seconds=parse_timestamp(_text(stream.get("start_time"))),
         is_default=bool(disposition.get("default")) if isinstance(disposition, dict) else False,
         is_image=is_image,
     )

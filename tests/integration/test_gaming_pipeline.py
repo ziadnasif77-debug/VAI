@@ -26,16 +26,16 @@ from backend.core.models.project import ProjectCreate
 from backend.database.repositories.gaming import GameEventRepository, OcrRepository
 from backend.gaming.profiles import clear_profile_cache
 from backend.pipeline.runner import PipelineRunner
-from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.gaming_workers import OcrWorker
 from backend.pipeline.workers.speech_workers import TranscriptWorker
 from backend.pipeline.workers.vision_workers import VisionWorker
+from tests.conftest import workers_through
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_ffmpeg]
 
 
 def _runner(database, paths, config, speech, vision, ocr) -> PipelineRunner:
-    workers = default_workers()
+    workers = workers_through("game_events")
     workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech)
     workers[JobStage.VISION] = VisionWorker(vision)
     workers[JobStage.OCR] = OcrWorker(ocr)

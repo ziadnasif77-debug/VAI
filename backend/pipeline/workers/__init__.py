@@ -18,6 +18,8 @@ from backend.pipeline.workers.media_workers import (
     ProxyWorker,
 )
 from backend.pipeline.workers.moments_worker import MomentsWorker
+from backend.pipeline.workers.qa_worker import QaWorker
+from backend.pipeline.workers.render_worker import RenderWorker
 from backend.pipeline.workers.speech_workers import AudioEventsWorker, TranscriptWorker
 from backend.pipeline.workers.story_worker import StoryWorker
 from backend.pipeline.workers.vision_workers import SceneWorker, VisionWorker
@@ -29,8 +31,8 @@ def default_workers() -> dict[JobStage, StageWorker]:
     Phase 2 covers the media engine -- everything needed to turn a recording
     into the artefacts the analysis stages read. Phase 3 adds speech and audio
     understanding, Phase 4 the visual layer, Phase 5 the gaming intelligence,
-    Phase 6 the moments, Phase 7 the narrative, Phase 8 the EDL. Render
-    onward arrive with their phases.
+    Phase 6 the moments, Phase 7 the narrative, Phase 8 the EDL, Phase 10 the
+    render, Phase 11 the QA. Export and publish arrive with their phases.
     """
     return {
         JobStage.IMPORT: ImportWorker(),
@@ -47,6 +49,8 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.MOMENTS: MomentsWorker(),
         JobStage.STORY: StoryWorker(),
         JobStage.EDL: EdlWorker(),
+        JobStage.RENDER: RenderWorker(),
+        JobStage.QA: QaWorker(),
     }
 
 
@@ -62,6 +66,8 @@ __all__ = [
     "ProbeWorker",
     "ProgressReporter",
     "ProxyWorker",
+    "QaWorker",
+    "RenderWorker",
     "SceneWorker",
     "StageWorker",
     "StoryWorker",

@@ -32,8 +32,8 @@ from backend.core.models.project import ProjectCreate
 from backend.database.repositories.audio_events import AudioEventRepository
 from backend.database.repositories.transcript import TranscriptRepository
 from backend.pipeline.runner import PipelineRunner
-from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.speech_workers import TranscriptWorker
+from tests.conftest import workers_through
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_ffmpeg]
 
@@ -62,7 +62,7 @@ class TestTranscriptAlignment:
     ) -> None:
         chunked = _chunked(config, chunk_seconds=2.0, overlap_seconds=0.5)
         provider = FakeSpeechProvider(segment_seconds=0.5, gap_seconds=0.1)
-        workers = default_workers()
+        workers = workers_through("audio_events")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(provider)
         runner = PipelineRunner(database, paths, chunked, workers=workers)
 
@@ -85,7 +85,7 @@ class TestTranscriptAlignment:
         # Chunks overlap so a sentence on a boundary is heard whole by one of
         # them. Keeping both copies would double-count every boundary.
         chunked = _chunked(config, chunk_seconds=2.0, overlap_seconds=0.5)
-        workers = default_workers()
+        workers = workers_through("audio_events")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(
             FakeSpeechProvider(segment_seconds=0.5, gap_seconds=0.1)
         )
@@ -122,7 +122,7 @@ class TestTranscriptAlignment:
         # Loading Whisper per chunk costs tens of seconds and 5 GB each time.
         chunked = _chunked(config, chunk_seconds=1.0, overlap_seconds=0.2)
         provider = FakeSpeechProvider(segment_seconds=0.4, gap_seconds=0.1)
-        workers = default_workers()
+        workers = workers_through("audio_events")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(provider)
         runner = PipelineRunner(database, paths, chunked, workers=workers)
 
@@ -155,7 +155,7 @@ class TestTranscriptAlignment:
     ) -> None:
         # §95: no transcript is a degraded analysis; a failed stage is a broken
         # one. A missing model must produce the first.
-        workers = default_workers()
+        workers = workers_through("audio_events")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(FakeSpeechProvider(available=False))
         runner = PipelineRunner(database, paths, config, workers=workers)
 
@@ -277,7 +277,7 @@ class TestStageWiring:
         test_clip: Path,
     ) -> None:
         chunked = _chunked(config, chunk_seconds=1.0, overlap_seconds=0.2)
-        workers = default_workers()
+        workers = workers_through("audio_events")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(FakeSpeechProvider())
         runner = PipelineRunner(database, paths, chunked, workers=workers)
 
@@ -370,7 +370,7 @@ class TestWhichTrackIsTranscribed:
 
     def _run(self, media_service, project_manager, database, paths, config, clip: Path):
         provider = FakeSpeechProvider(segment_seconds=1.0, gap_seconds=0.2)
-        workers = default_workers()
+        workers = workers_through("audio_events")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(provider)
         runner = PipelineRunner(database, paths, config, workers=workers)
         project, media = _project_with(media_service, project_manager, clip)
@@ -438,7 +438,7 @@ class TestDuplicatedTracks:
     """
 
     def _run(self, media_service, project_manager, database, paths, config, clip: Path):
-        workers = default_workers()
+        workers = workers_through("audio_events")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(FakeSpeechProvider())
         runner = PipelineRunner(database, paths, config, workers=workers)
         project, media = _project_with(media_service, project_manager, clip)

@@ -29,11 +29,11 @@ from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.pipeline.runner import PipelineRunner
-from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.gaming_workers import OcrWorker
 from backend.pipeline.workers.speech_workers import TranscriptWorker
 from backend.pipeline.workers.vision_workers import VisionWorker
 from backend.timeline import operations, validation
+from tests.conftest import workers_through
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_ffmpeg]
 
@@ -45,7 +45,7 @@ def ocr_provider() -> FakeOcrProvider:
 
 @pytest.fixture
 def runner(database, paths, config, speech_provider, vision_provider, ocr_provider):
-    workers = default_workers()
+    workers = workers_through("edl")
     workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
     workers[JobStage.VISION] = VisionWorker(vision_provider)
     workers[JobStage.OCR] = OcrWorker(ocr_provider)
@@ -372,7 +372,7 @@ class TestNothingToEdit:
         Built rather than borrowed, because the shared fixtures deliberately
         script a detectable moment and this test needs the opposite.
         """
-        workers = default_workers()
+        workers = workers_through("edl")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(FakeSpeechProvider(silent=True))
         workers[JobStage.VISION] = VisionWorker(vision_provider)
         workers[JobStage.OCR] = OcrWorker(FakeOcrProvider(default=[]))

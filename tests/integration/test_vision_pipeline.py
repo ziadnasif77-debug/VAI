@@ -30,9 +30,9 @@ from backend.database.repositories.frames import FrameRepository
 from backend.database.repositories.scenes import SceneRepository
 from backend.database.repositories.vision import VisionRepository
 from backend.pipeline.runner import PipelineRunner
-from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.speech_workers import TranscriptWorker
 from backend.pipeline.workers.vision_workers import VISION_PROMPT_ID, VisionWorker
+from tests.conftest import workers_through
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_ffmpeg]
 
@@ -280,7 +280,7 @@ class TestDegradation:
     ) -> None:
         # §95: vision failing falls back to OCR, audio, scenes and the game
         # profile. It does not fail the analysis.
-        workers = default_workers()
+        workers = workers_through("vision")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
         workers[JobStage.VISION] = VisionWorker(FakeVisionProvider(available=False))
         runner = PipelineRunner(database, paths, config, workers=workers)
@@ -303,7 +303,7 @@ class TestDegradation:
         analysis = config.analysis.model_copy(update={"vision": vision})
         disabled = config.model_copy(update={"analysis": analysis})
 
-        workers = default_workers()
+        workers = workers_through("vision")
         workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
         workers[JobStage.VISION] = VisionWorker(vision_provider)
         runner = PipelineRunner(database, paths, disabled, workers=workers)
