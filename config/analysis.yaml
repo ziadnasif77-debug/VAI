@@ -130,3 +130,13 @@ analysis:
       - boss_health
       - victory
       - defeat
+
+  # Reading the transcript for complete incidents (§19, §21). The player
+  # talking is the only source that already holds the story in words -- without
+  # this the detectors see signals and every moment comes out "surprise".
+  narration:
+    enabled: true
+    window_seconds: 360    # six minutes segments better than forty at once
+    overlap_seconds: 45    # an incident on a boundary is seen whole by one window
+    min_importance: 0.35
+    max_incident_seconds: 150

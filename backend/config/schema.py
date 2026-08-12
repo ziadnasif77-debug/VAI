@@ -279,6 +279,36 @@ class HudConfig(_Section):
     fields: list[str] = Field(default_factory=list)
 
 
+class NarrationConfig(_Section):
+    """Reading the transcript for complete incidents (§19, §21).
+
+    The player narrating is the only source that already contains the story in
+    words. Without this the pipeline had a vocabulary of two moment types for a
+    recording with eleven minutes of speech in it.
+    """
+
+    enabled: bool = True
+    #: Transcript is read in windows: a model asked to segment forty minutes at
+    #: once returns fewer and vaguer incidents than one asked about six.
+    window_seconds: float = Field(default=360.0, gt=0)
+    #: Consecutive windows overlap so an incident on a boundary is seen whole.
+    overlap_seconds: float = Field(default=45.0, ge=0)
+    #: Below this an incident is not worth a clip.
+    min_importance: float = Field(default=0.35, ge=0.0, le=1.0)
+    #: Longer than this is the model failing to find a seam, not a long
+    #: situation.
+    max_incident_seconds: float = Field(default=150.0, gt=0)
+
+    @model_validator(mode="after")
+    def _overlap_below_window(self) -> NarrationConfig:
+        if self.overlap_seconds >= self.window_seconds:
+            raise ValueError(
+                "analysis.narration.overlap_seconds must be smaller than "
+                "window_seconds, otherwise the windows make no progress."
+            )
+        return self
+
+
 class AnalysisConfig(_Section):
     """Chunked analysis so an 8-hour recording never enters RAM whole (§7)."""
 
@@ -293,6 +323,7 @@ class AnalysisConfig(_Section):
     vision: VisionAnalysisConfig = Field(default_factory=VisionAnalysisConfig)
     ocr: OcrConfig = Field(default_factory=OcrConfig)
     hud: HudConfig = Field(default_factory=HudConfig)
+    narration: NarrationConfig = Field(default_factory=NarrationConfig)
 
     @model_validator(mode="after")
     def _overlap_below_chunk(self) -> AnalysisConfig:

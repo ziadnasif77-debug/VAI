@@ -5,11 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.api.dependencies import get_jobs, get_projects
-from backend.core.models.enums import ProjectStatus, VideoMode
+from backend.api.dependencies import get_jobs, get_media, get_projects
+from backend.core.models.enums import JobStatus, ProjectStatus, VideoMode
 from backend.core.models.jobs import ProjectStageStatus
 from backend.core.models.project import Project, ProjectCreate, ProjectUpdate
 from backend.services.job_manager import JobManager
+from backend.services.media_ingestion import MediaIngestionService
 from backend.services.project_manager import ProjectManager
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -118,15 +119,26 @@ def analyze_project(
     project_id: str,
     projects: ProjectManager = Depends(get_projects),
     jobs: JobManager = Depends(get_jobs),
+    media_service: MediaIngestionService = Depends(get_media),
 ) -> AnalyzeResponse:
-    """Queue the project-wide stages (§89, §90).
+    """Queue everything the project still needs (§89, §90).
 
-    Per-media stages are already queued at import. Idempotent: pressing
-    Analyze twice does not duplicate work.
+    Idempotent: queueing returns the job that already covers a stage, so
+    pressing Analyze twice does not duplicate work.
+
+    Both chains are queued, not only the project-wide one. Per-media stages are
+    queued at import, but `/reanalyze` **deletes** the stages it invalidates --
+    and re-running vision or moments is exactly what §90 exists for. Queueing
+    only the project-wide half left STORY waiting on a MOMENTS that no longer
+    existed: a queue that cannot move, with nothing saying why.
     """
     projects.get(project_id)
-    queued = jobs.queue_project_stages(project_id)
-    return AnalyzeResponse(queued_stages=[job.stage.value for job in queued])
+    recordings = media_service.list_media(project_id)
+    queued = [job for item in recordings for job in jobs.queue_import_chain(project_id, item.id)]
+    queued.extend(jobs.queue_project_stages(project_id))
+    return AnalyzeResponse(
+        queued_stages=sorted({job.stage.value for job in queued if job.status is JobStatus.QUEUED})
+    )
 
 
 @router.post("/{project_id}/cancel", response_model=CancelResponse)

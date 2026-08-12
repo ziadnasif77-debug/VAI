@@ -23,6 +23,7 @@ is a §94 rejection on every call.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -37,6 +38,11 @@ PROMPTS_DIRNAME: Final[str] = "prompts"
 
 METADATA_FILENAME: Final[str] = "meta.json"
 PROMPT_FILENAME: Final[str] = "prompt.md"
+
+
+#: A `{name}` left in a rendered prompt. Only simple names matter -- JSON
+#: braces and format specs are not placeholders anyone meant to fill.
+_PLACEHOLDER_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +70,7 @@ class Prompt:
                 produces an answer to a question nobody asked.
         """
         try:
-            return self.text.format(**values)
+            rendered = self.text.format(**values)
         except KeyError as exc:
             raise ConfigurationError(
                 f"Prompt {self.id!r} needs a value for {exc.args[0]!r}.",
@@ -72,6 +78,24 @@ class Prompt:
                 details={"prompt_id": self.id, "supplied": sorted(values)},
                 recoverable=False,
             ) from exc
+
+        # A doubled brace is not a placeholder -- `str.format` turns `{{x}}`
+        # into the literal `{x}` and raises nothing. The prompt then goes to
+        # the model with a hole where its data should be, and a model given a
+        # hole does not error: it fills it. A narration prompt written that way
+        # returned four confident incidents with English quotes and round-number
+        # timestamps for an Arabic transcript it had never been shown.
+        leftover = _PLACEHOLDER_RE.findall(rendered)
+        unfilled = [name for name in leftover if name in values]
+        if unfilled:
+            raise ConfigurationError(
+                f"Prompt {self.id!r} still contains {{{unfilled[0]}}} after rendering. "
+                "A doubled brace escapes the placeholder instead of filling it.",
+                code=ErrorCode.CONFIG_INVALID,
+                details={"prompt_id": self.id, "unfilled": sorted(unfilled)},
+                recoverable=False,
+            )
+        return rendered
 
 
 def prompts_root(root: Path | None = None) -> Path:

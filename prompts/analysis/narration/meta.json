@@ -1,0 +1,103 @@
+{
+  "id": "analysis.narration",
+  "version": 1,
+  "purpose": "Segment a window of narrated gameplay speech into complete incidents -- cause, climax and reaction -- so the editor can cut whole situations rather than the instants a signal detector spikes on (SPEC 19, 21, 26, 93). The model reads; correlation decides whether an incident is an event.",
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "transcript",
+      "window_start",
+      "window_end",
+      "event_types"
+    ],
+    "properties": {
+      "transcript": {
+        "type": "string",
+        "description": "Timestamped lines, one per segment, as '[12.3] text'."
+      },
+      "window_start": {
+        "type": "string"
+      },
+      "window_end": {
+        "type": "string"
+      },
+      "event_types": {
+        "type": "string"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "incidents"
+    ],
+    "properties": {
+      "incidents": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "title",
+            "event_type",
+            "start_seconds",
+            "climax_seconds",
+            "end_seconds",
+            "importance"
+          ],
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "event_type": {
+              "type": "string",
+              "enum": [
+                "kill",
+                "multi_kill",
+                "death",
+                "near_death",
+                "clutch",
+                "victory",
+                "defeat",
+                "boss_fight",
+                "boss_defeat",
+                "objective",
+                "objective_failure",
+                "rare_loot",
+                "rare_event",
+                "high_damage",
+                "low_health",
+                "escape",
+                "chase",
+                "outplay",
+                "comeback",
+                "fail",
+                "funny_moment",
+                "unexpected_event"
+              ]
+            },
+            "start_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "climax_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "end_seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "importance": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "quote": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

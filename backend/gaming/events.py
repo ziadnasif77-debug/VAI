@@ -293,6 +293,7 @@ def detect(
     reactions: Iterable[ReactionCandidate] = (),
     scenes: Sequence[Scene] = (),
     hud_readings: Sequence[Any] = (),
+    narration: Iterable[EventObservation] = (),
     profile: GameProfile,
     vision_min_confidence: float = 0.0,
     scene_min_change: float = 0.0,
@@ -305,6 +306,9 @@ def detect(
         *observations_from_reactions(reactions),
         *observations_from_scenes(scenes, min_change=scene_min_change),
         *observations_from_hud(hud_readings, profile),
+        # Already observations: the narration reader produces them directly,
+        # because what it read was a situation rather than a signal (§19).
+        *narration,
     ]
     found.sort(key=lambda item: (item.start_seconds, item.source))
     logger.info(

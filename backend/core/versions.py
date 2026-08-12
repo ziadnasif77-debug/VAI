@@ -38,6 +38,10 @@ PROJECT_MANIFEST_VERSION: Final[int] = 1
 #: results.
 PROMPT_VERSIONS: Final[dict[str, int]] = {
     "vision.frame_description": 1,
+    # The transcript is the only source that already contains the story in
+    # words. Without this pass a 41-minute recording with 658 seconds of
+    # speech produced two moment types in total.
+    "analysis.narration": 1,
     # v2 of both: the model no longer sets the video's length. Ollama enforces
     # a schema as a grammar, so `minimum: 600` meant a model asked for "30
     # seconds" could not emit 30 -- it emitted 3000, and the person was told

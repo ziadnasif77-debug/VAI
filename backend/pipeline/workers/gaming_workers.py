@@ -25,6 +25,7 @@ from typing import Any
 
 from ai.ocr import create_ocr_provider
 from ai.providers.base import OcrProvider, TextDetection
+from backend.analysis.narration import observations_from_narration, read_incidents
 from backend.analysis.reactions import ReactionCandidate
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import JobStage, ReactionType
@@ -34,6 +35,7 @@ from backend.database.repositories.frames import FrameRepository
 from backend.database.repositories.gaming import GameEventRepository, OcrRepository
 from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.scenes import SceneRepository
+from backend.database.repositories.transcript import TranscriptRepository
 from backend.database.repositories.vision import VisionRepository
 from backend.gaming import events as detectors
 from backend.gaming.correlation import correlate
@@ -165,6 +167,7 @@ class GameEventsWorker:
         scenes = SceneRepository(context.database).list_for_media(media.id)
         ocr_frames = _ocr_frames(context, media.id)
         reactions = _reactions_from(audio)
+        narration = _narration_observations(context, media.id)
 
         observations = detectors.detect(
             vision=vision,
@@ -173,6 +176,7 @@ class GameEventsWorker:
             reactions=reactions,
             scenes=scenes,
             hud_readings=_stored_hud_readings(context, media.id),
+            narration=narration,
             profile=resolution.profile,
             vision_min_confidence=analysis.vision.min_confidence,
             scene_min_change=analysis.scenes.threshold,
@@ -206,6 +210,7 @@ class GameEventsWorker:
                 "scenes": len(scenes),
                 "ocr_frames": len(ocr_frames),
                 "reactions": len(reactions),
+                "narration": len(narration),
                 "hud_readings": len(_stored_hud_readings(context, media.id)),
             },
         }
@@ -325,6 +330,30 @@ def _ocr_frames(context: WorkerContext, media_id: str):
         FrameText(timestamp=timestamp, frame_path=Path(), detections=tuple(items))
         for timestamp, items in sorted(grouped.items())
     ]
+
+
+def _narration_observations(context: WorkerContext, media_id: str) -> list:
+    """Read the transcript for incidents, or return nothing (§19, §95).
+
+    Nothing here is required. Without a model, or without speech, the other
+    detectors carry the analysis exactly as they did before this existed -- and
+    a failure is logged rather than raised, because a recording with no
+    narration is ordinary and a broken model should not lose the whole stage.
+    """
+    if not context.config.analysis.narration.enabled:
+        return []
+    segments = TranscriptRepository(context.database).list_for_media(media_id)
+    if not segments:
+        return []
+    try:
+        incidents = read_incidents(segments, config=context.config)
+    except Exception as error:  # pragma: no cover - defensive (§95)
+        logger.warning(
+            "Could not read the narration; continuing without it",
+            extra={"error": str(error)[:200], "media_id": media_id},
+        )
+        return []
+    return observations_from_narration(incidents)
 
 
 def _reactions_from(audio) -> list[ReactionCandidate]:
