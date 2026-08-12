@@ -110,6 +110,7 @@ def build_plan(
     target_seconds: float,
     config: NarrativeConfig,
     policy: DurationPolicy,
+    chronological: bool = False,
 ) -> NarrativePlan:
     """Turn ranked moments into an ordered edit of the requested length (§35-§39).
 
@@ -118,6 +119,14 @@ def build_plan(
     pacing. Duration is settled first because it is the only hard constraint --
     everything else is a preference, and preferences that break the constraint
     produce a video of the wrong length.
+
+    Args:
+        chronological: play the recording's own order, start to finish. In a
+            story edit the hook is the only thing that breaks chronology -- a
+            teaser from the middle, then back to the beginning -- and someone
+            watching a session they played themselves reads that single jump as
+            the whole edit being shuffled. Measured on a real project: with the
+            hook, one backwards jump in fourteen clips; without it, none.
     """
     if not moments:
         return _empty(mode, target_seconds, policy)
@@ -145,8 +154,15 @@ def build_plan(
         # applies verbatim. Variety in story mode is the optimiser's job at
         # selection time (§33), not a reorder at the end.
         ordered = pacing.order(ordered, config.pacing)
-    hook = choose_hook(ordered, config.hook)
-    ordered = _apply_hook(ordered, hook, config)
+    if chronological:
+        # An empty selection rather than None: "no hook" is a state the type
+        # already models, with a reason attached, and every reader of a plan
+        # expects a HookSelection to be there.
+        hook = HookSelection(moment=None, reason="the edit was asked to run in time order")
+        notes = [*notes, "chronological: no hook, so time only runs forwards"]
+    else:
+        hook = choose_hook(ordered, config.hook)
+        ordered = _apply_hook(ordered, hook, config)
 
     plan = NarrativePlan(
         mode=mode,

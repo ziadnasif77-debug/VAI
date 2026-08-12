@@ -291,6 +291,26 @@ def parse_command(text: str) -> EditCommand | None:
     return None
 
 
+#: "Play it in the order it happened." The phrasings people actually use for
+#: it, in both languages -- including the complaint that prompted it, which was
+#: not a request at all: "يجب ان يكون متسلسل بحسب الوقت".
+_CHRONOLOGICAL = (
+    r"(chronological|in order|in time order|by time|sequential|start to finish|"
+    r"no hook|without a hook|don't start with|do not start with|"
+    r"بالترتيب|بالتسلسل|متسلسل|حسب الوقت|بحسب الوقت|بحسب الترتيب|"
+    r"من البداية للنهاية|من البداية إلى النهاية|بدون خطاف|بلا خطاف|"
+    r"لا تبدأ من الآخر|لا تبدأ بالنهاية)"
+)
+
+#: The other direction, so the preference can be taken back. Written against
+#: what `normalise` produces, not against how the words are spelled: it folds
+#: hamza, so "ابدأ بأقوى" arrives as "ابدا باقوى" and a regex carrying the
+#: original spelling never fires.
+_ALLOW_HOOK = (
+    r"(use a hook|add a hook|start with the best|hook it|"
+    r"ابدا باقوى|استخدم خطاف|بخطاف|ابدا بالاقوى)"
+)
+
 #: The clip reference, removed before a duration is read out of the sentence.
 _CLIP_REFERENCE = r"(?:clip|لقطة|اللقطة|مقطع|المقطع|كليب)\s*#?\s*\d+"
 
@@ -372,6 +392,16 @@ def parse_instruction(text: str) -> ParsedInstruction:
     duration_multiplier: float | None = None
 
     changes: dict[str, object] = {}
+
+    # §37's hook is the only thing that reorders a story edit, and "play it in
+    # order" is how people ask for it to stop. Checked before duration because
+    # "من البداية للنهاية" contains no number and must not fall through.
+    if re.search(_CHRONOLOGICAL, lowered):
+        changes["chronological"] = True
+        matched.append("chronological")
+    elif re.search(_ALLOW_HOOK, lowered):
+        changes["chronological"] = False
+        matched.append("chronological")
 
     minutes = _find_minutes(lowered)
     if minutes is not None:

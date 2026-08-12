@@ -454,7 +454,9 @@ class InteractionService:
             )
         return InteractionResult(
             interaction_type=InteractionType.EDITING_INSTRUCTION,
-            message=f"Updated the editing brief: {self._resolver.describe(intent)}.",
+            message=phrases.say(
+                "brief_updated", summary=self._resolver.describe(intent, phrases)
+            ),
             intent=intent,
             # The intent feeds the STORY stage onward; the analysis is untouched.
             requires_rerender=True,

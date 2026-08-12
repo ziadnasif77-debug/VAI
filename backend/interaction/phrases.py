@@ -291,6 +291,10 @@ PHRASES: Final[dict[str, dict[Language, str]]] = {
     "brief_priority": {"en": "prioritising {types}", "ar": "بأولوية لـ{types}"},
     "brief_avoid": {"en": "avoiding {types}", "ar": "مع تجنّب {types}"},
     "brief_dead_time": {"en": "dead time {value}", "ar": "الوقت الميّت {value}"},
+    "brief_chronological": {
+        "en": "in time order (no hook)",
+        "ar": "بالترتيب الزمني (بلا خطّاف)",
+    },
     "instruction_unreadable": {
         "en": (
             "I did not recognise an editing preference in that. Try something like "

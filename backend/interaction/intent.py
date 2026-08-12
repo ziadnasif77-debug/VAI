@@ -231,6 +231,10 @@ class IntentResolver:
         parts.append(
             say.say("brief_dead_time", value=say.brief_value(intent.dead_time_policy.value))
         )
+        if intent.chronological:
+            # Named only when set. A brief listing every default is a brief
+            # nobody reads, and this is the one the person just asked for.
+            parts.append(say.say("brief_chronological"))
         return "; ".join(parts)
 
 

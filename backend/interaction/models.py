@@ -134,6 +134,15 @@ class EditingIntent(_Base):
     music: MusicPolicy = MusicPolicy.SUBTLE
     variety: Level = Level.MEDIUM
 
+    #: Play the recording's own order, start to finish (§37).
+    #:
+    #: The hook takes the strongest moment and puts it first, which is standard
+    #: practice and is the only thing that breaks chronology in a story edit --
+    #: a 25-second teaser from minute 20, then back to the beginning. Someone
+    #: watching a session they played wants to watch it in the order it
+    #: happened, and reads that one jump as the whole edit being shuffled.
+    chronological: bool = False
+
     priority_moment_types: list[MomentType] = Field(default_factory=list)
     priority_events: list[GameEventType] = Field(default_factory=list)
     avoid_moment_types: list[MomentType] = Field(default_factory=list)
@@ -173,6 +182,7 @@ class IntentDelta(_Base):
     captions: CaptionPolicy | None = None
     music: MusicPolicy | None = None
     variety: Level | None = None
+    chronological: bool | None = None
     style: str | None = None
 
     priority_moment_types: ListDelta | None = None

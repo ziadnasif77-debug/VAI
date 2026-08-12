@@ -718,6 +718,76 @@ def _row_count(database: Database, table: str, project_id: str) -> Any:
     return int(row["total"])
 
 
+class TestPlayItInTheOrderItHappened:
+    """§37's hook is the only thing that reorders a story edit.
+
+    Reported three times in three different ways, and the third was not a
+    request: "يجب ان يكون متسلسل بحسب الوقت". Measured on the project being
+    watched, the edit *was* chronological -- fourteen clips ascending -- except
+    for clip 0, a 25-second teaser from minute 20 followed by the body starting
+    at zero. One jump at the very front reads as the whole thing being shuffled.
+    """
+
+    def test_the_complaint_itself_sets_the_preference(
+        self, interaction: InteractionService, project_id: str
+    ) -> None:
+        # Not a paraphrase: the sentence that was actually typed.
+        result = interaction.handle(project_id, "يجب ان يكون متسلسل بحسب الوقت")
+
+        assert result.intent.chronological is True
+        assert result.requires_rerender is True
+
+    @pytest.mark.parametrize(
+        "phrasing",
+        [
+            "رتبها بالترتيب الزمني",
+            "من البداية للنهاية",
+            "بدون خطاف",
+            "play it in chronological order",
+            "no hook",
+            "keep it sequential",
+        ],
+    )
+    def test_the_phrasings_people_use(
+        self, interaction: InteractionService, project_id: str, phrasing: str
+    ) -> None:
+        assert interaction.handle(project_id, phrasing).intent.chronological is True
+
+    def test_it_can_be_taken_back(self, interaction: InteractionService, project_id: str) -> None:
+        interaction.handle(project_id, "بدون خطاف")
+
+        result = interaction.handle(project_id, "ابدأ بأقوى لحظة")
+
+        assert result.intent.chronological is False
+
+    def test_the_reply_says_the_preference_took(
+        self, interaction: InteractionService, project_id: str
+    ) -> None:
+        # Without this the person cannot tell whether they were understood,
+        # and the brief lists every other dimension already.
+        result = interaction.handle(project_id, "يجب ان يكون متسلسل بحسب الوقت")
+
+        assert "الترتيب الزمني" in result.message
+
+    def test_an_arabic_instruction_is_answered_in_arabic(
+        self, interaction: InteractionService, project_id: str
+    ) -> None:
+        # The rule path's success reply was still an English f-string after the
+        # rest of the module was translated -- exactly the half-translated
+        # answer the phrasebook exists to prevent, in the one place nothing
+        # asserted on.
+        result = interaction.handle(project_id, "اجعله 25 دقيقة")
+
+        assert "حدّثتُ خطة المونتاج" in result.message
+
+    def test_an_english_instruction_is_still_answered_in_english(
+        self, interaction: InteractionService, project_id: str
+    ) -> None:
+        result = interaction.handle(project_id, "make it 25 minutes")
+
+        assert "Updated the editing brief" in result.message
+
+
 class TestTrimSplitMoveByChat:
     """The vocabulary catching up with the capability.
 

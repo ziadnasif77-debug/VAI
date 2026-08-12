@@ -24,6 +24,7 @@ from backend.core.models.enums import JobStage, VideoMode
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.projects import ProjectRepository
+from backend.interaction.service import InteractionService
 from backend.moments.formation import Moment
 from backend.narrative.story import NarrativePlan, build_plan
 from backend.pipeline.workers.base import WorkerContext
@@ -55,8 +56,16 @@ class StoryWorker:
                 "within_target": False,
             }
 
-        target = float(project.target_duration_seconds)
-        mode = project.mode if isinstance(project.mode, VideoMode) else VideoMode(project.mode)
+        # §4: the editing brief is what the person asked for, and this is the
+        # first stage that can act on it (§10). Until now it reached only the
+        # effects planner, so every preference about *which clips and in what
+        # order* -- the ones people actually type -- changed nothing.
+        intent = InteractionService(context.database, context.config).current_intent(
+            context.project_id
+        )
+        target = float(intent.target_duration_seconds or project.target_duration_seconds)
+        requested = intent.mode or project.mode
+        mode = requested if isinstance(requested, VideoMode) else VideoMode(requested)
 
         context.report(0.4, f"Selecting clips for a {target / 60:.0f}-minute {mode.value} edit")
         plan = build_plan(
@@ -65,6 +74,7 @@ class StoryWorker:
             target_seconds=target,
             config=context.config.narrative,
             policy=context.config.duration_policy,
+            chronological=intent.chronological,
         )
 
         if plan.is_empty:

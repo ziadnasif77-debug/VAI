@@ -114,7 +114,9 @@ class TestOptimiser:
 
     def test_it_lands_inside_the_tolerance(self, config) -> None:
         result = optimise(
-            _pool(), target_seconds=TARGET, config=config.narrative.optimizer,
+            _pool(),
+            target_seconds=TARGET,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         )
         assert result.within_tolerance
@@ -125,8 +127,10 @@ class TestOptimiser:
         # §6's presets are what the import screen offers, so each must be
         # reachable from the same source.
         result = optimise(
-            _pool(200), target_seconds=minutes * 60.0,
-            config=config.narrative.optimizer, policy=config.duration_policy,
+            _pool(200),
+            target_seconds=minutes * 60.0,
+            config=config.narrative.optimizer,
+            policy=config.duration_policy,
         )
         assert result.within_tolerance, result.notes
 
@@ -135,7 +139,9 @@ class TestOptimiser:
         # moment over and over.
         moments = _pool()
         result = optimise(
-            moments, target_seconds=TARGET, config=config.narrative.optimizer,
+            moments,
+            target_seconds=TARGET,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         )
         greedy = _greedy(moments, TARGET)
@@ -148,15 +154,17 @@ class TestOptimiser:
         # A per-moment bonus cannot express "this is the fourth kill in a row",
         # which is why the search carries the type mix.
         same = [_moment(i * 100.0, moment_type=MomentType.SKILL) for i in range(40)]
-        varied = [
-            _moment(i * 100.0, moment_type=list(MomentType)[i % 6]) for i in range(40)
-        ]
+        varied = [_moment(i * 100.0, moment_type=list(MomentType)[i % 6]) for i in range(40)]
         same_value = optimise(
-            same, target_seconds=400.0, config=config.narrative.optimizer,
+            same,
+            target_seconds=400.0,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         ).value
         varied_value = optimise(
-            varied, target_seconds=400.0, config=config.narrative.optimizer,
+            varied,
+            target_seconds=400.0,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         ).value
         assert varied_value > same_value
@@ -164,22 +172,30 @@ class TestOptimiser:
     def test_repetition_and_dead_time_lower_a_moments_worth(self, config) -> None:
         clean = [_moment(i * 100.0, moment_type=list(MomentType)[i % 8]) for i in range(20)]
         penalised = [
-            _moment(
-                i * 100.0, moment_type=list(MomentType)[i % 8], repetition=0.9, dead_time=0.9
-            )
+            _moment(i * 100.0, moment_type=list(MomentType)[i % 8], repetition=0.9, dead_time=0.9)
             for i in range(20)
         ]
         assert (
-            optimise(clean, target_seconds=200.0, config=config.narrative.optimizer,
-                     policy=config.duration_policy).value
-            > optimise(penalised, target_seconds=200.0, config=config.narrative.optimizer,
-                       policy=config.duration_policy).value
+            optimise(
+                clean,
+                target_seconds=200.0,
+                config=config.narrative.optimizer,
+                policy=config.duration_policy,
+            ).value
+            > optimise(
+                penalised,
+                target_seconds=200.0,
+                config=config.narrative.optimizer,
+                policy=config.duration_policy,
+            ).value
         )
 
     def test_it_returns_moments_in_recording_order(self, config) -> None:
         # Chosen by value, watched in time order.
         result = optimise(
-            _pool(), target_seconds=TARGET, config=config.narrative.optimizer,
+            _pool(),
+            target_seconds=TARGET,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         )
         starts = [moment.context_start for moment in result.moments]
@@ -190,7 +206,9 @@ class TestOptimiser:
         # seconds is still the moment, a clip removed is not.
         moments = [_moment(i * 200.0, duration=60.0) for i in range(12)]
         result = optimise(
-            moments, target_seconds=600.0, config=config.narrative.optimizer,
+            moments,
+            target_seconds=600.0,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         )
         assert result.within_tolerance
@@ -204,7 +222,8 @@ class TestOptimiser:
         # would be worse than saying they cannot.
         result = optimise(
             [_moment(0.0, duration=10.0), _moment(100.0, duration=10.0)],
-            target_seconds=TARGET, config=config.narrative.optimizer,
+            target_seconds=TARGET,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         )
         assert not result.within_tolerance
@@ -213,7 +232,9 @@ class TestOptimiser:
 
     def test_no_candidates_produces_an_empty_result(self, config) -> None:
         result = optimise(
-            [], target_seconds=TARGET, config=config.narrative.optimizer,
+            [],
+            target_seconds=TARGET,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         )
         assert result.is_empty
@@ -221,7 +242,9 @@ class TestOptimiser:
 
     def test_the_result_reports_honestly(self, config) -> None:
         result = optimise(
-            _pool(), target_seconds=TARGET, config=config.narrative.optimizer,
+            _pool(),
+            target_seconds=TARGET,
+            config=config.narrative.optimizer,
             policy=config.duration_policy,
         )
         summary = result.summary()
@@ -245,9 +268,7 @@ class TestHook:
         moments = _pool(20)
         selection = choose_hook(moments, config.narrative.hook)
         if selection.exists:
-            assert any(
-                moment.start_seconds == selection.moment.start_seconds for moment in moments
-            )
+            assert any(moment.start_seconds == selection.moment.start_seconds for moment in moments)
 
     def test_a_long_hook_is_trimmed_from_the_front(self, config) -> None:
         # The payoff is at the end; an opening that stops before it promises
@@ -279,9 +300,7 @@ class TestPacing:
 
     def test_ordering_preserves_the_callers_sequence(self, config) -> None:
         # Re-sorting here once made all three §35 modes identical.
-        moments = [
-            _moment(i * 100.0, moment_type=list(MomentType)[i % 5]) for i in range(10)
-        ]
+        moments = [_moment(i * 100.0, moment_type=list(MomentType)[i % 5]) for i in range(10)]
         reversed_input = list(reversed(moments))
         result = order(reversed_input, config.narrative.pacing)
         assert [m.context_start for m in result] != [m.context_start for m in moments]
@@ -297,9 +316,7 @@ class TestPacing:
 
     def test_the_report_warns_rather_than_corrects(self, config) -> None:
         # §78 gives the user the last word, so pacing reports a judgement.
-        monotonous = [
-            _moment(i * 100.0, moment_type=MomentType.TENSION) for i in range(8)
-        ]
+        monotonous = [_moment(i * 100.0, moment_type=MomentType.TENSION) for i in range(8)]
         assert report(monotonous, config.narrative.pacing).warnings
 
     def test_intensity_reflects_the_clip_not_only_its_type(self, config) -> None:
@@ -317,6 +334,82 @@ class TestPacing:
         assert report([], config.narrative.pacing).warnings
 
 
+class TestChronologicalOrder:
+    """§37's hook is the only thing that reorders a story edit.
+
+    Measured on the project this came from: fourteen clips, thirteen of them
+    ascending, and clip 0 a 25-second teaser from minute 20 followed by the
+    body starting at zero. That single jump at the front is what "it puts them
+    in random order" describes -- everything after it was already in time
+    order.
+    """
+
+    def test_time_only_runs_forwards(self, config) -> None:
+        plan = build_plan(
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+            chronological=True,
+        )
+
+        starts = [moment.context_start for moment in plan.moments]
+        assert starts == sorted(starts), "a clip plays before one that happened earlier"
+
+    def test_the_hook_is_what_it_gives_up(self, config) -> None:
+        chronological = build_plan(
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+            chronological=True,
+        )
+        hooked = build_plan(
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+        )
+
+        assert not chronological.hook.exists
+        assert hooked.hook.exists, "the fixture cannot show the difference"
+
+    def test_the_plan_still_summarises(self, config) -> None:
+        # The first cut of this made `hook` None, and every reader of a plan
+        # expects a HookSelection. The stage died on `plan.summary()` -- after
+        # the interaction tests had all passed, because they never built one.
+        plan = build_plan(
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+            chronological=True,
+        )
+
+        summary = plan.summary()
+
+        assert summary["hook"] is not None
+        assert any("chronological" in note for note in plan.notes)
+
+    def test_it_still_lands_inside_the_duration(self, config) -> None:
+        # Dropping the hook must not make the video the wrong length: §39's
+        # constraint outranks every preference.
+        plan = build_plan(
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+            chronological=True,
+        )
+
+        assert plan.within_target
+
+
 class TestModes:
     """§35: three modes, three different videos."""
 
@@ -326,8 +419,11 @@ class TestModes:
             mode: tuple(
                 m.context_start
                 for m in build_plan(
-                    moments, mode=mode, target_seconds=TARGET,
-                    config=config.narrative, policy=config.duration_policy,
+                    moments,
+                    mode=mode,
+                    target_seconds=TARGET,
+                    config=config.narrative,
+                    policy=config.duration_policy,
                 ).moments
             )
             for mode in (VideoMode.STORY, VideoMode.BEST_MOMENTS, VideoMode.COMPILATION)
@@ -336,29 +432,46 @@ class TestModes:
 
     def test_story_mode_assigns_beats(self, config) -> None:
         plan = build_plan(
-            _pool(), mode=VideoMode.STORY, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
         assert plan.beats
         assert "climax" in plan.beats
 
     def test_every_beat_has_candidate_types(self) -> None:
-        for beat in ("hook", "context", "build_up", "event", "escalation",
-                     "climax", "reaction", "ending"):
+        for beat in (
+            "hook",
+            "context",
+            "build_up",
+            "event",
+            "escalation",
+            "climax",
+            "reaction",
+            "ending",
+        ):
             assert BEAT_TYPES[beat]
 
     def test_best_moments_leads_with_the_strongest(self, config) -> None:
         plan = build_plan(
-            _pool(), mode=VideoMode.BEST_MOMENTS, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            _pool(),
+            mode=VideoMode.BEST_MOMENTS,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
         body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
         assert body[0].score >= body[-1].score
 
     def test_compilation_groups_by_type(self, config) -> None:
         plan = build_plan(
-            _pool(), mode=VideoMode.COMPILATION, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            _pool(),
+            mode=VideoMode.COMPILATION,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
         body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
         # Types appear in contiguous runs rather than scattered.
@@ -372,15 +485,21 @@ class TestModes:
     def test_every_mode_respects_the_duration_target(self, config) -> None:
         for mode in (VideoMode.STORY, VideoMode.BEST_MOMENTS, VideoMode.COMPILATION):
             plan = build_plan(
-                _pool(), mode=mode, target_seconds=TARGET,
-                config=config.narrative, policy=config.duration_policy,
+                _pool(),
+                mode=mode,
+                target_seconds=TARGET,
+                config=config.narrative,
+                policy=config.duration_policy,
             )
             assert plan.within_target, f"{mode.value}: {plan.notes}"
 
     def test_no_moments_produces_an_empty_plan_not_a_crash(self, config) -> None:
         plan = build_plan(
-            [], mode=VideoMode.STORY, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            [],
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
         assert plan.is_empty
         assert not plan.within_target
@@ -396,8 +515,11 @@ class TestAcceptance:
         assert source_hours >= 2.0, "the fixture must be a genuinely long session"
 
         plan = build_plan(
-            moments, mode=VideoMode.STORY, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            moments,
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
 
         assert plan.within_target
@@ -411,8 +533,11 @@ class TestAcceptance:
         # §6: 10-60 minutes, whatever the optimiser decides.
         policy: DurationPolicy = config.duration_policy
         plan = build_plan(
-            _pool(200), mode=VideoMode.BEST_MOMENTS, target_seconds=TARGET,
-            config=config.narrative, policy=policy,
+            _pool(200),
+            mode=VideoMode.BEST_MOMENTS,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=policy,
         )
         assert policy.contains(plan.total_seconds)
 
@@ -430,9 +555,7 @@ class TestHookWithoutReplay:
     def test_replay_is_off_by_default(self, config) -> None:
         assert config.narrative.hook.allow_replay_in_body is False
 
-    def test_the_body_copy_keeps_the_lead_up_and_loses_the_hooked_tail(
-        self, config
-    ) -> None:
+    def test_the_body_copy_keeps_the_lead_up_and_loses_the_hooked_tail(self, config) -> None:
         from backend.narrative.hook import choose_hook
         from backend.narrative.story import _apply_hook
 
@@ -472,15 +595,11 @@ class TestHookWithoutReplay:
 
         from itertools import pairwise
 
-        spans = sorted(
-            (m.media_id, m.context_start, m.context_end) for m in plan.moments
-        )
+        spans = sorted((m.media_id, m.context_start, m.context_end) for m in plan.moments)
         for earlier, later in pairwise(spans):
             if earlier[0] != later[0]:
                 continue
-            assert later[1] >= earlier[2] - 1e-6, (
-                f"{later[1]} overlaps a span ending {earlier[2]}"
-            )
+            assert later[1] >= earlier[2] - 1e-6, f"{later[1]} overlaps a span ending {earlier[2]}"
 
     def test_a_moment_fully_used_by_the_hook_is_not_repeated(self, config) -> None:
         from backend.narrative.hook import choose_hook
@@ -511,8 +630,11 @@ class TestStoryChronology:
         from itertools import pairwise
 
         plan = build_plan(
-            _pool(), mode=VideoMode.STORY, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
         body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
 
@@ -527,8 +649,11 @@ class TestStoryChronology:
     def test_beats_still_choose_roles(self, config) -> None:
         # The arc did not disappear -- it moved from positions to labels.
         plan = build_plan(
-            _pool(), mode=VideoMode.STORY, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
 
         assert plan.beats
@@ -543,16 +668,18 @@ class TestStoryChronology:
         from itertools import pairwise
 
         moments = [
-            _moment(60.0 * i, moment_type=MomentType.SURPRISE, score=0.5)
-            for i in range(1, 9)
+            _moment(60.0 * i, moment_type=MomentType.SURPRISE, score=0.5) for i in range(1, 9)
         ] + [
             _moment(60.0 * 12, moment_type=MomentType.TENSION, score=0.9),
             _moment(60.0 * 14, moment_type=MomentType.TENSION, score=0.9),
         ]
 
         plan = build_plan(
-            moments, mode=VideoMode.STORY, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            moments,
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
         body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
 
@@ -561,8 +688,11 @@ class TestStoryChronology:
 
     def test_the_hook_is_the_only_flash_forward(self, config) -> None:
         plan = build_plan(
-            _pool(), mode=VideoMode.STORY, target_seconds=TARGET,
-            config=config.narrative, policy=config.duration_policy,
+            _pool(),
+            mode=VideoMode.STORY,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
         )
         if not plan.hook.exists:
             pytest.skip("this pool produced no hook")
