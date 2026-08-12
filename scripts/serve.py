@@ -1,20 +1,21 @@
-"""Run the application: the API, and the worker that does the work.
+"""Run the application: the interface, the API, and the worker.
 
     python scripts/serve.py
 
-One command, because two would be one too many for a local tool. The API
-answers the interface; the worker consumes the job queue it fills. Separating
-them into two processes buys isolation nobody here needs — a render that
-crashes the worker would take the API with it either way, since both are the
-same application on one machine.
+**One command, and everything the application needs is running.** The API
+answers the interface; the worker consumes the job queue it fills; and the
+built interface is served by the API itself, so there is one process and one
+address. Two commands in two terminals is a reasonable thing to ask of a
+developer and an unreasonable one to ask of someone who wants to edit a video.
 
-The web interface is a separate process during development, because Vite's dev
-server does the reloading:
+If ``apps/web/dist`` does not exist this serves the API alone and says so.
+Build it once with ``npm run build -w apps/web`` -- or run ``VAI.bat``, which
+does that for you.
+
+During development the interface is Vite's dev server on port 5173 instead,
+because it reloads on save:
 
     npm run dev -w apps/web
-
-A built interface (``npm run build -w apps/web``) is a folder of static files
-this server hosts itself, so the finished product is one command again.
 """
 
 from __future__ import annotations
@@ -30,11 +31,43 @@ for _stream in (sys.stdout, sys.stderr):
     with contextlib.suppress(AttributeError, OSError):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
-import uvicorn
+try:
+    import uvicorn
+except ModuleNotFoundError as error:  # pragma: no cover - a setup problem
+    # Almost always the wrong interpreter rather than a missing install: a
+    # machine with several Pythons on PATH runs whichever is first, and the
+    # first is rarely the one the dependencies went into. A raw traceback
+    # sends someone to `pip install` when the fix is `py -3.11`.
+    print()
+    print(f"  This Python has no {error.name!r}:")
+    print(f"      {sys.executable}")
+    print(f"      Python {sys.version.split()[0]}")
+    print()
+    print("  You most likely have more than one Python installed and this is")
+    print("  not the one the dependencies were installed into. Try:")
+    print()
+    print("      py -3.11 scripts/serve.py")
+    print()
+    print("  If that fails too, install the dependencies into this one:")
+    print(f'      "{sys.executable}" -m pip install -e ".[dev]"')
+    print()
+    raise SystemExit(2) from None
 
 from backend.api.app import create_app
 from backend.api.dependencies import build_state
+from backend.core.logging import LogChannel, get_logger
 from backend.services.worker import JobWorker, recover_stale_jobs
+
+logger = get_logger("serve", LogChannel.APPLICATION)
+
+
+def _port_taken(host: str, port: int) -> bool:
+    """Whether something is already listening there."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(0.5)
+        return probe.connect_ex((host, port)) == 0
 
 
 def main() -> int:
@@ -53,6 +86,21 @@ def main() -> int:
     host = arguments.host or config.application.api.host
     port = arguments.port or config.application.api.port
 
+    if _port_taken(host, port):
+        # Checked *before* anything starts. Uvicorn's own failure is a
+        # SystemExit raised from inside its event loop, which used to end this
+        # process silently and take the worker with it -- the log read "worker
+        # started ... API started ... worker stopped", which looks exactly like
+        # a completed run. It cost a real analysis before anyone noticed.
+        print()
+        print(f"  Port {port} on {host} is already in use.")
+        print("  Another copy of this application is probably already running.")
+        print(f"  Try it first:   http://{host}:{port}")
+        print(f"  Or use another port:   python scripts/serve.py --port {port + 1}")
+        print()
+        state.close()
+        return 2
+
     worker: JobWorker | None = None
     if not arguments.no_worker:
         # The worker recovers interrupted jobs itself, on its own thread,
@@ -65,12 +113,20 @@ def main() -> int:
         # the queue's state true.
         recover_stale_jobs(state.database, config)
 
-    print(f"  API        http://{host}:{port}/api")
-    print(f"  Docs       http://{host}:{port}/docs")
-    print("  Interface  npm run dev -w apps/web   →  http://127.0.0.1:5173")
-    print(f"  Data       {state.paths.data_root}")
+    from backend.api.app import INTERFACE_DIR
+
+    built = (INTERFACE_DIR / "index.html").is_file()
+    print()
+    if built:
+        print(f"  Open this   http://{host}:{port}")
+    else:
+        print("  Interface   not built. Run:  npm run build -w apps/web")
+        print("              (or use VAI.bat, which builds it for you)")
+    print(f"  API         http://{host}:{port}/api")
+    print(f"  Docs        http://{host}:{port}/docs")
+    print(f"  Data        {state.paths.data_root}")
     if worker is None:
-        print("  Worker     not started (--no-worker): queued jobs will not run")
+        print("  Worker      not started (--no-worker): queued jobs will not run")
     print()
 
     app = create_app(state=state)

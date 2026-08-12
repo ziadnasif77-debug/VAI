@@ -270,3 +270,39 @@ class TestPhase1Acceptance:
         status = api_client.get(f"/api/projects/{project_id}/status").json()
         by_stage = {item["stage"]: item for item in status["stages"]}
         assert by_stage["import"]["status"] == "queued"
+
+
+class TestServingTheInterface:
+    """One command has to serve the whole application (§57).
+
+    Without this the finished product needs a Python process and a Node
+    process side by side, which is fine for a developer and not fine for
+    someone who wants to edit a video.
+    """
+
+    def test_the_root_serves_the_interface_when_it_is_built(self, api_client) -> None:
+        from backend.api.app import INTERFACE_DIR
+
+        response = api_client.get("/")
+
+        if (INTERFACE_DIR / "index.html").is_file():
+            assert response.status_code == 200
+            assert "text/html" in response.headers["content-type"]
+        else:
+            # Not built is not an error: the API is usable on its own, and in
+            # development the interface is Vite's dev server on another port.
+            assert response.status_code == 404
+
+    def test_the_api_still_answers_as_json(self, api_client) -> None:
+        response = api_client.get("/api/health")
+
+        assert response.status_code == 200
+        assert "application/json" in response.headers["content-type"]
+
+    def test_an_unknown_path_is_not_swallowed_by_the_interface(self, api_client) -> None:
+        # The obvious single-page mount is a catch-all returning the shell for
+        # anything unmatched. It was tried, and it turned a path-traversal
+        # refusal into a 200: nothing leaked, but a refusal reporting success
+        # is how a real leak stays unnoticed.
+        for path in ("/no-such-screen", "/api/no-such-endpoint", "/Windows/win.ini"):
+            assert api_client.get(path).status_code == 404, path

@@ -19,9 +19,17 @@
 Run it:
 
 ```bash
-python scripts/serve.py          # API + the worker that runs jobs
-npm run dev -w apps/web          # the interface, on http://127.0.0.1:5173
+python scripts/serve.py          # everything → http://127.0.0.1:8765
 ```
+
+One command: the API, the job worker, and the built interface, which the API
+serves itself. `VAI.bat` does the same by double-click, and picks an
+interpreter that has the dependencies — on a machine with several Pythons,
+plain `python` is whichever is first on PATH and is rarely the right one, so
+`py -3.11 scripts/serve.py` is the reliable spelling by hand.
+
+For UI work, `npm run dev -w apps/web` gives Vite's reloading dev server on
+port 5173 instead.
 
 ```bash
 git clone https://github.com/ziadnasif77-debug/VAI.git

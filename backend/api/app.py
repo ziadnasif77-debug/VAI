@@ -17,7 +17,8 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.api.dependencies import AppState, build_state
 from backend.api.routers import (
@@ -154,7 +155,59 @@ def create_app(
     app.include_router(interaction.presets_router, prefix=API_PREFIX)
     app.include_router(profiles.router, prefix=API_PREFIX)
 
+    _mount_interface(app)
     return app
+
+
+#: Where ``npm run build -w apps/web`` puts the interface.
+INTERFACE_DIR = Path(__file__).resolve().parents[2] / "apps" / "web" / "dist"
+
+
+def _mount_interface(app: FastAPI) -> None:
+    """Serve the built interface from the API, when there is one (§57).
+
+    This is what makes the application *one* command. Without it the finished
+    product needs a Python process and a Node process running side by side,
+    which is a reasonable thing to ask of a developer and an unreasonable one
+    to ask of someone who wants to edit a video.
+
+    A missing ``dist`` is not an error: the API is perfectly usable on its own,
+    and during development the interface is Vite's dev server on another port.
+    The health endpoint reports which it is, so "the page is blank" has an
+    answer that does not require reading this file.
+    """
+    if not (INTERFACE_DIR / "index.html").is_file():
+        logger.info(
+            "No built interface; serving the API only",
+            extra={"expected": str(INTERFACE_DIR), "build": "npm run build -w apps/web"},
+        )
+        return
+
+    assets = INTERFACE_DIR / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+
+    @app.get("/", include_in_schema=False)
+    def interface() -> FileResponse:
+        """Serve the interface at the root, and only at the root.
+
+        Deliberately *not* a catch-all. The obvious way to mount a single-page
+        app is ``/{path:path}`` returning the shell for anything unmatched, so
+        that a reload on any screen works. Two reasons not to here:
+
+        This app does not route in the browser -- the screens are state, and
+        the address stays at ``/`` throughout. There is nothing to reload into.
+
+        And a catch-all returning 200 for everything erases the difference
+        between "a screen" and "a bad request". It did: a path-traversal
+        attempt at ``/api/projects/{id}/files/renders/..%2f..%2f..`` normalises
+        to a path outside the API, fell through to the catch-all, and turned a
+        403 into a 200. Nothing leaked -- it served the app shell -- but a
+        refusal that reports success is how a real leak stays unnoticed.
+        """
+        return FileResponse(INTERFACE_DIR / "index.html")
+
+    logger.info("Serving the built interface", extra={"directory": str(INTERFACE_DIR)})
 
 
 def _validation_details(errors: list[dict]) -> list[dict[str, str]]:

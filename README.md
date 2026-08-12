@@ -70,9 +70,18 @@ python -m venv .venv
 
 python scripts/doctor.py               # check the environment
 python scripts/db_init.py              # create the database
+npm install && npm run build -w apps/web
 
-python scripts/serve.py                # the API and the job worker, together
+python scripts/serve.py                # everything: interface, API, worker
 ```
+
+Then open **http://127.0.0.1:8765**.
+
+On Windows, double-clicking **`VAI.bat`** does all of the above and opens the
+browser for you — including finding an interpreter that has the dependencies.
+With several Pythons installed, plain `python` is whichever is first on PATH
+and is rarely the right one; `py -3.11 scripts/serve.py` is the reliable
+spelling if you are running it by hand.
 
 `doctor.py` reports what is missing and what the pipeline will fall back to. A
 missing GPU or model is a warning, not a failure.
