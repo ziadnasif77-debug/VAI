@@ -43,6 +43,13 @@ class DirectoriesConfig(_Section):
     cache: str = ".cache"
     profiles: str = "profiles"
 
+    #: Drop a recording in ``input`` and the finished video appears in
+    #: ``output``. Neither is where the pipeline works -- a project still owns
+    #: its own tree under ``projects`` (§43) -- they are the two ends a person
+    #: touches, kept apart from the machinery in between.
+    input: str = "input"
+    output: str = "output"
+
 
 class DatabaseConfig(_Section):
     filename: str = "gaming_editor.db"
@@ -1047,6 +1054,19 @@ class TechnicalQaThresholds(_Section):
     black_frame_ratio: float = Field(default=0.98, ge=0.0, le=1.0)
     max_black_run_seconds: float = Field(default=2.0, ge=0)
     max_frozen_run_seconds: float = Field(default=3.0, ge=0)
+
+    #: How different two frames may be and still count as the same picture,
+    #: as ``freezedetect``'s noise floor in dBFS (-60dB is a 0.001 difference
+    #: ratio, -50dB is 0.00316).
+    #:
+    #: This is the setting that decides whether the check measures the video or
+    #: the encoder. Below about -50dB the answer depends on which encoder wrote
+    #: the file -- the same footage through libx264 and NVENC disagrees, because
+    #: at that scale the difference between frames is quantisation noise rather
+    #: than picture. Measured against real menu, pause and gameplay footage
+    #: through both encoders; see docs/PHASE_11.md.
+    freeze_noise_db: float = Field(default=-45.0, le=0)
+
     max_av_desync_ms: int = Field(default=80, ge=0)
     max_caption_desync_ms: int = Field(default=250, ge=0)
     min_audio_lufs: float = -30.0

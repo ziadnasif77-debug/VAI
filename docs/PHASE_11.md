@@ -14,7 +14,7 @@ renders are each caught by name, and a good one comes back clean.
 | Requirement | Where | Verified by |
 | --- | --- | --- |
 | Findings and policy (§76, §79) | `backend/qa/report.py` | `TestReportPolicy` — 6 tests |
-| Technical checks (§76) | `backend/qa/technical.py` | `test_qa.py` — 13 tests |
+| Technical checks (§76) | `backend/qa/technical.py` | `test_qa.py` — 18 tests |
 | Content checks (§77) | `backend/qa/content.py` | `test_qa_content.py` — 15 tests |
 | Persistence (§45, §80) | `backend/database/repositories/qa.py` | `TestQaStage` |
 | QA stage | `backend/pipeline/workers/qa_worker.py` | `test_render.py::TestQaStage` |
@@ -130,29 +130,112 @@ finishes with nothing failed — because that is what every caller meant.
 | A freeze running to the end of the file was dropped when pairing starts with durations | An entirely frozen video — the most obviously broken case — passed QA |
 | Every phase's integration test ran the full pipeline once RENDER existed | Minutes of CPU encoding per test; a full suite that looked like it had hung |
 | `TrackInfo` had no stream start time | A/V desync could not be checked at all |
+| `freezedetect`'s noise floor was hard-coded at -60 dB, near bit-identical | The verdict followed the encoder: menus blocked an export through one encoder and a real 4-second stall passed through the other |
 | QA raised when the render had legitimately skipped | A recording with nothing worth editing produced a *failed* project instead of "there was nothing to make a video from" — the pipeline working, reported as the pipeline breaking |
 
 ---
 
-## A sensitivity worth knowing about
+## The frozen-frames check was measuring the encoder — resolved
 
-The frozen-frames check gives **different verdicts for the same content
-depending on the encoder**. On this project, rendered from one timeline:
+It gave **different verdicts for the same content depending on the encoder**.
+On one project, rendered from one timeline:
 
 | Encoder | Verdict |
 | --- | --- |
 | libx264, CRF 19 | failed — "3.2 s of frozen picture", export blocked |
 | h264_nvenc, 16 Mbps | no frozen-frames finding at all |
 
-`freezedetect=n=-60dB` wants near-identical frames, and libx264 at a quality
-target can emit bit-identical ones through a low-motion passage where NVENC's
-rate-targeted quantisation always varies slightly. So the check is partly
-measuring the *encoder* rather than the video — and the earlier block was
-probably an artefact rather than a defect in the footage.
+`freezedetect=n=-60dB` asks for near-identical frames, which is a question
+about the quantiser rather than about the picture. Two things were wrong, and
+only one of them was the number.
 
-It is recorded rather than hurriedly retuned: raising the threshold trades one
-kind of wrong answer for another, and picking the trade wants the golden
-dataset Phase 15 builds.
+### What it should mean
+
+A frozen render is two opposite events wearing one face:
+
+* the **recording** was still — a menu, a loading screen, a paused game. The
+  render is faithful and the video plays. Whether that belongs in the edit is a
+  judgement, and §77 gives judgements to a person.
+* the **render** stopped on its own — a bad seek, a corrupt segment, a
+  swallowed decode error. That is a fact about the file, and it should block.
+
+The render alone cannot tell them apart, so it was blocking on both. The check
+now maps each freeze back through the timeline and asks the *recording* whether
+it was holding still there too. Both files are measured at the same noise
+floor, so what is compared is two pictures rather than two quantisers. A freeze
+the recording accounts for is a **content warning**; one it does not is a
+**technical failure**, as before. With no timeline to map through — a bare file
+handed to `inspect` — nothing is explained and every freeze still fails, which
+is the safe way to be wrong.
+
+### Picking the noise floor by measuring it
+
+`qa.technical.thresholds.freeze_noise_db` is configuration now, not a constant
+in a filter string, which is how it went a whole phase untuned. The value came
+from measurement rather than taste: 19 passages of real recordings — two games
+on two engines, four menus, two pause screens, two loading screens, an idle
+character, a desktop, and seven stretches verified to be moving — each encoded
+with **both** encoders `config/rendering.yaml` chooses between, at their
+production settings, and swept from -70 dB to -30 dB. Plus a real 4-second
+stall spliced into moving footage, as the defect that must always be caught.
+
+| Noise floor | Encoders disagree | 4 s stall caught | Moving footage flagged |
+| --- | --- | --- | --- |
+| -60 dB *(was)* | **5 of 19** | by libx264 only | 0 of 7 |
+| -55 dB | 4 of 19 | by libx264 only | 0 of 7 |
+| -50 dB | 2 of 19 | by libx264 only | 0 of 7 |
+| **-45 dB** *(now)* | **0 of 19** | **by both** | **0 of 7** |
+| -40 dB | 0 of 19 | by both | 0 of 7 |
+
+-45 dB is the **strictest** floor that reaches full agreement, which leaves the
+most headroom against slow-but-real motion in footage the sample does not
+contain.
+
+The sharpest number is in the middle column. At -60 dB the genuine stall
+measured 4.00 s through libx264 and 2.00 s through NVENC — so the setting that
+blocked an export over a menu screen would have **let a real stalled render
+through**, on the encoder this machine prefers. It was not merely noisy; it was
+noisy in both directions at once.
+
+Two corrections to the original diagnosis, both from the data:
+
+* the direction is not fixed. NVENC froze *more* than libx264 on menus and
+  *less* on the stall. It is quantisation either way, not a property of one
+  encoder.
+* runs kept landing on exact 2.00 s multiples — the 2-second GOP. At a floor
+  that tight, each IDR reconstructs the picture slightly differently and breaks
+  the run, so the check was partly measuring `render.gop_seconds`.
+
+That non-monotonicity is also why the third option on the table — requiring a
+freeze to exceed the threshold in both a low- and a high-bitrate encode — was
+rejected. There is no consistent direction to exploit, and it doubles the cost
+of every render to answer a question one decode of the source already answers.
+
+### What the false-positive check cost
+
+At -45 dB all eleven genuinely static passages register as frozen. That is the
+detector working, and it is exactly why corroboration is not optional: without
+it, raising the floor would block every video containing a menu. With it, those
+eleven become warnings a person can dismiss, and the seven moving passages stay
+silent.
+
+The loading screens are the sharpest of them, and worth keeping in any future
+sample. Their art is still but the spinner is not, so they do not fill the clip
+the way a menu does — they produce runs of 3.2 s and 4.4 s, landing just past
+the 3 s threshold rather than far above it. That is where a detector is most
+likely to flip on a small change, and both encoders still agree there at -45 dB
+(they do not at -55 dB, where one reads 2.65 s and the other 4.10 s on the same
+picture).
+
+### A trap for anyone re-running the measurement
+
+The first synthetic defect fixture reported a 4-second stall as a 12-second
+one. The held frame had been spliced in from a PNG, which carried a different
+colour range, and FFmpeg **reconfigures the filter graph when frame parameters
+change** — which resets `freezedetect` mid-file, so the pending freeze never
+prints its duration and gets closed against the end of the file instead. Build
+such fixtures in a single filter graph, and treat "Reconfiguring filter graph"
+in the log as invalidating every number from that decode.
 
 ---
 

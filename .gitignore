@@ -26,6 +26,10 @@ target/
 !/projects/.gitkeep
 /models/*
 !/models/.gitkeep
+/input/*
+!/input/.gitkeep
+/output/*
+!/output/.gitkeep
 /logs/
 *.db
 *.db-wal

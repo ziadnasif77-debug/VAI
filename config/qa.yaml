@@ -26,6 +26,12 @@ qa:
       black_frame_ratio: 0.98
       max_black_run_seconds: 2.0
       max_frozen_run_seconds: 3.0
+      # How different two frames may be and still count as the same picture.
+      # Below about -50dB this measures the encoder rather than the video: the
+      # same footage through libx264 and h264_nvenc disagrees, because at that
+      # scale the frame-to-frame difference is quantisation noise. Measured
+      # against real menu, pause and gameplay footage -- see docs/PHASE_11.md.
+      freeze_noise_db: -45.0
       max_av_desync_ms: 80
       max_caption_desync_ms: 250
       min_audio_lufs: -30.0
