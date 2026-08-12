@@ -45,7 +45,9 @@ PROMPT_VERSIONS: Final[dict[str, int]] = {
     # minutes" it produced 2500. Durations are arithmetic, which the rule
     # parser does exactly and this model does not; there was nothing to gain.
     "interaction.instruction": 2,
-    "interaction.command": 2,
+    # v3: trim, split and move. The timeline could do all three since Phase 8
+    # and the chat could not ask for any of them.
+    "interaction.command": 3,
     "interaction.question": 1,
 }
 

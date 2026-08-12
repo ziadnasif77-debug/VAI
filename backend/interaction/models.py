@@ -283,6 +283,14 @@ class CommandKind(str, Enum):
     ADD_MOMENT = "add_moment"
     SET_DURATION = "set_duration"
     REVERT_VERSION = "revert_version"
+    #: The timeline has been able to trim, split and move since Phase 8, and
+    #: the API and the timeline screen have exposed all three -- but the chat
+    #: could not reach them, so "trim two seconds off the last clip" failed in
+    #: conversation while the same edit was two clicks away. The capability was
+    #: never the gap; the vocabulary was.
+    TRIM_CLIP = "trim_clip"
+    SPLIT_CLIP = "split_clip"
+    MOVE_CLIP = "move_clip"
 
 
 class EditCommand(_Base):
@@ -299,6 +307,13 @@ class EditCommand(_Base):
     timestamp_seconds: float | None = Field(default=None, ge=0)
     target_duration_seconds: int | None = None
     version: int | None = Field(default=None, ge=1)
+    #: Seconds to move a clip's in/out points. Negative starts earlier or ends
+    #: sooner; the timeline refuses a trim that would invent footage or leave
+    #: less than a readable clip (§42).
+    start_delta: float | None = None
+    end_delta: float | None = None
+    #: Where a moved clip lands, numbered from 1 like every clip index here.
+    to_index: int | None = Field(default=None, ge=1)
     raw_text: str | None = None
 
     @model_validator(mode="after")
@@ -310,6 +325,9 @@ class EditCommand(_Base):
             CommandKind.ADD_MOMENT: ("moment_id", "timestamp_seconds"),
             CommandKind.SET_DURATION: ("target_duration_seconds",),
             CommandKind.REVERT_VERSION: ("version",),
+            CommandKind.TRIM_CLIP: ("start_delta", "end_delta"),
+            CommandKind.SPLIT_CLIP: ("timestamp_seconds",),
+            CommandKind.MOVE_CLIP: ("to_index",),
         }
         expected = required[self.kind]
         if not any(getattr(self, field) is not None for field in expected):

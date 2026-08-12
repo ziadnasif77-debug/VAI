@@ -118,9 +118,7 @@ class TestInstructions:
         for moment_type in (MomentType.CLUTCH, MomentType.FUNNY):
             assert moment_type.value in prompt
 
-    def test_an_unsupported_instruction_is_refused_rather_than_approximated(
-        self, config
-    ) -> None:
+    def test_an_unsupported_instruction_is_refused_rather_than_approximated(self, config) -> None:
         # Silently applying the nearest available preference would leave the
         # person believing their instruction was followed.
         interpreter, _ = _interpreter(
@@ -209,7 +207,9 @@ class TestCommands:
             },
         )
 
-        reading = interpreter.read_command("get rid of the third one", clip_count=5, duration="10:24")
+        reading = interpreter.read_command(
+            "get rid of the third one", clip_count=5, duration="10:24"
+        )
 
         assert isinstance(reading.value, EditCommand)
         assert reading.value.kind is CommandKind.DELETE_CLIP
@@ -227,6 +227,51 @@ class TestCommands:
         reading = interpreter.read_command("drop the opener", clip_count=5, duration="10:24")
 
         assert reading.value.raw_text == "drop the opener"
+
+    def test_a_trim_keeps_its_amount(self, config) -> None:
+        # The reading is only useful if the numbers arrive with it: a
+        # trim_clip whose deltas were dropped on the way through is a
+        # zero-second trim, which applies cleanly and does nothing.
+        interpreter, _ = _interpreter(
+            config,
+            responses={
+                "interaction.command": {
+                    "kind": "trim_clip",
+                    "clip_index": 2,
+                    "start_delta": 1.5,
+                    "end_delta": -4.0,
+                    "confidence": 0.9,
+                }
+            },
+        )
+
+        reading = interpreter.read_command(
+            "tighten both ends of #2", clip_count=5, duration="10:24"
+        )
+
+        assert reading.value.kind is CommandKind.TRIM_CLIP
+        assert reading.value.start_delta == 1.5
+        assert reading.value.end_delta == -4.0
+
+    def test_a_move_keeps_its_destination(self, config) -> None:
+        interpreter, _ = _interpreter(
+            config,
+            responses={
+                "interaction.command": {
+                    "kind": "move_clip",
+                    "clip_index": 4,
+                    "to_index": 1,
+                    "confidence": 0.9,
+                }
+            },
+        )
+
+        reading = interpreter.read_command(
+            "put the last one near the top", clip_count=5, duration="10:24"
+        )
+
+        assert reading.value.kind is CommandKind.MOVE_CLIP
+        assert reading.value.to_index == 1
 
     def test_a_clip_that_does_not_exist_is_refused(self, config) -> None:
         # The prompt says so and the model may still do it, so it is a rule
@@ -376,7 +421,9 @@ class TestQuestions:
     def test_the_records_reach_the_prompt_with_their_ids(self, config) -> None:
         interpreter, provider = _interpreter(
             config,
-            responses={"interaction.question": {"answer": "x", "answered": False, "confidence": 0.5}},
+            responses={
+                "interaction.question": {"answer": "x", "answered": False, "confidence": 0.5}
+            },
         )
 
         interpreter.answer_question("what happened?", _evidence())
@@ -420,9 +467,7 @@ class TestDegradation:
         assert "switched off" in reading.reason
 
     def test_a_model_that_fails_leaves_the_rule_path_standing(self, config) -> None:
-        interpreter, _ = _interpreter(
-            config, fail_times=99, default={"confidence": 1.0}
-        )
+        interpreter, _ = _interpreter(config, fail_times=99, default={"confidence": 1.0})
 
         reading = interpreter.read_instruction("anything", EditingIntent())
 

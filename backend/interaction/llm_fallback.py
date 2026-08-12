@@ -257,6 +257,9 @@ class LlmInterpreter:
                     "timestamp_seconds": payload.get("timestamp_seconds"),
                     "target_duration_seconds": payload.get("target_duration_seconds"),
                     "version": payload.get("version"),
+                    "start_delta": payload.get("start_delta"),
+                    "end_delta": payload.get("end_delta"),
+                    "to_index": payload.get("to_index"),
                     "raw_text": text,
                 }
             )

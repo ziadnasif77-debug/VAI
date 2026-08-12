@@ -1,6 +1,6 @@
 {
   "id": "interaction.command",
-  "version": 2,
+  "version": 3,
   "purpose": "Read an editing command the rule-based parser could not, and return one validated EditCommand or none (SPEC 63, 85, 93). The command changes project state through the application's own tool layer; the model never touches a file.",
   "input_schema": {
     "type": "object",
@@ -38,6 +38,9 @@
           "delete_clip",
           "restore_clip",
           "delete_at_timestamp",
+          "trim_clip",
+          "split_clip",
+          "move_clip",
           "revert_version",
           "none"
         ]
@@ -62,6 +65,16 @@
       "reason": {
         "type": "string",
         "description": "Why no command applies, when kind is none."
+      },
+      "start_delta": {
+        "type": "number"
+      },
+      "end_delta": {
+        "type": "number"
+      },
+      "to_index": {
+        "type": "integer",
+        "minimum": 1
       }
     }
   }

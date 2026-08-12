@@ -50,6 +50,12 @@ from backend.interaction.store import ConversationStore, EditVersionStore, Inten
 
 logger = get_logger("interaction.service", LogChannel.APPLICATION)
 
+#: Commands that edit the timeline through :mod:`backend.timeline.operations`
+#: rather than by toggling a clip's enabled flag.
+_TIMELINE_COMMANDS = frozenset(
+    {CommandKind.TRIM_CLIP, CommandKind.SPLIT_CLIP, CommandKind.MOVE_CLIP}
+)
+
 
 class InteractionService:
     """Handles editing instructions, questions and commands for a project."""
@@ -274,6 +280,14 @@ class InteractionService:
             for clip in matching:
                 self._set_clip_enabled(project.id, clip.id, False)
             message = f"Removed {len(matching)} clip(s) covering that timestamp."
+        elif command.kind in _TIMELINE_COMMANDS:
+            # trim / split / move: the timeline has done these since Phase 8
+            # and the API has exposed them just as long. They route through the
+            # same operations module the timeline screen uses, so a sentence
+            # and a drag produce the identical edit and the identical refusal
+            # (§42's bounds are checked in one place, not two).
+            target = _clip_by_index(clips, command.clip_index)
+            message = self._apply_timeline_operation(project.id, target, command)
         else:
             raise ValidationError(
                 f"Command {command.kind.value!r} is not supported yet.",
@@ -476,6 +490,38 @@ class InteractionService:
         )
         return self.apply_command(project_id, reading.value)
 
+    def _apply_timeline_operation(
+        self, project_id: str, target: Any, command: EditCommand
+    ) -> str:
+        """Run trim, split or move through the shared operations module."""
+        from backend.timeline import operations
+
+        repository = TimelineRepository(self._db)
+        timeline = repository.load(project_id)
+
+        if command.kind is CommandKind.TRIM_CLIP:
+            edited = operations.trim(
+                timeline,
+                target.id,
+                start_delta=command.start_delta or 0.0,
+                end_delta=command.end_delta or 0.0,
+            )
+            changed = (command.start_delta or 0.0, command.end_delta or 0.0)
+            message = (
+                f"Trimmed clip {target.clip_index}: "
+                f"{changed[0]:+.1f}s at the start, {changed[1]:+.1f}s at the end."
+            )
+        elif command.kind is CommandKind.SPLIT_CLIP:
+            at = command.timestamp_seconds or 0.0
+            edited = operations.split(timeline, target.id, at)
+            message = f"Split clip {target.clip_index} at {_timecode(at)}."
+        else:
+            edited = operations.move(timeline, target.id, command.to_index or 1)
+            message = f"Moved clip {target.clip_index} to position {command.to_index}."
+
+        repository.save_edit(project_id, operations.reflow(edited))
+        return message
+
     def _validate_duration(self, seconds: int | None) -> int:
         policy = self._config.duration_policy
         if seconds is None:
@@ -601,6 +647,14 @@ def _instruction_help(reading: Reading) -> str:
     )
 
 
+#: Named here rather than inline because this string is the only place most
+#: people learn what the chat can do, and it was a phase behind what it could.
+_COMMAND_EXAMPLES = (
+    "Try 'delete clip 5', 'trim 2 seconds off the end of clip 3', "
+    "'split clip 4 at 1:20', or 'move clip 2 to position 5'."
+)
+
+
 def _command_help(reading: Reading) -> str:
     """What to say when a command could not be applied."""
     if reading.consulted and reading.reason:
@@ -608,12 +662,9 @@ def _command_help(reading: Reading) -> str:
     if reading.reason:
         return (
             f"I could not read that as an edit command, and {_clause(reading.reason)}. "
-            "Try 'delete clip 5' or 'delete the clip at 12:34'."
+            f"{_COMMAND_EXAMPLES}"
         )
-    return (
-        "I could not read that as an edit command. Try 'delete clip 5' or "
-        "'delete the clip at 12:34'."
-    )
+    return f"I could not read that as an edit command. {_COMMAND_EXAMPLES}"
 
 
 __all__ = ["FIRST_INTENT_DEPENDENT_STAGE", "InteractionService"]

@@ -27,6 +27,7 @@ type Turn = {
 const EXAMPLES = [
   'focus on clutch moments',
   'delete clip 3',
+  'trim 2 seconds off the end of clip 5',
   'make it funnier',
   'what was the best moment?',
   'revert to version 1',

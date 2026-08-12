@@ -93,9 +93,7 @@ def media_id(database: Database, project_id: str) -> str:
 
 
 @pytest.fixture
-def edited(
-    database: Database, job_manager: JobManager, project_id: str, media_id: str
-) -> None:
+def edited(database: Database, job_manager: JobManager, project_id: str, media_id: str) -> None:
     """A project that has been analysed and cut: five clips, twenty minutes."""
     complete_analysis(job_manager, project_id, media_id)
     for index in range(5):
@@ -350,6 +348,38 @@ class TestAcceptance:
             "interaction.command",
         ]
 
+    def test_the_model_can_trim_not_only_delete(
+        self, database: Database, config: AppConfig, project_id: str
+    ) -> None:
+        """The vocabulary gap that made this worth doing.
+
+        trim, split and move have been in the timeline since Phase 8 and on
+        the timeline screen since Phase 12, but `CommandKind` stopped at
+        delete/restore -- so "shorten the third one a bit" was refused in
+        conversation while the same edit was two clicks away. Deleting a whole
+        clip was the only thing a sentence could do to the edit.
+        """
+        interaction, _ = service(
+            database,
+            config,
+            responses={
+                "interaction.command": {
+                    "kind": "trim_clip",
+                    "clip_index": 2,
+                    "end_delta": -30.0,
+                    "confidence": 0.9,
+                }
+            },
+        )
+        assert "20:00" in interaction.ask(project_id, "how long is the video?").text
+
+        result = interaction.handle(project_id, "the third one drags towards the end")
+
+        assert result.applied_command.kind is CommandKind.TRIM_CLIP
+        assert result.applied_command.end_delta == -30.0
+        # Thirty seconds shorter, and no clip was lost to get there.
+        assert "19:30" in interaction.ask(project_id, "how long is the video?").text
+
     def test_the_command_is_recorded_as_a_version(
         self, database: Database, config: AppConfig, project_id: str
     ) -> None:
@@ -488,9 +518,7 @@ class TestWithoutAModel:
         self, database: Database, config: AppConfig, project_id: str
     ) -> None:
         # Ollama going away between the availability check and the request.
-        interaction, _ = service(
-            database, config, fail_times=99, default={"confidence": 1.0}
-        )
+        interaction, _ = service(database, config, fail_times=99, default={"confidence": 1.0})
 
         result = interaction.handle(project_id, UNPARSED_INSTRUCTION)
 

@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from ai.llm.fake_provider import FakeLLMProvider
 from backend.config.schema import AppConfig
 from backend.core.errors import ErrorCode, ValidationError
 from backend.core.ids import new_id
@@ -30,6 +31,7 @@ from backend.database.connection import Database
 from backend.database.repositories.media import MediaRepository
 from backend.interaction.intent import IntentResolver
 from backend.interaction.knowledge import VideoKnowledgeBase
+from backend.interaction.llm_fallback import LlmInterpreter
 from backend.interaction.models import (
     AnswerSource,
     CommandKind,
@@ -101,7 +103,16 @@ def media_id(database: Database, project_id: str) -> str:
 
 @pytest.fixture
 def interaction(database: Database, config: AppConfig) -> InteractionService:
-    return InteractionService(database, config)
+    """The service with the model deliberately out of reach.
+
+    Without this the interpreter is built lazily against whatever Ollama the
+    developer happens to have running, so every assertion about *unparsed*
+    text -- the refusals especially -- depended on a 7B model's mood and on
+    whether it was installed at all. These are the rule path's tests; the
+    model path has its own, with a fake that answers on demand.
+    """
+    interpreter = LlmInterpreter(config, FakeLLMProvider(available=False))
+    return InteractionService(database, config, interpreter=interpreter)
 
 
 @pytest.fixture
@@ -313,18 +324,14 @@ class TestIntentResolution:
         resolver = IntentResolver(config)
         base = resolver.base_intent("funny_gaming")
         before = set(base.priority_moment_types)
-        after = resolver.apply(
-            base, IntentDelta(priority_moment_types=ListDelta(add=["clutch"]))
-        )
+        after = resolver.apply(base, IntentDelta(priority_moment_types=ListDelta(add=["clutch"])))
         assert before < set(after.priority_moment_types)
         assert MomentType.CLUTCH in after.priority_moment_types
 
     def test_list_delta_set_replaces(self, config: AppConfig) -> None:
         resolver = IntentResolver(config)
         base = resolver.base_intent("funny_gaming")
-        after = resolver.apply(
-            base, IntentDelta(priority_moment_types=ListDelta(set=["clutch"]))
-        )
+        after = resolver.apply(base, IntentDelta(priority_moment_types=ListDelta(set=["clutch"])))
         assert [item.value for item in after.priority_moment_types] == ["clutch"]
 
     def test_newest_instruction_wins_a_priority_conflict(self, config: AppConfig) -> None:
@@ -335,9 +342,7 @@ class TestIntentResolution:
         )
         assert MomentType.FAIL in base.avoid_moment_types
 
-        after = resolver.apply(
-            base, IntentDelta(priority_moment_types=ListDelta(add=["fail"]))
-        )
+        after = resolver.apply(base, IntentDelta(priority_moment_types=ListDelta(add=["fail"])))
         assert MomentType.FAIL in after.priority_moment_types
         assert MomentType.FAIL not in after.avoid_moment_types
 
@@ -357,9 +362,7 @@ class TestIntentResolution:
 class TestConversationAccumulation:
     """§11: each instruction refines the brief instead of resetting it."""
 
-    def test_follow_ups_compose(
-        self, interaction: InteractionService, project_id: str
-    ) -> None:
+    def test_follow_ups_compose(self, interaction: InteractionService, project_id: str) -> None:
         interaction.handle(project_id, "اعمل فيديو سريع")
         interaction.handle(project_id, "ركز أكثر على الـclutch")
         interaction.handle(project_id, "ولا تستخدم كثير effects")
@@ -421,18 +424,14 @@ class TestConversationAccumulation:
 class TestQuestionsBeforeAnalysis:
     """§17: no guessing before the data exists."""
 
-    def test_best_moment_is_refused(
-        self, interaction: InteractionService, project_id: str
-    ) -> None:
+    def test_best_moment_is_refused(self, interaction: InteractionService, project_id: str) -> None:
         answer = interaction.ask(project_id, "ما أفضل لحظة؟")
         assert answer.requires_analysis is True
         assert answer.confidence == 0.0
         assert answer.source is AnswerSource.UNAVAILABLE
         assert "not complete" in answer.text.lower()
 
-    def test_duration_still_answers(
-        self, interaction: InteractionService, project_id: str
-    ) -> None:
+    def test_duration_still_answers(self, interaction: InteractionService, project_id: str) -> None:
         # An edit-level question needs no analysis at all.
         answer = interaction.ask(project_id, "how long is the video?")
         assert answer.requires_analysis is False
@@ -459,9 +458,7 @@ class TestQuestionsAfterAnalysis:
             explanation=["Clutch event", "Low health", "Multi-kill", "Player reaction"],
             breakdown={"gameplay": 0.95, "reaction": 0.88, "audio": 0.7},
         )
-        insert_moment(
-            database, project_id, media_id, moment_type="funny", start=200.0, score=0.71
-        )
+        insert_moment(database, project_id, media_id, moment_type="funny", start=200.0, score=0.71)
         insert_moment(
             database,
             project_id,
@@ -582,9 +579,7 @@ class TestEditCommands:
         answer = interaction.ask(project_id, "how long is the video?")
         assert "8:00" in answer.text
 
-    def test_delete_at_timestamp(
-        self, interaction: InteractionService, project_id: str
-    ) -> None:
+    def test_delete_at_timestamp(self, interaction: InteractionService, project_id: str) -> None:
         result = interaction.handle(project_id, "delete the clip at 4:10")
         assert result.applied_command is not None
         assert result.applied_command.kind is CommandKind.DELETE_AT_TIMESTAMP
@@ -603,9 +598,7 @@ class TestEditCommands:
         project_id: str,
     ) -> None:
         # §10: modifying the EDL must never re-queue Whisper, vision or OCR.
-        before = {
-            job.stage: job.status for job in job_manager.list_jobs(project_id)
-        }
+        before = {job.stage: job.status for job in job_manager.list_jobs(project_id)}
         interaction.handle(project_id, "delete clip 1")
         after = {job.stage: job.status for job in job_manager.list_jobs(project_id)}
 
@@ -613,9 +606,7 @@ class TestEditCommands:
         assert after[JobStage.TRANSCRIPT] is JobStatus.COMPLETED
         assert after[JobStage.VISION] is JobStatus.COMPLETED
 
-    def test_versions_are_recorded(
-        self, interaction: InteractionService, project_id: str
-    ) -> None:
+    def test_versions_are_recorded(self, interaction: InteractionService, project_id: str) -> None:
         interaction.handle(project_id, "delete clip 1")
         versions = interaction.versions(project_id)
         assert len(versions) >= 2
@@ -692,5 +683,95 @@ class TestKnowledgeBase:
 
 
 def _row_count(database: Database, table: str, project_id: str) -> Any:
-    row = database.fetch_one(f"SELECT COUNT(*) AS total FROM {table} WHERE project_id = ?", (project_id,))
+    row = database.fetch_one(
+        f"SELECT COUNT(*) AS total FROM {table} WHERE project_id = ?", (project_id,)
+    )
     return int(row["total"])
+
+
+class TestTrimSplitMoveByChat:
+    """The vocabulary catching up with the capability.
+
+    split, trim and move have been in backend/timeline/operations.py since
+    Phase 8, and the API and the timeline screen have exposed all three since
+    Phase 12 -- but CommandKind stopped at delete/restore, so "trim two
+    seconds off the end of clip 3" failed in conversation while the same edit
+    was two clicks away.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _edited(self, database, job_manager, project_id, media_id) -> None:
+        complete_analysis(job_manager, project_id, media_id)
+        for index in range(4):
+            insert_clip(
+                database,
+                project_id,
+                media_id,
+                index=index,
+                timeline_start=index * 60.0,
+                duration=60.0,
+            )
+
+    def test_trimming_the_end_shortens_the_edit(self, interaction, project_id) -> None:
+        before = interaction.ask(project_id, "how long is the video?").text
+
+        result = interaction.handle(project_id, "trim 5 seconds off the end of clip 2")
+
+        assert result.applied_command is not None
+        assert result.applied_command.kind is CommandKind.TRIM_CLIP
+        assert interaction.ask(project_id, "how long is the video?").text != before
+
+    def test_trimming_the_start_is_the_other_direction(self, interaction, project_id) -> None:
+        result = interaction.handle(project_id, "trim 3 seconds from the start of clip 1")
+
+        assert result.applied_command.start_delta == 3.0
+        assert result.applied_command.end_delta is None
+
+    def test_splitting_makes_two_clips(self, database, interaction, project_id) -> None:
+        # clip_index is 0-based (builder.py lays out enumerate()), so "clip 2"
+        # is the third clip: timeline 120-180s, and 2:30 falls inside it.
+        before = database.fetch_one(
+            "SELECT COUNT(*) n FROM timeline_clips WHERE project_id=? AND track='video'",
+            (project_id,),
+        )["n"]
+
+        interaction.handle(project_id, "split clip 2 at 2:30")
+
+        after = database.fetch_one(
+            "SELECT COUNT(*) n FROM timeline_clips WHERE project_id=? AND track='video'",
+            (project_id,),
+        )["n"]
+        assert after == before + 1
+
+    def test_moving_reorders_without_losing_a_clip(self, database, interaction, project_id) -> None:
+        interaction.handle(project_id, "move clip 3 to position 1")
+
+        indices = [
+            row["clip_index"]
+            for row in database.fetch_all(
+                "SELECT clip_index FROM timeline_clips WHERE project_id=? AND track='video' "
+                "ORDER BY clip_index",
+                (project_id,),
+            )
+        ]
+        assert indices == sorted(indices), "the reflow left a gap or a duplicate"
+        assert len(indices) == 4
+
+    def test_a_trim_that_does_not_say_which_end_is_refused(self, interaction, project_id) -> None:
+        # Guessing "the end" is right most of the time; the rest of the time it
+        # costs footage the person wanted.
+        result = interaction.handle(project_id, "trim clip 2")
+
+        assert result.applied_command is None
+
+    def test_an_impossible_trim_is_refused_by_the_timeline(self, interaction, project_id) -> None:
+        # §42's bounds live in operations.py, and the chat gets the same
+        # refusal the timeline screen would.
+        with pytest.raises(ValidationError):
+            interaction.handle(project_id, "trim 500 seconds off the end of clip 2")
+
+    def test_the_edit_is_undoable_like_any_other(self, interaction, project_id) -> None:
+        interaction.handle(project_id, "trim 5 seconds off the end of clip 2")
+
+        versions = interaction.versions(project_id)
+        assert len(versions) >= 2

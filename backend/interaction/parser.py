@@ -214,6 +214,96 @@ def parse_command(text: str) -> EditCommand | None:
         return EditCommand(
             kind=CommandKind.ADD_MOMENT, timestamp_seconds=timestamp, raw_text=text
         )
+
+    if clip_index is not None:
+        trimmed = _parse_trim(lowered, int(clip_index.group(1)), text)
+        if trimmed is not None:
+            return trimmed
+        if re.search(r"(split|divide|قسم|قسّم|اقسم)", lowered) and timestamp is not None:
+            return EditCommand(
+                kind=CommandKind.SPLIT_CLIP,
+                clip_index=int(clip_index.group(1)),
+                timestamp_seconds=timestamp,
+                raw_text=text,
+            )
+        moved = re.search(
+            r"(?:move|put|نقل|انقل|حرك).{0,30}?(?:position|place|رقم|موضع|مكان)\s*#?\s*(\d+)",
+            lowered,
+        )
+        if moved:
+            return EditCommand(
+                kind=CommandKind.MOVE_CLIP,
+                clip_index=int(clip_index.group(1)),
+                to_index=int(moved.group(1)),
+                raw_text=text,
+            )
+    return None
+
+
+#: The clip reference, removed before a duration is read out of the sentence.
+_CLIP_REFERENCE = r"(?:clip|لقطة|اللقطة|مقطع|المقطع|كليب)\s*#?\s*\d+"
+
+#: A duration with its unit. The unit is required: "trim 2 off clip 3" has two
+#: bare numbers and no way to tell which is the duration.
+_TRIM_SECONDS = (
+    # The unit may be glued to the number ("1.5s") or spaced ("2 seconds").
+    r"(\d+(?:\.\d+)?)\s*(?:s|sec|secs|second|seconds|ث|ثانية|ثوان|ثواني)\b"
+)
+
+#: Arabic duals name a quantity without a digit. "ثانيتين" is two seconds, and
+#: reading it as "no number given" would send a perfectly clear sentence to the
+#: model for no reason.
+_ARABIC_DUALS = {"ثانيتين": 2.0, "ثانيتان": 2.0, "دقيقتين": 120.0, "دقيقتان": 120.0}
+
+
+def _parse_trim(lowered: str, clip_index: int, text: str) -> EditCommand | None:
+    """Read "trim two seconds off the end of clip 3", or return ``None``.
+
+    Which *end* is the whole meaning, so a trim that does not say is not read
+    at all -- it goes to the model, which can ask. Guessing "the end" would be
+    right most of the time, and the times it was wrong would cost footage the
+    person wanted.
+
+    The clip reference is removed before the duration is read. Without that,
+    "اقصص ثانيتين من نهاية اللقطة 3" -- which names its duration in words --
+    matched the *clip number* as the duration and trimmed three seconds
+    instead of two.
+    """
+    if not re.search(r"(trim|shorten|cut|قص|قصر|اقتطع)", lowered):
+        return None
+
+    without_clip = re.sub(_CLIP_REFERENCE, " ", lowered)
+    seconds: float | None = None
+    for word, value in _ARABIC_DUALS.items():
+        if word in without_clip:
+            seconds = value
+            break
+    if seconds is None:
+        amount = re.search(_TRIM_SECONDS, without_clip)
+        if amount is None:
+            return None
+        seconds = float(amount.group(1))
+    if seconds <= 0:
+        return None
+
+    from_start = re.search(r"(start|beginning|front|بداية|أول|اول)", lowered)
+    from_end = re.search(r"(end|tail|finish|نهاية|آخر|اخر)", lowered)
+    if from_start and not from_end:
+        # Starting later removes footage from the front.
+        return EditCommand(
+            kind=CommandKind.TRIM_CLIP,
+            clip_index=clip_index,
+            start_delta=seconds,
+            raw_text=text,
+        )
+    if from_end and not from_start:
+        # Ending sooner removes footage from the tail.
+        return EditCommand(
+            kind=CommandKind.TRIM_CLIP,
+            clip_index=clip_index,
+            end_delta=-seconds,
+            raw_text=text,
+        )
     return None
 
 
