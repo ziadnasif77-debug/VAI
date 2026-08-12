@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -184,7 +185,29 @@ def render_overlay(
         frames=composition.duration_in_frames,
         output=str(output_path),
     ) as fields:
-        _run(argv, directory, config, on_progress, should_cancel, output_path)
+        try:
+            _run(argv, directory, config, on_progress, should_cancel, output_path)
+        except RenderError as error:
+            # A page crash is Chromium running out of memory, and the remedy is
+            # known: fewer pages. Ten tabs each holding a 1080p document crashed
+            # at frame 13,711 of 18,572 on a 32 GB machine. Halving is slower
+            # than failing is useless.
+            retry = _fewer_pages(config, error)
+            if retry is None:
+                raise
+            logger.warning(
+                "Remotion crashed a page; retrying with fewer at once",
+                extra={"concurrency": retry, "reason": str(error)[:160]},
+            )
+            if on_progress is not None:
+                on_progress(0.0, f"Retrying the overlay with {retry} pages at once")
+            argv = _render_command(
+                config.model_copy(update={"concurrency": retry}),
+                composition_path,
+                output_path,
+                directory,
+            )
+            _run(argv, directory, config, on_progress, should_cancel, output_path)
         fields["size_bytes"] = output_path.stat().st_size if output_path.is_file() else 0
 
     if not output_path.is_file():
@@ -364,11 +387,54 @@ def _run(
 
     if returncode != 0:
         output_path.unlink(missing_ok=True)
+        # The tail was always captured and never surfaced, so every Remotion
+        # failure read as "exited with code 1" and learning why meant running
+        # the CLI again by hand. The reason is on the last few lines.
+        reason = _reason_from(tail)
         raise RenderError(
-            f"Remotion exited with code {returncode}.",
+            f"Remotion exited with code {returncode}: {reason}"
+            if reason
+            else f"Remotion exited with code {returncode}.",
             code=ErrorCode.REMOTION_FAILED,
             details={"returncode": returncode, "tail": tail[-15:]},
         )
+
+
+#: Remotion colours its output, and a colour code in an error message
+#: is noise wherever that message is read.
+_ANSI: Final = re.compile(r"\[[0-9;]*m")
+
+#: Chromium losing a renderer process. Remotion reports it as a page crash and
+#: exits 1; the cause is almost always memory, so the remedy is fewer pages.
+PAGE_CRASH: Final[str] = "Page crashed"
+
+#: Lines that are progress, not diagnosis.
+_NOISE: Final[tuple[str, ...]] = ("Rendered ", "Bundling", "Compiled", "webpack")
+
+
+def _reason_from(tail: Sequence[str]) -> str:
+    """The most informative line Remotion printed before giving up."""
+    for line in reversed(tail):
+        text = _ANSI.sub("", line).strip()
+        if not text or text.startswith(_NOISE) or text.startswith("at "):
+            continue
+        return text[:200]
+    return ""
+
+
+def _fewer_pages(config: RemotionConfig, error: RenderError) -> int | None:
+    """The concurrency to retry a crashed render at, or ``None`` not to retry.
+
+    Only a page crash is retried, and only once -- a second crash at half the
+    pages is a different problem, and repeating a twenty-minute pass hoping it
+    behaves differently is not a strategy.
+    """
+    if PAGE_CRASH.lower() not in str(error).lower():
+        return None
+    current = resolved_concurrency(config)
+    if current <= 1:
+        return None
+    return max(1, current // 2)
 
 
 def _relay(line: str, on_progress: ProgressCallback | None) -> None:

@@ -20,6 +20,7 @@ from ai.speech.fake_provider import FakeSpeechProvider
 from ai.speech.faster_whisper_provider import (
     FasterWhisperProvider,
     _confidence_from,
+    _detected_language,
     _to_segment,
 )
 from backend.core.errors import ErrorCode, ModelError
@@ -73,9 +74,7 @@ class TestFakeProvider:
     def test_a_silent_provider_returns_nothing(self, tmp_path: Path) -> None:
         assert FakeSpeechProvider(silent=True).transcribe(_silence(tmp_path / "a.wav")) == ()
 
-    def test_an_unreadable_file_returns_nothing_rather_than_raising(
-        self, tmp_path: Path
-    ) -> None:
+    def test_an_unreadable_file_returns_nothing_rather_than_raising(self, tmp_path: Path) -> None:
         path = tmp_path / "not.wav"
         path.write_bytes(b"nope")
         assert FakeSpeechProvider().transcribe(path) == ()
@@ -152,9 +151,7 @@ class TestSegmentConversion:
             self.words, self.avg_logprob = words, avg_logprob
 
     def test_offsets_apply_to_segments_and_words(self) -> None:
-        segment = self._Segment(
-            1.0, 2.0, " hello ", words=(self._Word(" hello", 1.0, 2.0, 0.8),)
-        )
+        segment = self._Segment(1.0, 2.0, " hello ", words=(self._Word(" hello", 1.0, 2.0, 0.8),))
         converted = _to_segment(segment, 600.0)
         assert converted.start == 601.0
         assert converted.end == 602.0
@@ -194,6 +191,48 @@ class TestProviderFactory:
             create_speech_provider(config.model_copy(update={"models": models}))
         assert exc_info.value.code is ErrorCode.PROVIDER_NOT_REGISTERED
         assert exc_info.value.recoverable is False
+
+
+class TestTheLanguageIsCarried:
+    """Whisper detects the language once per file; it has to reach the caption.
+
+    `_to_segment` hardcoded `language=None` and both call sites discarded the
+    `info` object it lives on. So every caption arrived at the renderer with no
+    language, `is_rtl` could never fire, and Arabic captions were laid out left
+    to right through a whole finished video.
+    """
+
+    class _Info:
+        language = "ar"
+
+    def test_the_detected_language_reaches_the_segment(self) -> None:
+        detected = _detected_language(self._Info(), None)
+
+        assert detected == "ar"
+
+    def test_a_pinned_language_wins_over_detection(self) -> None:
+        # Configuration told the model what to assume; detection is the
+        # fallback, not an override.
+        assert _detected_language(self._Info(), "en") == "en"
+
+    def test_nothing_known_stays_nothing(self) -> None:
+        # Guessing decides caption direction, and guessing wrong is worse than
+        # laying out neutrally.
+        assert _detected_language(object(), None) is None
+
+    def test_the_segment_carries_it(self) -> None:
+        class Segment:
+            start, end, text, avg_logprob, words = 1.0, 2.0, " مرحبا ", -0.2, ()
+
+        segment = _to_segment(Segment(), 0.0, "ar")
+
+        assert segment.language == "ar"
+        assert segment.text == "مرحبا"
+
+    def test_arabic_is_right_to_left_once_it_is_known(self, config) -> None:
+        # The whole point of carrying it.
+        assert config.captions.is_rtl("ar") is True
+        assert config.captions.is_rtl("en") is False
 
 
 class TestTranscribeOptions:

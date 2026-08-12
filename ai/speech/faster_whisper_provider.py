@@ -188,11 +188,13 @@ class FasterWhisperProvider:
             pipeline = getattr(self, "_pipeline", None)
             if pipeline is not None:
                 try:
-                    segments, _ = pipeline.transcribe(
+                    segments, info = pipeline.transcribe(
                         str(source), batch_size=self._config.batch_size, **options
                     )
+                    detected = _detected_language(info, language)
                     return tuple(
-                        _to_segment(segment, start_offset) for segment in segments
+                        _to_segment(segment, start_offset, detected)
+                        for segment in segments
                     )
                 except Exception as error:
                     # Batched is an optimisation; the plain path is the
@@ -201,9 +203,10 @@ class FasterWhisperProvider:
                         "Batched transcription failed; retrying unbatched",
                         extra={"error": str(error)[:160], "path": source.name},
                     )
-            segments, _ = self._model.transcribe(str(source), **options)
+            segments, info = self._model.transcribe(str(source), **options)
+            detected = _detected_language(info, language)
             return tuple(
-                _to_segment(segment, start_offset) for segment in segments
+                _to_segment(segment, start_offset, detected) for segment in segments
             )
         except ModelError:
             raise
@@ -296,8 +299,17 @@ def transcribe_options(config: Any, language: str | None) -> dict[str, Any]:
     }
 
 
-def _to_segment(segment: Any, start_offset: float) -> TranscriptSegment:
-    """Convert one faster-whisper segment into the provider-neutral form."""
+def _to_segment(
+    segment: Any, start_offset: float, language: str | None = None
+) -> TranscriptSegment:
+    """Convert one faster-whisper segment into the provider-neutral form.
+
+    ``language`` comes from the transcription's ``info``, not from the segment:
+    faster-whisper detects once per file and reports it there. Discarding it --
+    which this did, with a hardcoded ``None`` -- meant every caption reached
+    the renderer with no language, so `is_rtl` could never fire and Arabic
+    captions were laid out left to right.
+    """
     words = tuple(
         TranscriptWord(
             word=str(word.word).strip(),
@@ -311,10 +323,24 @@ def _to_segment(segment: Any, start_offset: float) -> TranscriptSegment:
         start=float(segment.start) + start_offset,
         end=float(segment.end) + start_offset,
         text=str(segment.text).strip(),
-        language=None,
+        language=language,
         confidence=_confidence_from(getattr(segment, "avg_logprob", None)),
         words=words,
     )
+
+
+def _detected_language(info: Any, requested: str | None) -> str | None:
+    """The language the transcript is in, as best anyone knows.
+
+    A pinned language wins -- it is what the model was told to assume. Failing
+    that, faster-whisper's detection, which it reports once per file. Failing
+    both, nothing: guessing a language decides caption direction, and guessing
+    it wrong is worse than laying out neutrally.
+    """
+    if requested:
+        return requested
+    detected = getattr(info, "language", None)
+    return str(detected) if detected else None
 
 
 def _confidence_from(avg_logprob: float | None) -> float | None:

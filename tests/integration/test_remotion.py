@@ -59,9 +59,7 @@ def timeline() -> Timeline:
         timeline_start=0.0,
         timeline_end=float(SECONDS),
     )
-    return Timeline(project_id=PROJECT).with_track(
-        Track(kind=TrackKind.VIDEO, clips=(clip,))
-    )
+    return Timeline(project_id=PROJECT).with_track(Track(kind=TrackKind.VIDEO, clips=(clip,)))
 
 
 @pytest.fixture
@@ -93,9 +91,22 @@ def gameplay(tmp_path: Path) -> Path:
     target = tmp_path / "gameplay.mp4"
     subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", f"testsrc=size={WIDTH}x{HEIGHT}:rate={FPS}:duration={SECONDS}",
-            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc=size={WIDTH}x{HEIGHT}:rate={FPS}:duration={SECONDS}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
             str(target),
         ],
         check=True,
@@ -131,9 +142,16 @@ def _composite(gameplay: Path, overlay: Path, destination: Path, *, decoder: str
     if decoder:
         argv += ["-c:v", decoder]
     argv += [
-        "-i", str(overlay),
-        "-filter_complex", "[0:v][1:v]overlay=format=auto",
-        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+        "-i",
+        str(overlay),
+        "-filter_complex",
+        "[0:v][1:v]overlay=format=auto",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
         str(destination),
     ]
     subprocess.run(argv, check=True, capture_output=True, timeout=600)
@@ -161,9 +179,7 @@ class TestTheDescription:
         assert path.is_file()
         assert path.read_text(encoding="utf-8").endswith("\n")
 
-    def test_availability_is_reported_rather_than_assumed(
-        self, config, repo_root: Path
-    ) -> None:
+    def test_availability_is_reported_rather_than_assumed(self, config, repo_root: Path) -> None:
         available, reason = is_available(config.remotion, repo_root)
 
         assert isinstance(available, bool)
@@ -213,6 +229,68 @@ class TestTheDescription:
 
 @pytest.mark.requires_node
 @pytest.mark.slow
+class TestWhenChromiumCrashes:
+    """A page crash is memory, and the remedy is known (§95).
+
+    Ten concurrent 1080p pages crashed at frame 13,711 of 18,572 on a 32 GB
+    machine with 16 GB free. What made it expensive was not the crash: it was
+    that the failure said "Remotion exited with code 1" and nothing else, so
+    finding "Page crashed!" meant running the CLI again by hand. The tail had
+    been captured all along and thrown away.
+    """
+
+    def test_the_failure_says_what_remotion_said(self) -> None:
+        from backend.rendering.remotion import _reason_from
+
+        tail = [
+            "Rendered 13711/18572, time remaining: 1m 57s",
+            "[31mError: Page crashed![39m",
+            "[31m    at #onTargetCrashed (BrowserPage.js:246:28)[39m",
+        ]
+
+        assert _reason_from(tail) == "Error: Page crashed!"
+
+    def test_progress_lines_are_not_a_diagnosis(self) -> None:
+        from backend.rendering.remotion import _reason_from
+
+        assert _reason_from(["Rendered 1/10", "Rendered 2/10"]) == ""
+
+    def test_a_page_crash_retries_with_half_the_pages(self, config) -> None:
+        from backend.core.errors import ErrorCode, RenderError
+        from backend.rendering.remotion import _fewer_pages, resolved_concurrency
+
+        crash = RenderError(
+            "Remotion exited with code 1: Error: Page crashed!",
+            code=ErrorCode.REMOTION_FAILED,
+        )
+
+        retry = _fewer_pages(config.remotion, crash)
+
+        assert retry == max(1, resolved_concurrency(config.remotion) // 2)
+
+    def test_any_other_failure_is_not_retried(self, config) -> None:
+        # Repeating a twenty-minute pass hoping it behaves differently is not a
+        # strategy. Only the failure with a known remedy gets a second go.
+        from backend.core.errors import ErrorCode, RenderError
+        from backend.rendering.remotion import _fewer_pages
+
+        missing = RenderError(
+            "Remotion exited with code 1: Error: ENOENT no such file",
+            code=ErrorCode.REMOTION_FAILED,
+        )
+
+        assert _fewer_pages(config.remotion, missing) is None
+
+    def test_a_crash_at_one_page_is_a_different_problem(self, config) -> None:
+        from backend.core.errors import ErrorCode, RenderError
+        from backend.rendering.remotion import _fewer_pages
+
+        crash = RenderError("Page crashed", code=ErrorCode.REMOTION_FAILED)
+        single = config.remotion.model_copy(update={"concurrency": 1})
+
+        assert _fewer_pages(single, crash) is None
+
+
 class TestAcceptance:
     """**EDL → Remotion → an alpha overlay that composites correctly.**"""
 
@@ -224,17 +302,43 @@ class TestAcceptance:
         # An overlay is a picture. A silent Opus track would be one more thing
         # the composite has to know to ignore.
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "a",
-             "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(overlay)],
-            check=True, capture_output=True, text=True, timeout=120,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a",
+                "-show_entries",
+                "stream=codec_type",
+                "-of",
+                "csv=p=0",
+                str(overlay),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         assert result.stdout.strip() == ""
 
     def test_the_overlay_matches_the_requested_format(self, overlay: Path) -> None:
         result = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height", "-of", "csv=p=0", str(overlay)],
-            check=True, capture_output=True, text=True, timeout=120,
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=p=0",
+                str(overlay),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         assert result.stdout.strip() == f"{WIDTH},{HEIGHT}"
 
@@ -247,10 +351,26 @@ class TestAcceptance:
         # Before the caption starts at 1.0 s.
         frame = tmp_path / "alpha_early.png"
         subprocess.run(
-            ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-             "-c:v", "libvpx-vp9", "-i", str(overlay),
-             "-vf", "alphaextract,format=gray", "-frames:v", "1", str(frame)],
-            check=True, capture_output=True, timeout=300,
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-y",
+                "-c:v",
+                "libvpx-vp9",
+                "-i",
+                str(overlay),
+                "-vf",
+                "alphaextract,format=gray",
+                "-frames:v",
+                "1",
+                str(frame),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=300,
         )
         alpha = np.asarray(Image.open(frame).convert("L"))
 
@@ -264,10 +384,28 @@ class TestAcceptance:
 
         frame = tmp_path / "alpha_mid.png"
         subprocess.run(
-            ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-             "-c:v", "libvpx-vp9", "-i", str(overlay), "-ss", "1.4",
-             "-vf", "alphaextract,format=gray", "-frames:v", "1", str(frame)],
-            check=True, capture_output=True, timeout=300,
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-nostdin",
+                "-loglevel",
+                "error",
+                "-y",
+                "-c:v",
+                "libvpx-vp9",
+                "-i",
+                str(overlay),
+                "-ss",
+                "1.4",
+                "-vf",
+                "alphaextract,format=gray",
+                "-frames:v",
+                "1",
+                str(frame),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=300,
         )
         alpha = np.asarray(Image.open(frame).convert("L"))
 
@@ -280,9 +418,7 @@ class TestAcceptance:
     ) -> None:
         # The acceptance, stated as a measurement. A broken alpha channel shows
         # up here as thousands of changed pixels.
-        composited = _composite(
-            gameplay, overlay, tmp_path / "out.mp4", decoder="libvpx-vp9"
-        )
+        composited = _composite(gameplay, overlay, tmp_path / "out.mp4", decoder="libvpx-vp9")
 
         before = _frame(gameplay, 0.05, tmp_path / "g.png")
         after = _frame(composited, 0.05, tmp_path / "c.png")
@@ -292,9 +428,7 @@ class TestAcceptance:
     def test_compositing_changes_only_the_caption_region(
         self, gameplay: Path, overlay: Path, tmp_path: Path
     ) -> None:
-        composited = _composite(
-            gameplay, overlay, tmp_path / "out2.mp4", decoder="libvpx-vp9"
-        )
+        composited = _composite(gameplay, overlay, tmp_path / "out2.mp4", decoder="libvpx-vp9")
 
         before = _frame(gameplay, 1.4, tmp_path / "g2.png")
         after = _frame(composited, 1.4, tmp_path / "c2.png")
