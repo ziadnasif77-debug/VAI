@@ -45,6 +45,7 @@ from backend.database.repositories.transcript import TranscriptRepository
 from backend.database.repositories.vision import VisionRepository, observations_from
 from backend.media.frames import extract_at_times
 from backend.media.probe import probe_media
+from backend.pipeline.reuse import record_success, try_reuse
 from backend.pipeline.workers.base import WorkerContext
 
 logger = get_logger("pipeline.workers.vision", LogChannel.PIPELINE)
@@ -67,6 +68,10 @@ class SceneWorker:
     stage = JobStage.SCENES
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
+        reused = try_reuse(context, self.stage)
+        if reused is not None:
+            context.report(1.0, "Reused matching analysis from another project")
+            return reused
         media = context.require_media()
         source, from_proxy = _visual_source(context, media)
         probe = probe_media(source, context.ffmpeg, require_video=True)
@@ -86,6 +91,7 @@ class SceneWorker:
                 context.project_id, media.id, result.scenes, keyframes=keyframes
             )
 
+        record_success(context, self.stage)
         context.report(1.0, f"{stored} scenes")
         return {
             "scenes": stored,
@@ -156,6 +162,10 @@ class VisionWorker:
         self._provider = provider
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
+        reused = try_reuse(context, self.stage)
+        if reused is not None:
+            context.report(1.0, "Reused matching analysis from another project")
+            return reused
         media = context.require_media()
         analysis = context.config.analysis
         if not analysis.vision.enabled:
@@ -199,6 +209,7 @@ class VisionWorker:
         with context.database.transaction():
             stored = repository.replace_for_media(context.project_id, media.id, observations)
 
+        record_success(context, self.stage)
         context.report(1.0, f"{stored} frames described")
         info = provider.info()
         return {

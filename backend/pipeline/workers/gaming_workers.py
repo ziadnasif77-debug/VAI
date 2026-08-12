@@ -39,6 +39,7 @@ from backend.gaming import events as detectors
 from backend.gaming.correlation import correlate
 from backend.gaming.ocr import CROP_DIRNAME, read_frames
 from backend.gaming.profiles import GameProfile, ProfileResolution, load_profile
+from backend.pipeline.reuse import record_success, try_reuse
 from backend.pipeline.workers.base import WorkerContext
 from backend.pipeline.workers.vision_workers import CANDIDATE_LEVEL
 
@@ -62,6 +63,10 @@ class OcrWorker:
     def run(self, context: WorkerContext) -> dict[str, Any]:
         media = context.require_media()
         config = context.config.analysis.ocr
+        reused = try_reuse(context, self.stage)
+        if reused is not None:
+            context.report(1.0, "Reused matching analysis from another project")
+            return reused
         if not config.enabled:
             context.report(1.0, "OCR disabled")
             return {"skipped": True, "reason": "ocr disabled in configuration"}
@@ -124,6 +129,7 @@ class OcrWorker:
                 engine=provider.info().provider,
             )
 
+        record_success(context, self.stage)
         context.report(1.0, f"{stored} text detections")
         return {
             "detections": stored,

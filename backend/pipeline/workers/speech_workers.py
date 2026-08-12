@@ -51,6 +51,7 @@ from backend.database.repositories.audio_events import AudioEventRepository
 from backend.database.repositories.transcript import TranscriptRepository
 from backend.media.chunking import plan_chunks
 from backend.media.ffmpeg import format_seconds
+from backend.pipeline.reuse import record_success, try_reuse
 from backend.pipeline.workers.base import WorkerContext
 
 logger = get_logger("pipeline.workers.speech", LogChannel.PIPELINE)
@@ -92,6 +93,10 @@ class TranscriptWorker:
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
         media = context.require_media()
+        reused = try_reuse(context, self.stage)
+        if reused is not None:
+            context.report(1.0, "Reused matching analysis from another project")
+            return reused
         streams = _streams_for(context)
         primary, why = _speech_stream(streams, context)
         if primary is None:
@@ -171,6 +176,7 @@ class TranscriptWorker:
             stored = repository.replace_for_media(context.project_id, media.id, segments)
 
         info = provider.info()
+        record_success(context, self.stage)
         context.report(1.0, f"{stored} utterances transcribed")
         return {
             "segments": stored,
@@ -208,6 +214,10 @@ class AudioEventsWorker:
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
         media = context.require_media()
+        reused = try_reuse(context, self.stage)
+        if reused is not None:
+            context.report(1.0, "Reused matching analysis from another project")
+            return reused
         streams = _streams_for(context)
         if not streams:
             context.report(1.0, "No audio to analyse")
@@ -253,6 +263,7 @@ class AudioEventsWorker:
         with context.database.transaction():
             stored = repository.replace_for_media(context.project_id, media.id, events)
 
+        record_success(context, self.stage)
         context.report(1.0, f"{stored} audio events")
         return {
             "events": stored,
