@@ -30,6 +30,7 @@ from backend.interaction.models import (
     MusicPolicy,
     Pacing,
 )
+from backend.interaction.phrases import Phrasebook
 
 #: Preset keys mapped to their enum, so an invalid preset value fails loudly at
 #: resolution rather than silently falling back to a default.
@@ -193,27 +194,47 @@ class IntentResolver:
         # str where the pipeline expects MomentType.
         return EditingIntent.model_validate(merged)
 
-    def describe(self, intent: EditingIntent) -> str:
-        """A one-line human summary, for the chat reply and the UI."""
-        parts = [f"pacing {intent.pacing.value}", f"effects {intent.effects.value}"]
+    def describe(self, intent: EditingIntent, phrases: Phrasebook | None = None) -> str:
+        """A one-line human summary, for the chat reply and the UI.
+
+        Args:
+            phrases: the language to summarise in. English when absent, which
+                is what the UI and the logs want; the chat passes the language
+                the person wrote in (§63).
+        """
+        say = phrases or Phrasebook()
+        parts = [
+            say.say("brief_pacing", value=say.brief_value(intent.pacing.value)),
+            say.say("brief_effects", value=say.brief_value(intent.effects.value)),
+        ]
         if intent.target_duration_seconds:
             minutes = intent.target_duration_seconds / 60
-            parts.insert(0, f"target {minutes:g} min")
+            parts.insert(0, say.say("brief_target", minutes=f"{minutes:g}"))
         if intent.priority_moment_types:
             parts.append(
-                "prioritising " + ", ".join(item.value for item in intent.priority_moment_types)
+                say.say(
+                    "brief_priority",
+                    types=say.join(
+                        [say.moment_type(item.value) for item in intent.priority_moment_types]
+                    ),
+                )
             )
         if intent.avoid_moment_types:
             parts.append(
-                "avoiding " + ", ".join(item.value for item in intent.avoid_moment_types)
+                say.say(
+                    "brief_avoid",
+                    types=say.join(
+                        [say.moment_type(item.value) for item in intent.avoid_moment_types]
+                    ),
+                )
             )
-        parts.append(f"dead time {intent.dead_time_policy.value}")
+        parts.append(
+            say.say("brief_dead_time", value=say.brief_value(intent.dead_time_policy.value))
+        )
         return "; ".join(parts)
 
 
-def _resolve_priority_conflicts(
-    merged: dict[str, Any], delta: IntentDelta
-) -> dict[str, Any]:
+def _resolve_priority_conflicts(merged: dict[str, Any], delta: IntentDelta) -> dict[str, Any]:
     """Drop a type from whichever list the newest delta did *not* touch."""
     priorities = [_name(item) for item in merged.get("priority_moment_types", [])]
     avoided = [_name(item) for item in merged.get("avoid_moment_types", [])]
@@ -227,9 +248,7 @@ def _resolve_priority_conflicts(
     kept_priorities = [
         item for item in priorities if item not in overlap or item in newly_prioritised
     ]
-    kept_avoided = [
-        item for item in avoided if item not in overlap or item in newly_avoided
-    ]
+    kept_avoided = [item for item in avoided if item not in overlap or item in newly_avoided]
     # If a type ends up in both new sets, prioritising wins: the user asked for
     # it more recently in the same breath.
     kept_avoided = [item for item in kept_avoided if item not in set(kept_priorities)]

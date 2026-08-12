@@ -42,6 +42,11 @@ from the data, not from a language model's imagination.
 **It works without talking to it.** Import, pick a duration, press analyze. The
 chat is a control surface, not a requirement.
 
+**It answers in the language you asked in.** Arabic question, Arabic answer;
+English question, English answer — decided per message, not by a setting. The
+moment types, event names and score dimensions are translated too, so an
+explanation reads as one sentence rather than a frame around English terms.
+
 **It reads the HUD when it knows the game.** A profile declares where the game
 puts its state, and the pipeline reads what no OCR can — GTA V's wanted level
 is five star glyphs and no text. Without a profile, nothing changes: vision,

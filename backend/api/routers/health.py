@@ -34,6 +34,32 @@ class CapabilitiesResponse(BaseModel):
     publish_targets: list[PublishTarget]
 
 
+class IdentityResponse(BaseModel):
+    """Proof that this is *this* application, and nothing more."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    application: str
+    version: str
+
+
+@router.get("/identity", response_model=IdentityResponse)
+def identity() -> IdentityResponse:
+    """Say who is listening on this port. Costs nothing, deliberately.
+
+    The launcher restarts its own server on every start and must never stop a
+    process that merely happens to hold port 8765. It used to ask ``/health``,
+    which probes FFmpeg, the GPU and Ollama -- warm that is under a second,
+    cold it is twenty-plus, and *cold* is exactly the state a server is in when
+    someone relaunches straight after starting it. The three-second probe timed
+    out, the launcher concluded the port belonged to a stranger, and refused to
+    restart the application it had itself just started.
+
+    Identity is not health. This endpoint answers from constants.
+    """
+    return IdentityResponse(application="vai", version=APPLICATION_VERSION)
+
+
 @router.get("/health", response_model=HealthReport)
 def health(service: HealthService = Depends(get_health)) -> HealthReport:
     """Validate the environment.

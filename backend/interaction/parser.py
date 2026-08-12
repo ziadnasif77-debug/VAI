@@ -53,22 +53,75 @@ RELATIVE_DURATION_STEP = 0.8
 _ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
 _QUESTION_MARKERS = (
-    "?", "؟",
-    "what", "which", "why", "when", "who", "where", "list",
-    "how", "how many", "how much", "how long",
-    "show me", "tell me", "give me",
-    "ما ", "ماذا", "لماذا", "متى", "كم ", "أي ", "اي ", "هل ", "كيف", "أين", "اين",
-    "أعطني", "اعطني", "اذكر",
+    "?",
+    "؟",
+    "what",
+    "which",
+    "why",
+    "when",
+    "who",
+    "where",
+    "list",
+    "how",
+    "how many",
+    "how much",
+    "how long",
+    "show me",
+    "tell me",
+    "give me",
+    "ما ",
+    "ماذا",
+    "لماذا",
+    "متى",
+    "كم ",
+    "أي ",
+    "اي ",
+    "هل ",
+    "كيف",
+    "أين",
+    "اين",
+    "أعطني",
+    "اعطني",
+    "اذكر",
 )
 
 _COMMAND_MARKERS = (
-    "delete", "remove", "restore", "undo", "revert", "add clip", "add moment",
-    "احذف", "امسح", "ازل", "أزل", "استعد", "ارجع", "أرجع", "تراجع", "اضف", "أضف",
+    "delete",
+    "remove",
+    "restore",
+    "undo",
+    "revert",
+    "add clip",
+    "add moment",
+    "احذف",
+    "امسح",
+    "ازل",
+    "أزل",
+    "استعد",
+    "ارجع",
+    "أرجع",
+    "تراجع",
+    "اضف",
+    "أضف",
 )
 
 _NEGATIONS = (
-    "no ", "not ", "don't", "do not", "without", "less", "fewer", "reduce", "minimal",
-    "لا ", "بدون", "قلل", "خفف", "أقل", "اقل", "ما تستخدم",
+    "no ",
+    "not ",
+    "don't",
+    "do not",
+    "without",
+    "less",
+    "fewer",
+    "reduce",
+    "minimal",
+    "لا ",
+    "بدون",
+    "قلل",
+    "خفف",
+    "أقل",
+    "اقل",
+    "ما تستخدم",
 )
 
 #: Moment-type vocabulary in both languages.
@@ -211,9 +264,7 @@ def parse_command(text: str) -> EditCommand | None:
             kind=CommandKind.DELETE_AT_TIMESTAMP, timestamp_seconds=timestamp, raw_text=text
         )
     if re.search(r"(add|أضف|اضف)", lowered) and timestamp is not None:
-        return EditCommand(
-            kind=CommandKind.ADD_MOMENT, timestamp_seconds=timestamp, raw_text=text
-        )
+        return EditCommand(kind=CommandKind.ADD_MOMENT, timestamp_seconds=timestamp, raw_text=text)
 
     if clip_index is not None:
         trimmed = _parse_trim(lowered, int(clip_index.group(1)), text)
@@ -396,9 +447,7 @@ def parse_instruction(text: str) -> ParsedInstruction:
         )
         matched.append("priority_moments")
     if avoided:
-        delta = delta.model_copy(
-            update={"avoid_moment_types": ListDelta(add=sorted(avoided))}
-        )
+        delta = delta.model_copy(update={"avoid_moment_types": ListDelta(add=sorted(avoided))})
         matched.append("avoid_moments")
 
     events = _event_preferences(lowered)

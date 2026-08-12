@@ -429,7 +429,8 @@ class TestQuestionsBeforeAnalysis:
         assert answer.requires_analysis is True
         assert answer.confidence == 0.0
         assert answer.source is AnswerSource.UNAVAILABLE
-        assert "not complete" in answer.text.lower()
+        # Asked in Arabic, refused in Arabic (§63).
+        assert "لم يكتمل" in answer.text
 
     def test_duration_still_answers(self, interaction: InteractionService, project_id: str) -> None:
         # An edit-level question needs no analysis at all.
@@ -477,20 +478,48 @@ class TestQuestionsAfterAnalysis:
         answer = interaction.ask(project_id, "ما أفضل اللحظات في الفيديو؟")
         assert answer.source is AnswerSource.DATABASE
         assert answer.evidence, "an answer must cite its records"
-        assert "clutch" in answer.text
+        # The moment type is named in Arabic too. "أقوى لحظة clutch" is not an
+        # Arabic answer, it is an English one with the verbs translated.
+        assert "حاسمة" in answer.text
+        # The evidence keeps the raw type, because that is what the timeline
+        # and the API are keyed on.
+        assert any(item.detail == "clutch" for item in answer.evidence)
 
     def test_best_of_type(self, interaction: InteractionService, project_id: str) -> None:
         answer = interaction.ask(project_id, "ما أقوى clutch؟")
-        assert "clutch" in answer.text
+        assert "حاسمة" in answer.text
         assert answer.evidence[0].id is not None
+
+    def test_the_same_question_in_english_answers_in_english(
+        self, interaction: InteractionService, project_id: str
+    ) -> None:
+        answer = interaction.ask(project_id, "what were the best moments?")
+
+        assert "clutch" in answer.text
+        assert "حاسمة" not in answer.text
 
     def test_explainability_uses_stored_reasons(
         self, interaction: InteractionService, project_id: str
     ) -> None:
-        # §12: reasons come from the data, never invented.
-        answer = interaction.ask(project_id, "لماذا اخترت اللقطة عند 12:34؟")
+        # §12: reasons come from the data, never invented. In English the
+        # stored sentences are surfaced verbatim -- they are the record.
+        answer = interaction.ask(project_id, "why did you pick the clip at 12:34?")
         assert "Clutch event" in answer.text
         assert "Low health" in answer.text
+        assert answer.evidence
+
+    def test_the_arabic_explanation_is_rebuilt_from_the_same_facts(
+        self, interaction: InteractionService, project_id: str
+    ) -> None:
+        # §63 + §12: the stored prose is English, and translating evidence is
+        # how evidence stops being trustworthy -- so it is re-derived by the
+        # same rules from the same stored breakdown. The dimensions the
+        # fixture scored highest are what must appear.
+        answer = interaction.ask(project_id, "لماذا اخترت اللقطة عند 12:34؟")
+
+        assert "اللعب" in answer.text, "the strongest dimension is not named"
+        assert "ردّ الفعل" in answer.text
+        assert "Clutch event" not in answer.text, "English leaked into an Arabic answer"
         assert answer.evidence
 
     def test_what_happened_at_timestamp(
@@ -513,7 +542,7 @@ class TestQuestionsAfterAnalysis:
 
     def test_excluded_moments(self, interaction: InteractionService, project_id: str) -> None:
         answer = interaction.ask(project_id, "ما اللقطات التي استبعدتها؟")
-        assert "fail" in answer.text
+        assert "فاشلة" in answer.text
         assert answer.evidence
 
     def test_no_model_is_ever_invoked(

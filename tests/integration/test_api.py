@@ -28,6 +28,39 @@ def create_project(client, **overrides) -> dict:
     return response.json()
 
 
+class TestIdentity:
+    """The launcher's takeover check (§57).
+
+    Restarting its own server on every start is what "start the app" means to
+    someone who just closed the tab; stopping whatever happens to hold port
+    8765 is a different and much worse thing to do on their machine. This
+    endpoint is what tells the two apart, and it has to be cheap enough to
+    answer while the application is still warming up.
+    """
+
+    def test_it_says_who_is_listening(self, api_client) -> None:
+        body = api_client.get("/api/identity").json()
+
+        assert body["application"] == "vai"
+        assert body["version"]
+
+    def test_it_probes_nothing(self, api_client, monkeypatch) -> None:
+        # The bug: identity was read from /health, which probes FFmpeg, the
+        # GPU and Ollama. Cold that takes twenty seconds against a three-second
+        # timeout, so the launcher refused to restart the server it had just
+        # started. Identity must not depend on anything that can be slow.
+        import backend.services.health as health_module
+
+        def explode(*args, **kwargs):
+            raise AssertionError("identity ran an environment probe")
+
+        for name in dir(health_module.HealthService):
+            if name.startswith("check_"):
+                monkeypatch.setattr(health_module.HealthService, name, explode)
+
+        assert api_client.get("/api/identity").status_code == 200
+
+
 class TestSystemEndpoints:
     def test_health_reports_every_check(self, api_client) -> None:
         response = api_client.get("/api/health")
@@ -152,9 +185,7 @@ class TestMediaEndpoints:
 
     def test_import_queues_the_pipeline(self, api_client, sample_video: Path) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/media", json={"path": str(sample_video)}
-        )
+        api_client.post(f"/api/projects/{project['id']}/media", json={"path": str(sample_video)})
         body = api_client.get(f"/api/projects/{project['id']}/jobs").json()
         assert body["total"] > 0
         assert {job["stage"] for job in body["items"]} >= {"import", "probe", "transcript"}
@@ -180,9 +211,7 @@ class TestMediaEndpoints:
         project = create_project(api_client)
         bad = tmp_path / "readme.txt"
         bad.write_text("nope", encoding="utf-8")
-        response = api_client.post(
-            f"/api/projects/{project['id']}/media", json={"path": str(bad)}
-        )
+        response = api_client.post(f"/api/projects/{project['id']}/media", json={"path": str(bad)})
         assert response.status_code == 422
         assert response.json()["error_code"] == "UNSUPPORTED_CONTAINER"
 
@@ -200,9 +229,7 @@ class TestPipelineEndpoints:
 
     def test_analyze_is_idempotent(self, api_client, sample_video: Path) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/media", json={"path": str(sample_video)}
-        )
+        api_client.post(f"/api/projects/{project['id']}/media", json={"path": str(sample_video)})
         api_client.post(f"/api/projects/{project['id']}/analyze")
         first = api_client.get(f"/api/projects/{project['id']}/jobs").json()["total"]
         api_client.post(f"/api/projects/{project['id']}/analyze")
@@ -211,17 +238,13 @@ class TestPipelineEndpoints:
 
     def test_cancel(self, api_client, sample_video: Path) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/media", json={"path": str(sample_video)}
-        )
+        api_client.post(f"/api/projects/{project['id']}/media", json={"path": str(sample_video)})
         body = api_client.post(f"/api/projects/{project['id']}/cancel").json()
         assert body["cancelled_jobs"] > 0
 
     def test_reanalyze_preserves_upstream_stages(self, api_client, sample_video: Path) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/media", json={"path": str(sample_video)}
-        )
+        api_client.post(f"/api/projects/{project['id']}/media", json={"path": str(sample_video)})
         api_client.post(f"/api/projects/{project['id']}/analyze")
 
         body = api_client.post(

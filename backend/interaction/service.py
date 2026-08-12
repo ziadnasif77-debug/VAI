@@ -45,6 +45,7 @@ from backend.interaction.parser import (
     shift_effects,
     shift_pacing,
 )
+from backend.interaction.phrases import Phrasebook
 from backend.interaction.qa import QuestionAnswering
 from backend.interaction.store import ConversationStore, EditVersionStore, IntentStore
 
@@ -143,9 +144,7 @@ class InteractionService:
         if parsed.duration_multiplier is not None:
             base = current.target_duration_seconds or project.target_duration_seconds
             policy = self._config.duration_policy
-            resolved["target_duration_seconds"] = policy.clamp(
-                base * parsed.duration_multiplier
-            )
+            resolved["target_duration_seconds"] = policy.clamp(base * parsed.duration_multiplier)
         if resolved:
             delta = delta.model_copy(update=resolved)
 
@@ -240,9 +239,7 @@ class InteractionService:
             edit_version=version.version,
         )
 
-    def _apply_timeline_command(
-        self, project: Project, command: EditCommand
-    ) -> InteractionResult:
+    def _apply_timeline_command(self, project: Project, command: EditCommand) -> InteractionResult:
         """Enable or disable clips on the current timeline."""
         clips = self._knowledge.clips(project.id, enabled_only=False)
         if not clips:
@@ -255,14 +252,19 @@ class InteractionService:
 
         self._snapshot(project.id, reason=f"before {command.kind.value}")
 
+        # §63: confirmed in the language the edit was asked for. The raw text
+        # is what the person typed; a command built by the API rather than by a
+        # sentence carries none, and falls back to English.
+        phrases = Phrasebook.for_message(command.raw_text)
+
         if command.kind is CommandKind.DELETE_CLIP:
             target = _clip_by_index(clips, command.clip_index)
             self._set_clip_enabled(project.id, target.id, False)
-            message = f"Removed clip {target.clip_index} from the edit."
+            message = phrases.say("removed_clip", clip=target.clip_index)
         elif command.kind is CommandKind.RESTORE_CLIP:
             target = _clip_by_index(clips, command.clip_index)
             self._set_clip_enabled(project.id, target.id, True)
-            message = f"Restored clip {target.clip_index}."
+            message = phrases.say("restored_clip", clip=target.clip_index)
         elif command.kind is CommandKind.DELETE_AT_TIMESTAMP:
             timestamp = command.timestamp_seconds or 0.0
             matching = [
@@ -279,7 +281,7 @@ class InteractionService:
                 )
             for clip in matching:
                 self._set_clip_enabled(project.id, clip.id, False)
-            message = f"Removed {len(matching)} clip(s) covering that timestamp."
+            message = phrases.say("removed_at", count=len(matching))
         elif command.kind in _TIMELINE_COMMANDS:
             # trim / split / move: the timeline has done these since Phase 8
             # and the API has exposed them just as long. They route through the
@@ -287,7 +289,7 @@ class InteractionService:
             # and a drag produce the identical edit and the identical refusal
             # (§42's bounds are checked in one place, not two).
             target = _clip_by_index(clips, command.clip_index)
-            message = self._apply_timeline_operation(project.id, target, command)
+            message = self._apply_timeline_operation(project.id, target, command, phrases)
         else:
             raise ValidationError(
                 f"Command {command.kind.value!r} is not supported yet.",
@@ -391,7 +393,7 @@ class InteractionService:
                 return self.apply_command(project.id, reading.value)
             return InteractionResult(
                 interaction_type=InteractionType.COMMAND,
-                message=_command_help(reading),
+                message=_command_help(reading, Phrasebook.for_message(message)),
                 answer=Answer(
                     text=reading.reason or "Command not understood.",
                     confidence=0.0,
@@ -401,6 +403,7 @@ class InteractionService:
         return self.apply_command(project.id, command)
 
     def _handle_instruction(self, project_id: str, message: str) -> InteractionResult:
+        phrases = Phrasebook.for_message(message)
         intent, confidence = self.apply_instruction(project_id, message)
         if confidence == 0.0:
             # The parser reports 0.0 for text it could not read at all, which
@@ -428,7 +431,9 @@ class InteractionService:
                 intent = self.current_intent(project_id)
                 return InteractionResult(
                     interaction_type=InteractionType.EDITING_INSTRUCTION,
-                    message=f"Updated the editing brief: {self._resolver.describe(intent)}.",
+                    message=phrases.say(
+                        "brief_updated", summary=self._resolver.describe(intent, phrases)
+                    ),
                     intent=intent,
                     requires_rerender=True,
                 )
@@ -444,7 +449,7 @@ class InteractionService:
                 return escalated
             return InteractionResult(
                 interaction_type=InteractionType.EDITING_INSTRUCTION,
-                message=_instruction_help(reading),
+                message=_instruction_help(reading, Phrasebook.for_message(message)),
                 intent=intent,
             )
         return InteractionResult(
@@ -491,7 +496,7 @@ class InteractionService:
         return self.apply_command(project_id, reading.value)
 
     def _apply_timeline_operation(
-        self, project_id: str, target: Any, command: EditCommand
+        self, project_id: str, target: Any, command: EditCommand, phrases: Phrasebook
     ) -> str:
         """Run trim, split or move through the shared operations module."""
         from backend.timeline import operations
@@ -506,18 +511,19 @@ class InteractionService:
                 start_delta=command.start_delta or 0.0,
                 end_delta=command.end_delta or 0.0,
             )
-            changed = (command.start_delta or 0.0, command.end_delta or 0.0)
-            message = (
-                f"Trimmed clip {target.clip_index}: "
-                f"{changed[0]:+.1f}s at the start, {changed[1]:+.1f}s at the end."
+            message = phrases.say(
+                "trimmed_clip",
+                clip=target.clip_index,
+                start=f"{command.start_delta or 0.0:+.1f}",
+                end=f"{command.end_delta or 0.0:+.1f}",
             )
         elif command.kind is CommandKind.SPLIT_CLIP:
             at = command.timestamp_seconds or 0.0
             edited = operations.split(timeline, target.id, at)
-            message = f"Split clip {target.clip_index} at {_timecode(at)}."
+            message = phrases.say("split_clip", clip=target.clip_index, at=_timecode(at))
         else:
             edited = operations.move(timeline, target.id, command.to_index or 1)
-            message = f"Moved clip {target.clip_index} to position {command.to_index}."
+            message = phrases.say("moved_clip", clip=target.clip_index, to=command.to_index)
 
         repository.save_edit(project_id, operations.reflow(edited))
         return message
@@ -623,48 +629,40 @@ def _clause(reason: str) -> str:
     return text[:1].lower() + text[1:] if text else text
 
 
-def _instruction_help(reading: Reading) -> str:
+def _instruction_help(reading: Reading, phrases: Phrasebook) -> str:
     """What to say when an instruction could not be applied.
 
     The distinction matters more than it looks. "No model is installed" and
     "that preference does not exist" send a person to completely different next
     steps, and a single polite refusal for both would strand whoever hit the
     first one.
+
+    The model's own ``reason`` is passed through in whatever language it wrote
+    it, and it writes English. Translating it here would mean paraphrasing a
+    sentence this code did not produce and cannot check -- so the frame is
+    Arabic and the quoted reason is the model's, which is at least honest about
+    where each half came from.
     """
+    unrecognised = phrases.say("instruction_unreadable")
     if reading.consulted and reading.reason:
-        return (
-            f"I read that, but {_clause(reading.reason)}. Try something like "
-            "'focus on clutches', 'fewer effects', or 'make it 25 minutes'."
-        )
+        return f"{phrases.say('command_read_but', reason=_clause(reading.reason))} {unrecognised}"
     if reading.reason:
-        return (
-            f"I did not recognise an editing preference in that, and {_clause(reading.reason)}. "
-            "Try 'focus on clutches', 'fewer effects', or 'make it 25 minutes'."
-        )
-    return (
-        "I did not recognise an editing preference in that. Try something like "
-        "'focus on clutches', 'fewer effects', or 'make it 25 minutes'."
-    )
+        return f"{unrecognised[:-1]} — {_clause(reading.reason)}."
+    return unrecognised
 
 
-#: Named here rather than inline because this string is the only place most
-#: people learn what the chat can do, and it was a phase behind what it could.
-_COMMAND_EXAMPLES = (
-    "Try 'delete clip 5', 'trim 2 seconds off the end of clip 3', "
-    "'split clip 4 at 1:20', or 'move clip 2 to position 5'."
-)
-
-
-def _command_help(reading: Reading) -> str:
+def _command_help(reading: Reading, phrases: Phrasebook) -> str:
     """What to say when a command could not be applied."""
+    examples = phrases.say("command_examples")
     if reading.consulted and reading.reason:
-        return f"I read that, but {_clause(reading.reason)}."
+        return phrases.say("command_read_but", reason=_clause(reading.reason))
     if reading.reason:
-        return (
-            f"I could not read that as an edit command, and {_clause(reading.reason)}. "
-            f"{_COMMAND_EXAMPLES}"
+        return phrases.say(
+            "command_unreadable_because",
+            reason=_clause(reading.reason),
+            examples=examples,
         )
-    return f"I could not read that as an edit command. {_COMMAND_EXAMPLES}"
+    return phrases.say("command_unreadable", examples=examples)
 
 
 __all__ = ["FIRST_INTENT_DEPENDENT_STAGE", "InteractionService"]

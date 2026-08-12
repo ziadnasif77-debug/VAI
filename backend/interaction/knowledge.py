@@ -42,6 +42,11 @@ class MomentRecord:
     repetition_score: float
     score_breakdown: dict[str, float]
     explanation: list[str]
+    #: The *types* of the events this moment was formed around (§28). The
+    #: column is called ``event_ids`` and holds types -- deliberately, so a
+    #: moment describes itself without a join, and the full records stay in
+    #: ``game_events`` rather than being stored twice. Named for what it holds.
+    event_types: list[str]
     needs_review: bool
     user_state: str
 
@@ -279,8 +284,7 @@ class VideoKnowledgeBase:
 
     def clip_count(self, project_id: str, *, enabled_only: bool = True) -> int:
         sql = (
-            "SELECT COUNT(*) AS total FROM timeline_clips "
-            "WHERE project_id = ? AND track = 'video'"
+            "SELECT COUNT(*) AS total FROM timeline_clips WHERE project_id = ? AND track = 'video'"
         )
         if enabled_only:
             sql += " AND enabled = 1"
@@ -310,6 +314,7 @@ def _moment(row: Any) -> MomentRecord:
         repetition_score=row["repetition_score"],
         score_breakdown=loads(row["score_breakdown"], {}),
         explanation=loads(row["explanation"], []),
+        event_types=loads(row["event_ids"], []),
         needs_review=bool(row["needs_review"]),
         user_state=row["user_state"],
     )

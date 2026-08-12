@@ -116,9 +116,7 @@ class LlmInterpreter:
             try:
                 self._provider = create_llm_provider(self._config)
             except GamingEditorError as error:
-                logger.warning(
-                    "No language model is configured", extra={"error_code": error.code}
-                )
+                logger.warning("No language model is configured", extra={"error_code": error.code})
                 return None
         return self._provider
 
@@ -313,9 +311,7 @@ class LlmInterpreter:
             )
 
         cited = [
-            evidence[str(item)]
-            for item in payload.get("citations", [])
-            if str(item) in evidence
+            evidence[str(item)] for item in payload.get("citations", []) if str(item) in evidence
         ]
         if not cited:
             # Either it cited nothing, or everything it cited was invented.
@@ -405,9 +401,7 @@ def _describe_intent(intent: EditingIntent) -> str:
             "- favouring: " + ", ".join(item.value for item in intent.priority_moment_types)
         )
     if intent.avoid_moment_types:
-        lines.append(
-            "- avoiding: " + ", ".join(item.value for item in intent.avoid_moment_types)
-        )
+        lines.append("- avoiding: " + ", ".join(item.value for item in intent.avoid_moment_types))
     return "\n".join(lines)
 
 

@@ -37,6 +37,8 @@ from backend.analysis.audio_events import MICROPHONE, AudioEvent
 from backend.config.schema import MomentScoringConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import AudioEventType, GameEventType, MomentType
+from backend.interaction.phrases import Phrasebook
+from backend.moments.explanation import ReasonFacts, build_reasons
 from backend.moments.formation import Moment
 
 logger = get_logger("moments.scoring", LogChannel.PIPELINE)
@@ -427,48 +429,27 @@ def explain(
     reads this field to answer "why did you pick this?". Written as sentences
     rather than numbers because the number is already in the breakdown, and a
     user asking why does not want it repeated.
+
+    The rules themselves live in :mod:`backend.moments.explanation`, because
+    the reader has to apply the identical ones to say this in a language other
+    than the one it was stored in (§63). What is stored here is English: it is
+    what the API and the moments screen show, and what a bug report quotes.
     """
-    reasons: list[str] = []
-
-    ranked = sorted(dimensions.items(), key=lambda item: item[1], reverse=True)
-    strongest = [name for name, value in ranked[:3] if value >= 0.5]
-    if strongest:
-        reasons.append(f"Strongest on {', '.join(strongest)}.")
-
-    sources = moment.sources
-    if len(sources) > 1:
-        reasons.append(
-            f"{len(sources)} independent detectors agreed on this "
-            f"({', '.join(sources)})."
-        )
-    elif sources:
-        reasons.append(f"Detected by {sources[0]} alone, so confidence is limited.")
-
-    types = sorted({event.event_type.value for event in moment.events})
-    reasons.append(f"Contains {len(moment.events)} event(s): {', '.join(types)}.")
-
-    if breakdown.get("_penalty_dead_time", 0.0) > 0.2:
-        reasons.append(
-            f"Penalised: {breakdown['_penalty_dead_time']:.0%} of the clip is dead time."
-        )
-    if breakdown.get("_penalty_repetition", 0.0) > 0.2:
-        reasons.append("Penalised: similar moments appear elsewhere in the recording.")
-    if breakdown.get("_penalty_saturation", 0.0) > 0.0:
-        reasons.append(
-            f"Penalised for variety: {moment.moment_type.value} moments already "
-            "dominate the selection."
-        )
-    if moment.confidence < config.needs_review_confidence:
-        reasons.append(
-            f"Confidence {moment.confidence:.2f} is below the review threshold, "
-            "so this is flagged for a human to check."
-        )
-    if moment.metadata.get("snapped"):
-        notes = moment.metadata.get("context_notes") or []
-        if notes:
-            reasons.append(f"Clip boundaries: {'; '.join(notes)}.")
-
-    return reasons
+    notes = moment.metadata.get("context_notes") or []
+    facts = ReasonFacts(
+        moment_type=moment.moment_type.value,
+        dimensions=dimensions,
+        confidence=moment.confidence,
+        sources=tuple(moment.sources),
+        event_types=tuple(sorted({event.event_type.value for event in moment.events})),
+        event_count=len(moment.events),
+        dead_time=breakdown.get("_penalty_dead_time", 0.0),
+        repetition=breakdown.get("_penalty_repetition", 0.0),
+        saturation=breakdown.get("_penalty_saturation", 0.0),
+        review_threshold=config.needs_review_confidence,
+        context_notes=tuple(notes) if moment.metadata.get("snapped") else (),
+    )
+    return build_reasons(facts, Phrasebook())
 
 
 def needs_review(moment: Moment, config: MomentScoringConfig) -> bool:

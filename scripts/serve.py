@@ -105,12 +105,25 @@ def _owns_port(host: str, port: int) -> bool:
     import json
     import urllib.request
 
-    try:
-        with urllib.request.urlopen(f"http://{host}:{port}/api/health", timeout=3) as response:
-            body = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return False
-    # The shape of our own health response, not merely "something answered".
+    def _get(path: str, timeout: float) -> object | None:
+        try:
+            with urllib.request.urlopen(f"http://{host}:{port}{path}", timeout=timeout) as reply:
+                return json.loads(reply.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    # `/api/identity` answers from constants. Asking `/api/health` instead --
+    # which probes FFmpeg, the GPU and Ollama -- meant a three-second timeout
+    # against a twenty-second cold call, so relaunching moments after starting
+    # concluded the port belonged to a stranger and refused to take over.
+    body = _get("/api/identity", 3)
+    if isinstance(body, dict) and body.get("application") == "vai":
+        return True
+
+    # A server running an older build has no /api/identity. Its health response
+    # is the only marker it has, and it is worth a longer wait precisely
+    # because that call is slow -- this path exists to be upgraded away from.
+    body = _get("/api/health", 30)
     return isinstance(body, dict) and "checks" in body and "status" in body
 
 

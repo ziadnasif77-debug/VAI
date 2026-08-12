@@ -188,8 +188,10 @@ class IntentDelta(_Base):
             exclude_none=True,
         )
         lists = [self.priority_moment_types, self.priority_events, self.avoid_moment_types]
-        return not scalars and not self.custom and all(
-            item is None or item.is_empty() for item in lists
+        return (
+            not scalars
+            and not self.custom
+            and all(item is None or item.is_empty() for item in lists)
         )
 
 
@@ -331,9 +333,7 @@ class EditCommand(_Base):
         }
         expected = required[self.kind]
         if not any(getattr(self, field) is not None for field in expected):
-            raise ValueError(
-                f"Command {self.kind.value!r} requires one of: {', '.join(expected)}."
-            )
+            raise ValueError(f"Command {self.kind.value!r} requires one of: {', '.join(expected)}.")
         return self
 
 

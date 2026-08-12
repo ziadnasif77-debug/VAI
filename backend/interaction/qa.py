@@ -27,6 +27,8 @@ from backend.interaction.knowledge import (
 from backend.interaction.llm_fallback import LlmInterpreter
 from backend.interaction.models import Answer, AnswerSource, Evidence, EvidenceKind
 from backend.interaction.parser import normalise
+from backend.interaction.phrases import Phrasebook
+from backend.moments.explanation import ReasonFacts, build_reasons
 
 
 class QuestionKind(str, Enum):
@@ -88,30 +90,34 @@ class QuestionAnswering:
     def answer(self, project_id: str, question: str) -> Answer:
         """Answer ``question`` or explain why it cannot be answered yet."""
         kind = self.classify(question)
+        # §63: the language is the person's, decided per message rather than
+        # from configuration -- one Arabic question inside an English session
+        # is still an Arabic question.
+        phrases = Phrasebook.for_message(question)
         readiness = self._knowledge.readiness(project_id)
 
         # Edit-level questions read the timeline, not the analysis, so they work
         # as soon as an edit exists.
         if kind is QuestionKind.EDIT_DURATION:
-            return self._edit_duration(project_id)
+            return self._edit_duration(project_id, phrases)
         if kind is QuestionKind.CLIP_COUNT:
-            return self._clip_count(project_id)
+            return self._clip_count(project_id, phrases)
 
         if self._config.interaction.qa.require_analysis_complete and not readiness.is_complete:
-            return _not_ready(kind)
+            return _not_ready(kind, phrases)
 
         if kind is QuestionKind.BEST_MOMENTS:
-            return self._best_moments(project_id)
+            return self._best_moments(project_id, phrases)
         if kind is QuestionKind.BEST_OF_TYPE:
-            return self._best_of_type(project_id, question)
+            return self._best_of_type(project_id, question, phrases)
         if kind is QuestionKind.WHY_THIS_CLIP:
-            return self._why_this_clip(project_id, question)
+            return self._why_this_clip(project_id, question, phrases)
         if kind is QuestionKind.WHAT_HAPPENED_AT:
-            return self._what_happened_at(project_id, question)
+            return self._what_happened_at(project_id, question, phrases)
         if kind is QuestionKind.COUNT_EVENTS:
-            return self._count_events(project_id, question)
+            return self._count_events(project_id, question, phrases)
         if kind is QuestionKind.EXCLUDED_MOMENTS:
-            return self._excluded_moments(project_id)
+            return self._excluded_moments(project_id, phrases)
 
         # Nothing deterministic recognised it, so try the model -- grounded in
         # the same records the resolvers above would have used, and refused if
@@ -122,10 +128,7 @@ class QuestionAnswering:
 
         suffix = f" {reading.reason.capitalize()}." if reading.consulted and reading.reason else ""
         return Answer(
-            text=(
-                "I can answer questions about the detected moments, events, the current "
-                f"edit, and what happened at a given timestamp. I could not read this one.{suffix}"
-            ),
+            text=phrases.say("question_unreadable", suffix=suffix),
             confidence=0.0,
             source=AnswerSource.UNAVAILABLE,
         )
@@ -184,9 +187,7 @@ class QuestionAnswering:
             return QuestionKind.EDIT_DURATION
         if re.search(r"(how many clips|clip count|كم لقطة|كم مقطع|عدد اللقطات)", lowered):
             return QuestionKind.CLIP_COUNT
-        if re.search(
-            r"(excluded|removed|left out|rejected|استبعدت|حذفت|استبعاد)", lowered
-        ):
+        if re.search(r"(excluded|removed|left out|rejected|استبعدت|حذفت|استبعاد)", lowered):
             return QuestionKind.EXCLUDED_MOMENTS
         if re.search(r"(how many|how often|كم مرة|كم عدد|عدد)", lowered):
             return QuestionKind.COUNT_EVENTS
@@ -194,15 +195,15 @@ class QuestionAnswering:
             r"(best|strongest|top|أفضل|افضل|أقوى|اقوى|أطرف|اطرف)", lowered
         ):
             return QuestionKind.BEST_OF_TYPE
-        if re.search(
-            r"(best|top|highlights|أفضل|افضل|أقوى|اقوى|أهم|اهم)\b", lowered
-        ) or re.search(r"(best|top)\s+\d+", lowered):
+        if re.search(r"(best|top|highlights|أفضل|افضل|أقوى|اقوى|أهم|اهم)\b", lowered) or re.search(
+            r"(best|top)\s+\d+", lowered
+        ):
             return QuestionKind.BEST_MOMENTS
         return QuestionKind.UNKNOWN
 
     # -- answers --------------------------------------------------------
 
-    def _edit_duration(self, project_id: str) -> Answer:
+    def _edit_duration(self, project_id: str, phrases: Phrasebook) -> Answer:
         """§18: the answer comes from the current EDL, not the source file."""
         seconds = self._knowledge.edit_duration_seconds(project_id)
         clips = self._knowledge.clip_count(project_id)
@@ -210,15 +211,12 @@ class QuestionAnswering:
             source = self._knowledge.source_duration_seconds(project_id)
             if source <= 0:
                 return Answer(
-                    text="No edit exists yet, and no source duration has been measured.",
+                    text=phrases.say("edit_duration_unknown"),
                     confidence=0.9,
                     evidence=[Evidence(kind=EvidenceKind.PROJECT, detail="no clips, no probe")],
                 )
             return Answer(
-                text=(
-                    f"No edit has been generated yet. The source material is "
-                    f"{format_duration(source)} long."
-                ),
+                text=phrases.say("edit_duration_none", duration=format_duration(source)),
                 confidence=0.9,
                 evidence=[
                     Evidence(
@@ -228,7 +226,7 @@ class QuestionAnswering:
                 ],
             )
         return Answer(
-            text=f"The current edit is {format_duration(seconds)} across {clips} clips.",
+            text=phrases.say("edit_duration", duration=format_duration(seconds), clips=clips),
             confidence=1.0,
             evidence=[
                 Evidence(
@@ -240,61 +238,77 @@ class QuestionAnswering:
             ],
         )
 
-    def _clip_count(self, project_id: str) -> Answer:
+    def _clip_count(self, project_id: str, phrases: Phrasebook) -> Answer:
         enabled = self._knowledge.clip_count(project_id)
         total = self._knowledge.clip_count(project_id, enabled_only=False)
         disabled = total - enabled
-        suffix = f" ({disabled} disabled)" if disabled else ""
+        suffix = phrases.say("clip_count_disabled", disabled=disabled) if disabled else ""
         return Answer(
-            text=f"The current edit has {enabled} clips{suffix}.",
+            text=phrases.say("clip_count", clips=enabled, suffix=suffix),
             confidence=1.0,
             evidence=[
                 Evidence(kind=EvidenceKind.TIMELINE_CLIP, detail=f"{total} clips on the timeline")
             ],
         )
 
-    def _best_moments(self, project_id: str) -> Answer:
+    def _best_moments(self, project_id: str, phrases: Phrasebook) -> Answer:
         limit = self._requested_count() or self._config.interaction.qa.max_results
         moments = self._knowledge.top_moments(project_id, limit=limit)
         if not moments:
-            return _no_data("No moments have been detected in this project yet.")
+            return _no_data(phrases.say("best_moments_none"))
         lines = [
-            f"{index}. {_describe(moment)}" for index, moment in enumerate(moments, start=1)
+            f"{index}. {_describe(moment, phrases)}"
+            for index, moment in enumerate(moments, start=1)
         ]
         return Answer(
-            text="Top moments by score:\n" + "\n".join(lines),
+            text=phrases.say("best_moments_heading") + "\n" + "\n".join(lines),
             confidence=_aggregate_confidence(moments),
             evidence=[_evidence(moment) for moment in moments],
         )
 
-    def _best_of_type(self, project_id: str, question: str) -> Answer:
+    def _best_of_type(self, project_id: str, question: str, phrases: Phrasebook) -> Answer:
         moment_type = _type_in(normalise(question))
         moments = self._knowledge.top_moments(project_id, limit=3, moment_type=moment_type)
         if not moments:
-            return _no_data(f"No '{moment_type}' moments were detected in this project.")
+            return _no_data(
+                phrases.say("best_of_type_none", moment_type=phrases.moment_type(str(moment_type)))
+            )
         best = moments[0]
         return Answer(
-            text=f"The strongest {moment_type} moment is {_describe(best)}.",
+            text=phrases.say(
+                "best_of_type",
+                moment_type=phrases.moment_type(str(moment_type)),
+                description=_describe(best, phrases),
+            ),
             confidence=_aggregate_confidence([best]),
             evidence=[_evidence(moment) for moment in moments],
         )
 
-    def _why_this_clip(self, project_id: str, question: str) -> Answer:
+    def _why_this_clip(self, project_id: str, question: str, phrases: Phrasebook) -> Answer:
         """§12: reasons come from the stored breakdown, never invented."""
         moment = self._referenced_moment(project_id, question)
         if moment is None:
             return Answer(
-                text=(
-                    "Tell me which moment you mean -- a timestamp such as 12:34, or its id."
-                ),
+                text=phrases.say("why_which_moment"),
                 confidence=0.0,
                 source=AnswerSource.UNAVAILABLE,
             )
 
-        reasons = list(moment.explanation)
+        # §80's explanation is stored in English, because that is the record --
+        # what the API serves and what the moments screen shows. For a reader in
+        # another language it is *rebuilt* from the same stored facts by the
+        # same rules the scorer used (backend/moments/explanation.py), rather
+        # than translated: paraphrasing an explanation is how an explanation
+        # stops being evidence.
+        #
+        # One line does not survive the rebuild. "Clip boundaries: ..." comes
+        # from moment metadata the moments table has no column for, so an
+        # Arabic answer is missing it where an English one has it.
+        reasons = self._rebuild_reasons(moment, phrases) if phrases.is_arabic else []
+        reasons = reasons or list(moment.explanation)
         if not reasons and moment.score_breakdown:
             reasons = [
-                f"{name.replace('_', ' ')} {value:.2f}"
+                f"{phrases.dimension(name)} {value:.2f}"
                 for name, value in sorted(
                     moment.score_breakdown.items(), key=lambda item: item[1], reverse=True
                 )[:5]
@@ -302,9 +316,10 @@ class QuestionAnswering:
             ]
         if not reasons:
             return Answer(
-                text=(
-                    f"This {moment.moment_type} moment scored {moment.score:.2f}, but no "
-                    "per-dimension breakdown was stored for it, so I cannot explain why."
+                text=phrases.say(
+                    "why_no_breakdown",
+                    moment_type=phrases.moment_type(moment.moment_type),
+                    score=f"{moment.score:.2f}",
                 ),
                 confidence=0.3,
                 evidence=[_evidence(moment)],
@@ -312,27 +327,29 @@ class QuestionAnswering:
 
         penalties = []
         if moment.dead_time_score > 0:
-            penalties.append(f"- dead time {moment.dead_time_score:.2f}")
+            penalties.append(phrases.say("why_dead_time", value=f"{moment.dead_time_score:.2f}"))
         if moment.repetition_score > 0:
-            penalties.append(f"- repetition {moment.repetition_score:.2f}")
+            penalties.append(phrases.say("why_repetition", value=f"{moment.repetition_score:.2f}"))
 
         body = "\n".join(f"+ {reason}" for reason in reasons)
-        text = (
-            f"{_describe(moment)}\n\nScore {moment.score:.2f} "
-            f"(confidence {moment.confidence:.2f})\n{body}"
+        headline = phrases.say(
+            "why_score_line",
+            score=f"{moment.score:.2f}",
+            confidence=f"{moment.confidence:.2f}",
         )
+        text = f"{_describe(moment, phrases)}\n\n{headline}\n{body}"
         if penalties:
             text += "\n" + "\n".join(penalties)
         return Answer(
             text=text, confidence=max(moment.confidence, 0.5), evidence=[_evidence(moment)]
         )
 
-    def _what_happened_at(self, project_id: str, question: str) -> Answer:
+    def _what_happened_at(self, project_id: str, question: str, phrases: Phrasebook) -> Answer:
         """§8: search a window around the timestamp across every data source."""
         timestamp = _timestamp_in(normalise(question))
         if timestamp is None:
             return Answer(
-                text="Give me a timestamp, for example 12:34.",
+                text=phrases.say("when_give_timestamp"),
                 confidence=0.0,
                 source=AnswerSource.UNAVAILABLE,
             )
@@ -344,10 +361,7 @@ class QuestionAnswering:
 
         if not (events or moments or speech):
             return Answer(
-                text=(
-                    f"Nothing was detected around {format_duration(timestamp)}. That usually "
-                    "means the section is quiet gameplay with no notable event."
-                ),
+                text=phrases.say("when_nothing", timestamp=format_duration(timestamp)),
                 confidence=0.4,
                 evidence=[
                     Evidence(
@@ -359,12 +373,16 @@ class QuestionAnswering:
                 ],
             )
 
-        parts: list[str] = [f"Around {format_duration(timestamp)}:"]
+        parts: list[str] = [phrases.say("when_heading", timestamp=format_duration(timestamp))]
         evidence: list[Evidence] = []
         for event in events:
             parts.append(
-                f"- {event.event_type} at {format_duration(event.start_seconds)} "
-                f"(confidence {event.confidence:.2f})"
+                phrases.say(
+                    "when_event",
+                    event_type=phrases.event_type(event.event_type),
+                    start=format_duration(event.start_seconds),
+                    confidence=f"{event.confidence:.2f}",
+                )
             )
             evidence.append(
                 Evidence(
@@ -377,10 +395,16 @@ class QuestionAnswering:
                 )
             )
         for moment in moments:
-            parts.append(f"- part of a {moment.moment_type} moment (score {moment.score:.2f})")
+            parts.append(
+                phrases.say(
+                    "when_moment",
+                    moment_type=phrases.moment_type(moment.moment_type),
+                    score=f"{moment.score:.2f}",
+                )
+            )
             evidence.append(_evidence(moment))
         for segment in speech:
-            parts.append(f'- speech: "{segment.text.strip()}"')
+            parts.append(phrases.say("when_speech", text=segment.text.strip()))
             evidence.append(
                 Evidence(
                     kind=EvidenceKind.TRANSCRIPT,
@@ -394,18 +418,20 @@ class QuestionAnswering:
         confidence = 0.85 if events or moments else 0.6
         return Answer(text="\n".join(parts), confidence=confidence, evidence=evidence)
 
-    def _count_events(self, project_id: str, question: str) -> Answer:
+    def _count_events(self, project_id: str, question: str, phrases: Phrasebook) -> Answer:
         lowered = normalise(question)
         event_type = _event_in(lowered)
         counts = self._knowledge.event_counts(project_id)
         if not counts:
-            return _no_data("No game events have been detected yet.")
+            return _no_data(phrases.say("events_none"))
 
         if event_type is None:
             total = sum(counts.values())
-            listing = ", ".join(f"{name}: {count}" for name, count in counts.items())
+            listing = phrases.join(
+                [f"{phrases.event_type(name)}: {count}" for name, count in counts.items()]
+            )
             return Answer(
-                text=f"{total} events detected in total ({listing}).",
+                text=phrases.say("events_total", total=total, listing=listing),
                 confidence=0.9,
                 evidence=[
                     Evidence(kind=EvidenceKind.GAME_EVENT, detail=f"{name} x{count}")
@@ -415,10 +441,15 @@ class QuestionAnswering:
 
         count = counts.get(event_type, 0)
         events = self._knowledge.events(project_id, event_type=event_type, limit=10)
-        times = ", ".join(format_duration(event.start_seconds) for event in events[:5])
-        detail = f" at {times}" if times else ""
+        times = phrases.join([format_duration(event.start_seconds) for event in events[:5]])
+        detail = phrases.say("events_at_times", times=times) if times else ""
         return Answer(
-            text=f"{count} {event_type} event(s) detected{detail}.",
+            text=phrases.say(
+                "events_of_type",
+                count=count,
+                event_type=phrases.event_type(event_type),
+                detail=detail,
+            ),
             confidence=0.9 if count else 0.7,
             evidence=[
                 Evidence(
@@ -434,37 +465,72 @@ class QuestionAnswering:
             or [Evidence(kind=EvidenceKind.GAME_EVENT, detail=f"{event_type} x0")],
         )
 
-    def _excluded_moments(self, project_id: str) -> Answer:
+    def _excluded_moments(self, project_id: str, phrases: Phrasebook) -> Answer:
         moments = self._knowledge.rejected_moments(
             project_id, limit=self._config.interaction.qa.max_results
         )
         if not moments:
             return Answer(
-                text="Nothing has been excluded from the edit so far.",
+                text=phrases.say("excluded_none"),
                 confidence=0.9,
                 evidence=[Evidence(kind=EvidenceKind.PROJECT, detail="no rejected moments")],
             )
         lines = [
-            f"- {_describe(moment)}"
+            f"- {_describe(moment, phrases)}"
             + (
-                f" (dead time {moment.dead_time_score:.2f})"
+                " "
+                + phrases.say("why_dead_time", value=f"{moment.dead_time_score:.2f}").lstrip("- ")
                 if moment.dead_time_score > 0
                 else ""
             )
             + (
-                f" (repetition {moment.repetition_score:.2f})"
+                " "
+                + phrases.say("why_repetition", value=f"{moment.repetition_score:.2f}").lstrip("- ")
                 if moment.repetition_score > 0
                 else ""
             )
             for moment in moments
         ]
         return Answer(
-            text="Excluded moments:\n" + "\n".join(lines),
+            text=phrases.say("excluded_heading") + "\n" + "\n".join(lines),
             confidence=0.85,
             evidence=[_evidence(moment) for moment in moments],
         )
 
     # -- helpers --------------------------------------------------------
+
+    def _rebuild_reasons(self, moment: MomentRecord, phrases: Phrasebook) -> list[str]:
+        """Re-run the §80 rules over the stored facts, in ``phrases``'s language.
+
+        Returns nothing when the breakdown was never stored, which leaves the
+        caller on the stored English prose -- a real answer in the wrong
+        language beats no answer.
+        """
+        dimensions = {
+            name: value
+            for name, value in moment.score_breakdown.items()
+            if not name.startswith("_")
+        }
+        if not dimensions:
+            return []
+        # `sources` -- which detectors agreed (§27) -- is not stored on the
+        # moment at all, only written into the English prose at scoring time.
+        # So the Arabic answer is one line shorter than the English one, and
+        # that is an honest gap rather than an invented sentence.
+        facts = ReasonFacts(
+            moment_type=moment.moment_type,
+            dimensions=dimensions,
+            confidence=moment.confidence,
+            event_types=tuple(sorted(set(moment.event_types))),
+            event_count=len(moment.event_types),
+            dead_time=moment.score_breakdown.get("_penalty_dead_time", moment.dead_time_score),
+            repetition=moment.score_breakdown.get(
+                "_penalty_repetition", moment.repetition_score
+            ),
+            saturation=moment.score_breakdown.get("_penalty_saturation", 0.0),
+            review_threshold=self._config.moments.scoring.needs_review_confidence,
+        )
+        return build_reasons(facts, phrases)
 
     def _referenced_moment(self, project_id: str, question: str) -> MomentRecord | None:
         """Find the moment a "why" question is about."""
@@ -472,9 +538,7 @@ class QuestionAnswering:
         timestamp = _timestamp_in(lowered)
         if timestamp is not None:
             window = self._config.interaction.qa.timestamp_context_seconds
-            candidates = self._knowledge.moments_at(
-                project_id, timestamp, window_seconds=window
-            )
+            candidates = self._knowledge.moments_at(project_id, timestamp, window_seconds=window)
             return max(candidates, key=lambda item: item.score) if candidates else None
 
         identifier = re.search(r"\bmom-[0-9a-f]{12}\b", lowered)
@@ -491,10 +555,13 @@ class QuestionAnswering:
         return None
 
 
-def _describe(moment: MomentRecord) -> str:
-    return (
-        f"{moment.moment_type} at {format_duration(moment.start_seconds)}"
-        f"-{format_duration(moment.end_seconds)} (score {moment.score:.2f})"
+def _describe(moment: MomentRecord, phrases: Phrasebook) -> str:
+    return phrases.say(
+        "moment_line",
+        moment_type=phrases.moment_type(moment.moment_type),
+        start=format_duration(moment.start_seconds),
+        end=format_duration(moment.end_seconds),
+        score=f"{moment.score:.2f}",
     )
 
 
@@ -515,13 +582,10 @@ def _aggregate_confidence(moments: list[MomentRecord]) -> float:
     return min(sum(moment.confidence for moment in moments) / len(moments), 1.0)
 
 
-def _not_ready(kind: QuestionKind) -> Answer:
+def _not_ready(kind: QuestionKind, phrases: Phrasebook) -> Answer:
     """§17: refuse rather than guess before the analysis exists."""
     return Answer(
-        text=(
-            "Video analysis is not complete yet, so I have no data to answer that from. "
-            "Run the analysis first."
-        ),
+        text=phrases.say("not_analysed"),
         confidence=0.0,
         source=AnswerSource.UNAVAILABLE,
         requires_analysis=True,
