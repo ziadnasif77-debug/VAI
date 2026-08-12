@@ -374,3 +374,38 @@ class TestOverlaySpeedKnobs:
         # frames is half the Chromium pass.
         assert config.remotion.overlay_fps == 30
         assert config.remotion.concurrency == 0
+
+
+class TestAudioJoinFades:
+    """Every cut boundary passes through zero (the click-at-the-join defect).
+
+    atrim chops the waveform at an arbitrary sample value; the jump to the
+    next clip's first sample is audible as a pop at every join. Found by
+    auditing the renderer against a checklist of classic cutting-tool
+    defects -- eleven joins in the first passing video, none faded.
+    """
+
+    def test_a_span_gets_a_fade_at_each_end(self) -> None:
+        from backend.pipeline.workers.render_worker import _audio_span_filter
+
+        chain = _audio_span_filter(0, 10.0, 40.0)
+
+        assert "afade=t=in:st=0:d=0.030" in chain
+        assert "afade=t=out:st=29.970:d=0.030" in chain
+        assert chain.startswith("[0:a:0]atrim=start=10.000000:end=40.000000")
+
+    def test_a_tiny_span_gets_a_proportional_fade_not_none(self) -> None:
+        from backend.pipeline.workers.render_worker import _audio_span_filter
+
+        chain = _audio_span_filter(2, 5.0, 5.08)  # 80ms clip
+
+        assert "afade=t=in" in chain
+        assert "d=0.020" in chain  # a quarter of the span, not the full 30ms
+
+    def test_the_format_still_lands_after_the_fades(self) -> None:
+        # aformat before afade: the fade must act on the mix's sample rate.
+        from backend.pipeline.workers.render_worker import _audio_span_filter
+
+        chain = _audio_span_filter(1, 0.0, 10.0)
+
+        assert chain.index("aformat") < chain.index("afade")

@@ -331,10 +331,7 @@ class RenderWorker:
         for position, clip in enumerate(clips):
             source = sources[clip.media_id]
             inputs += ["-i", str(source)]
-            chains.append(
-                f"[{position}:a:0]atrim=start={clip.source_in:.6f}:end={clip.source_out:.6f},"
-                f"asetpts=N/SR/TB,{audio_mix.MIX_FORMAT}[a{position}]"
-            )
+            chains.append(_audio_span_filter(position, clip.source_in, clip.source_out))
             labels.append(f"[a{position}]")
 
         destination = work_dir / "programme_audio.wav"
@@ -357,6 +354,35 @@ class RenderWorker:
             details={"clips": len(clips)},
         )
         return destination
+
+
+#: Fade length at each cut boundary. Thirty milliseconds is below anything a
+#: listener registers as a fade and above anything that still clicks.
+_JOIN_FADE_SECONDS = 0.03
+
+
+def _audio_span_filter(position: int, source_in: float, source_out: float) -> str:
+    """One clip's audio chain: trim, restamp, format -- and defuse the joins.
+
+    ``atrim`` cuts the waveform at whatever sample value the boundary lands
+    on, and a jump from that value to the next clip's is audible as a click or
+    pop at every join. A micro fade at each end takes the boundary through
+    zero. Spans too short to hold two fades get proportionally shorter ones
+    rather than none: the shorter the clip, the more joins per second it
+    contributes.
+    """
+    duration = max(source_out - source_in, 0.0)
+    fade = min(_JOIN_FADE_SECONDS, duration / 4) if duration > 0 else 0.0
+    fades = ""
+    if fade > 0:
+        fades = (
+            f",afade=t=in:st=0:d={fade:.3f}"
+            f",afade=t=out:st={max(0.0, duration - fade):.3f}:d={fade:.3f}"
+        )
+    return (
+        f"[{position}:a:0]atrim=start={source_in:.6f}:end={source_out:.6f},"
+        f"asetpts=N/SR/TB,{audio_mix.MIX_FORMAT}{fades}[a{position}]"
+    )
 
 
 def _resized(composition, duration_seconds: float, fps: int):
