@@ -20,6 +20,7 @@ and got neither video is worse off than before they asked.
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -305,7 +306,60 @@ class RenderWorker:
             game_envelope=game_envelope,
             config=config,
             duration_seconds=duration_seconds,
+            stingers=self._stingers(context, timeline, duration_seconds),
         )
+
+    def _stingers(
+        self, context: WorkerContext, timeline: Timeline, duration_seconds: float
+    ) -> list[audio_mix.Stinger]:
+        """Sound effects the planner placed, resolved to local files (§68, §73).
+
+        ``sound_effect`` has been in the library with triggers and budgets
+        since Phase 1, and nothing read the rows: an effect the planner
+        carefully rationed and then discarded. This is the reader.
+
+        Timing follows the same rule as every other effect row: times are
+        stored relative to the clip that carries them, so the clip's position
+        on the finished timeline is what puts the sound where it belongs.
+
+        A row naming an asset the project does not have is skipped rather than
+        substituted -- §73's "local files only" is about consent, and quietly
+        playing a different sound is the wrong way to be helpful.
+        """
+        rows = context.database.fetch_all(
+            "SELECT clip_id, start_seconds, parameters FROM timeline_effects "
+            "WHERE project_id = ? AND effect_type = 'sound_effect' AND enabled = 1",
+            (context.project_id,),
+        )
+        if not rows:
+            return []
+
+        starts = {clip.id: clip.timeline_start for clip in timeline.video_clips()}
+        assets = context.paths.assets / "sfx"
+        stingers: list[audio_mix.Stinger] = []
+        for row in rows:
+            params = json.loads(row["parameters"]) if row["parameters"] else {}
+            name = params.get("asset")
+            if not name:
+                continue
+            asset = assets / str(name)
+            if not asset.is_file():
+                logger.warning(
+                    "A planned sound effect has no local asset",
+                    extra={"asset": str(asset), "project_id": context.project_id},
+                )
+                continue
+            at = starts.get(row["clip_id"] or "", 0.0) + float(row["start_seconds"])
+            if at >= duration_seconds:
+                continue
+            stingers.append(
+                audio_mix.Stinger(
+                    path=asset,
+                    at_seconds=max(0.0, at),
+                    gain_db=float(params.get("gain_db", -6.0)),
+                )
+            )
+        return stingers
 
     def _programme_audio(
         self,

@@ -91,6 +91,20 @@ class MixInput:
 
 
 @dataclass(frozen=True, slots=True)
+class Stinger:
+    """One sound effect placed on the programme timeline (§68, §73).
+
+    The asset is a local file. Nothing is downloaded, ever: §73 governs music
+    and the same rule governs every other sample, because "the tool fetched a
+    sound from somewhere" is a licensing question the user did not agree to.
+    """
+
+    path: Path
+    at_seconds: float
+    gain_db: float = -6.0
+
+
+@dataclass(frozen=True, slots=True)
 class MixPlan:
     """Everything needed to run the mix: inputs, in order, and the graph."""
 
@@ -266,6 +280,7 @@ def plan_mix(
     game_envelope: Path | None,
     config: AudioConfig,
     duration_seconds: float,
+    stingers: Sequence[Stinger] = (),
 ) -> MixPlan:
     """Build the filter graph for the finished audio (§72–§74).
 
@@ -339,6 +354,24 @@ def plan_mix(
         else:
             notes.append("music is not ducked: nothing marked where speech or events are")
         mixed.append(music_label)
+
+    for position, stinger in enumerate(stingers):
+        if not stinger.path.is_file():
+            notes.append(f"sound effect {stinger.path.name!r} is missing and was skipped")
+            continue
+        index = len(inputs)
+        inputs.append(MixInput(path=stinger.path, role="sfx"))
+        label = f"sfx{position}"
+        # adelay places it on the programme clock; apad keeps the stream alive
+        # to the end so amix does not truncate the mix to the shortest input.
+        delay_ms = max(0, round(stinger.at_seconds * 1000))
+        chains.append(
+            f"[{index}:a]{MIX_FORMAT},volume={stinger.gain_db}dB,"
+            f"adelay={delay_ms}|{delay_ms},apad=whole_dur={duration_seconds:.3f}[{label}]"
+        )
+        mixed.append(label)
+    if stingers:
+        notes.append(f"{len(stingers)} sound effect(s) placed")
 
     # ``mixed`` always holds at least the gameplay track: a mix is planned
     # from a programme that has audio, and a project without any never reaches

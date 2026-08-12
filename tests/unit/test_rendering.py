@@ -409,3 +409,60 @@ class TestAudioJoinFades:
         chain = _audio_span_filter(1, 0.0, 10.0)
 
         assert chain.index("aformat") < chain.index("afade")
+
+
+class TestSoundEffects:
+    """sound_effect has had triggers and budgets since Phase 1; nothing read
+    the rows. The planner rationed an effect and then discarded it."""
+
+    def _plan(self, tmp_path, stingers, duration=60.0):
+        from backend.config.loader import load_config
+        from backend.rendering import audio_mix
+
+        game = tmp_path / "game.wav"
+        game.write_bytes(b"")
+        return audio_mix.plan_mix(
+            game=game,
+            microphone=None,
+            music=(),
+            music_envelope=None,
+            game_envelope=None,
+            config=load_config().audio,
+            duration_seconds=duration,
+            stingers=stingers,
+        )
+
+    def test_a_stinger_is_delayed_to_its_moment(self, tmp_path) -> None:
+        from backend.rendering.audio_mix import Stinger
+
+        asset = tmp_path / "boom.wav"
+        asset.write_bytes(b"")
+        plan = self._plan(tmp_path, [Stinger(path=asset, at_seconds=12.5)])
+
+        assert "adelay=12500|12500" in plan.filter_complex
+        assert "sfx0" in plan.filter_complex
+
+    def test_a_stinger_is_padded_so_the_mix_is_not_truncated(self, tmp_path) -> None:
+        # amix ends with its shortest input unless every stream reaches the end.
+        from backend.rendering.audio_mix import Stinger
+
+        asset = tmp_path / "boom.wav"
+        asset.write_bytes(b"")
+        plan = self._plan(tmp_path, [Stinger(path=asset, at_seconds=5.0)], duration=90.0)
+
+        assert "apad=whole_dur=90.000" in plan.filter_complex
+
+    def test_a_missing_asset_is_skipped_and_reported(self, tmp_path) -> None:
+        # §73 is about consent: substituting a different sound is the wrong
+        # way to be helpful.
+        from backend.rendering.audio_mix import Stinger
+
+        plan = self._plan(tmp_path, [Stinger(path=tmp_path / "nope.wav", at_seconds=1.0)])
+
+        assert "sfx0" not in plan.filter_complex
+        assert any("missing" in note for note in plan.notes)
+
+    def test_no_stingers_leaves_the_graph_untouched(self, tmp_path) -> None:
+        plan = self._plan(tmp_path, [])
+
+        assert "sfx" not in plan.filter_complex
