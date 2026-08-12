@@ -791,6 +791,7 @@ Not blocking, but worth settling before the phase that needs them.
 | Multi-recording projects (multicam) | later | Sources are already independent; true sync is out of MVP scope. |
 | ~~NVIDIA driver too old for this FFmpeg's NVENC~~ | ~~when convenient~~ | **Settled 2026-08-11:** updated 581.15 → 610.88. NVENC now opens, and a 10.4-minute render fell from **942 s to 293 s** — 3.2× faster. The fallback path stays, because the machine this ships to may not have it. |
 | ~~Remotion licence for commercial use~~ | ~~Phase 9~~ | **Settled 2026-08-11:** free for individuals and for-profit organisations with up to 3 employees; above that, a company licence. This project is inside the free tier. |
+| **The overlay pass renders 599 s to cover 115 s** | next speed pass | Measured 2026-08-12 on *Ziad 2*: of a 9:58 programme, captions and effects occupy **115 s (19%) across 52 islands**, and Remotion screenshots every frame of all 599 s anyway. The overlay took **22 of the render's 26 minutes**; the cut and concat took 1.4 s on NVENC. Rendering only the islands (merged with a join tolerance, then composited at their offsets) is the largest single speed win left. The risk is A/V alignment, so it needs the frozen-frame and sync QA checks as its gate. |
 | **This repository has no LICENSE file** | before any release | Nothing has been published, so nothing is currently mis-licensed. Worth settling before the repo is shared. |
 
 ---

@@ -183,9 +183,7 @@ def inspect(
     if _needs_decode(checks):
         measurements = decode(path, runner, config, total_seconds=probe.duration_seconds)
         findings.extend(
-            _decode_findings(
-                measurements, config, checks, runner=runner, sources=sources
-            )
+            _decode_findings(measurements, config, checks, runner=runner, sources=sources)
         )
 
     if "av_sync" in checks:
@@ -223,20 +221,30 @@ def decode(
     )
     argv = [
         *runner.base_arguments(loglevel="info"),
-        "-i", str(path),
-        "-filter_complex", graph,
-        "-map", "[v]",
-        "-f", "null", "-",
+        "-i",
+        str(path),
+        "-filter_complex",
+        graph,
+        "-map",
+        "[v]",
+        "-f",
+        "null",
+        "-",
     ]
     if _has_audio(path, runner):
         argv = [
             *runner.base_arguments(loglevel="info"),
-            "-i", str(path),
+            "-i",
+            str(path),
             "-filter_complex",
             graph + ";[0:a]ebur128=peak=true[a]",
-            "-map", "[v]",
-            "-map", "[a]",
-            "-f", "null", "-",
+            "-map",
+            "[v]",
+            "-map",
+            "[a]",
+            "-f",
+            "null",
+            "-",
         ]
 
     result = runner.run(argv, check=False)
@@ -268,9 +276,7 @@ def _stream_findings(probe: ProbeResult, checks: set[str]) -> list[Finding]:
                 )
             )
         else:
-            findings.append(
-                passed("video_stream", f"{len(probe.video_tracks)} video stream(s)")
-            )
+            findings.append(passed("video_stream", f"{len(probe.video_tracks)} video stream(s)"))
 
     if "audio_stream" in checks:
         if not probe.audio_tracks:
@@ -285,9 +291,7 @@ def _stream_findings(probe: ProbeResult, checks: set[str]) -> list[Finding]:
                 )
             )
         else:
-            findings.append(
-                passed("audio_stream", f"{len(probe.audio_tracks)} audio stream(s)")
-            )
+            findings.append(passed("audio_stream", f"{len(probe.audio_tracks)} audio stream(s)"))
     return findings
 
 
@@ -389,9 +393,7 @@ def _decode_findings(
                 )
             )
         else:
-            findings.append(
-                passed("black_frames", f"longest black run {longest:.2f}s")
-            )
+            findings.append(passed("black_frames", f"longest black run {longest:.2f}s"))
 
     if "frozen_frames" in checks:
         findings.append(_frozen_frames(measurements, config, runner, sources))
@@ -521,9 +523,7 @@ def _source_stillness(
         if window is None:
             continue
         source_start, source_seconds = window
-        longest = max(
-            longest, _freeze_in(span.path, source_start, source_seconds, runner, config)
-        )
+        longest = max(longest, _freeze_in(span.path, source_start, source_seconds, runner, config))
     return longest
 
 
@@ -544,12 +544,13 @@ def _freeze_in(
     padded = seconds + 2 * _SOURCE_PAD_SECONDS
     argv = [
         *runner.base_arguments(loglevel="info"),
-        *runner.input_arguments(
-            path, start=max(0.0, start - _SOURCE_PAD_SECONDS), duration=padded
-        ),
+        *runner.input_arguments(path, start=max(0.0, start - _SOURCE_PAD_SECONDS), duration=padded),
         "-an",
-        "-vf", f"freezedetect=n={_noise(config)}:d=0.5",
-        "-f", "null", "-",
+        "-vf",
+        f"freezedetect=n={_noise(config)}:d=0.5",
+        "-f",
+        "null",
+        "-",
     ]
     result = runner.run(argv, check=False)
     if not result.ok:
@@ -607,10 +608,14 @@ def _has_audio(path: Path, runner: FFmpegRunner) -> bool:
     result = runner.run(
         [
             runner.ffprobe_path,
-            "-v", "error",
-            "-select_streams", "a",
-            "-show_entries", "stream=index",
-            "-of", "csv=p=0",
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
             str(path),
         ],
         check=False,
@@ -646,7 +651,41 @@ def _parse_freeze(stderr: str, total_seconds: float) -> tuple[tuple[float, float
             pending = None
     if pending is not None and total_seconds > pending:
         runs.append((pending, total_seconds - pending))
-    return tuple(runs)
+    return _join_runs(runs)
+
+
+#: A still stretch broken by a frame or two of movement is one still stretch,
+#: not two. Wider than a frame at any sane rate, narrower than anything a
+#: viewer would call motion.
+_FREEZE_JOIN_SECONDS: Final[float] = 0.1
+
+
+def _join_runs(runs: list[tuple[float, float]]) -> tuple[tuple[float, float], ...]:
+    """Merge still runs that ``freezedetect`` reported back to back.
+
+    The filter closes a run the instant one frame differs and opens the next at
+    the same timestamp, so a dialogue scene arrives as several sub-second runs
+    rather than one long one. That is a measurement artefact, and an asymmetric
+    one: after an encoder has quantised near-identical frames into identical
+    ones the same stillness comes back as a single unbroken run.
+
+    Leaving it unmerged let a faithful render of a cutscene be **blocked**. A
+    9:58 edit froze for 3.2s at 578.1s; the recording behind it was still for
+    4.95 of the 5.2 seconds either side -- but as runs of 2.17s and 2.78s,
+    adjacent, and the longest of those sat under the 3.0s limit. So the check
+    concluded the recording was moving and called a real dialogue scene a bad
+    seek. Merging happens here rather than at either call site precisely
+    because both sides must measure the same way for the comparison to mean
+    anything (§76).
+    """
+    merged: list[list[float]] = []
+    for start, duration in sorted(runs):
+        if merged and start - (merged[-1][0] + merged[-1][1]) <= _FREEZE_JOIN_SECONDS:
+            end = max(merged[-1][0] + merged[-1][1], start + duration)
+            merged[-1][1] = end - merged[-1][0]
+        else:
+            merged.append([start, duration])
+    return tuple((start, duration) for start, duration in merged)
 
 
 def _parse_loudness(stderr: str) -> float | None:
@@ -664,13 +703,9 @@ def _first_error(stderr: str) -> str:
     return lines[-1][:200] if lines else "no output"
 
 
-def measured_expectation(
-    duration_seconds: float, width: int, height: int, fps: float
-) -> Expected:
+def measured_expectation(duration_seconds: float, width: int, height: int, fps: float) -> Expected:
     """Convenience for callers that already know the target."""
-    return Expected(
-        duration_seconds=duration_seconds, width=width, height=height, fps=fps
-    )
+    return Expected(duration_seconds=duration_seconds, width=width, height=height, fps=fps)
 
 
 def check_names() -> Sequence[str]:

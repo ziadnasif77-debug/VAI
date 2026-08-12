@@ -16,7 +16,7 @@ import pytest
 from backend.config.loader import load_config
 from backend.core.models.enums import QAStatus, TrackKind
 from backend.gaming.profiles import GameProfile, Region
-from backend.qa import content
+from backend.qa import content, technical
 from backend.qa.report import build_report, failure, passed, warning
 from backend.timeline.captions import Caption
 from backend.timeline.models import Timeline, TimelineClip, Track
@@ -68,40 +68,28 @@ def _finding(findings, check: str):
 class TestMenusInTheEdit:
     def test_a_menu_inside_a_clip_is_flagged(self, timeline, config) -> None:
         # 105 s is inside clip 1 (100-120 s of the source).
-        findings = _inspect(
-            timeline, config, observations=[(MEDIA, 105.0, ["menu", "ui"])]
-        )
+        findings = _inspect(timeline, config, observations=[(MEDIA, 105.0, ["menu", "ui"])])
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.WARNING
 
     def test_a_menu_the_edit_left_out_is_not_flagged(self, timeline, config) -> None:
         # 60 s is between clips: the recording has a menu, the video does not.
-        findings = _inspect(
-            timeline, config, observations=[(MEDIA, 60.0, ["menu"])]
-        )
+        findings = _inspect(timeline, config, observations=[(MEDIA, 60.0, ["menu"])])
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 
     def test_gameplay_labels_are_not_menus(self, timeline, config) -> None:
-        findings = _inspect(
-            timeline, config, observations=[(MEDIA, 105.0, ["combat", "driving"])]
-        )
+        findings = _inspect(timeline, config, observations=[(MEDIA, 105.0, ["combat", "driving"])])
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 
-    def test_a_label_that_merely_contains_menu_is_not_a_menu(
-        self, timeline, config
-    ) -> None:
-        findings = _inspect(
-            timeline, config, observations=[(MEDIA, 105.0, ["menuever"])]
-        )
+    def test_a_label_that_merely_contains_menu_is_not_a_menu(self, timeline, config) -> None:
+        findings = _inspect(timeline, config, observations=[(MEDIA, 105.0, ["menuever"])])
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 
     def test_a_menu_in_another_recording_is_not_matched(self, timeline, config) -> None:
-        findings = _inspect(
-            timeline, config, observations=[("media-other0000", 105.0, ["menu"])]
-        )
+        findings = _inspect(timeline, config, observations=[("media-other0000", 105.0, ["menu"])])
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 
@@ -109,9 +97,7 @@ class TestMenusInTheEdit:
 class TestSilence:
     def test_a_long_silence_inside_the_edit_warns(self, timeline, config) -> None:
         limit = config.qa.content.thresholds.max_silence_seconds
-        findings = _inspect(
-            timeline, config, silences=[(MEDIA, 100.0, 100.0 + limit + 5)]
-        )
+        findings = _inspect(timeline, config, silences=[(MEDIA, 100.0, 100.0 + limit + 5)])
 
         assert _finding(findings, "extreme_silence").status is QAStatus.WARNING
 
@@ -130,9 +116,7 @@ class TestSilence:
 
 
 class TestSequenceAndTransitions:
-    def test_the_pacing_report_is_reused_rather_than_recomputed(
-        self, timeline, config
-    ) -> None:
+    def test_the_pacing_report_is_reused_rather_than_recomputed(self, timeline, config) -> None:
         # §38 already measured this; a second opinion from less information
         # would be worse.
         findings = _inspect(
@@ -182,9 +166,7 @@ class TestCaptionsOverHud:
             id="testgame",
             regions={"scoreboard": Region(x=0.1, y=0.85, width=0.8, height=0.12)},
         )
-        findings = _inspect(
-            timeline, config, captions=[self._caption()], profile=profile
-        )
+        findings = _inspect(timeline, config, captions=[self._caption()], profile=profile)
         finding = _finding(findings, "caption_covers_hud")
 
         assert finding.status is QAStatus.WARNING
@@ -195,15 +177,11 @@ class TestCaptionsOverHud:
             id="testgame",
             regions={"kill_feed": Region(x=0.7, y=0.05, width=0.28, height=0.2)},
         )
-        findings = _inspect(
-            timeline, config, captions=[self._caption()], profile=profile
-        )
+        findings = _inspect(timeline, config, captions=[self._caption()], profile=profile)
 
         assert _finding(findings, "caption_covers_hud").status is QAStatus.PASSED
 
-    def test_the_generic_profile_declares_nothing_to_collide_with(
-        self, timeline, config
-    ) -> None:
+    def test_the_generic_profile_declares_nothing_to_collide_with(self, timeline, config) -> None:
         # §23: an unknown game has no regions, and saying "nothing is known"
         # beats silence.
         findings = _inspect(timeline, config, captions=[self._caption()], profile=None)
@@ -215,18 +193,14 @@ class TestCaptionsOverHud:
 
 class TestReportPolicy:
     def test_a_technical_failure_blocks_and_needs_review(self, config) -> None:
-        report = build_report(
-            [failure("duration", "wrong", remedy="re-render")], config.qa
-        )
+        report = build_report([failure("duration", "wrong", remedy="re-render")], config.qa)
 
         assert report.status is QAStatus.FAILED
         assert report.blocks_export
         assert report.needs_review
 
     def test_content_warnings_do_not_block(self, config) -> None:
-        report = build_report(
-            [warning("extreme_silence", "long", remedy="trim it")], config.qa
-        )
+        report = build_report([warning("extreme_silence", "long", remedy="trim it")], config.qa)
 
         assert report.status is QAStatus.WARNING
         assert not report.blocks_export
@@ -268,3 +242,64 @@ class TestReportPolicy:
         from backend.qa.report import enabled_checks
 
         assert enabled_checks(["old", "new"], {"old": False}) == ["new"]
+
+
+class TestReadingFreezeRunsBack:
+    """§76: what `freezedetect` reports and what "the picture stopped" means.
+
+    These need no video: the filter's output is text, and the bug they pin was
+    in reading it.
+    """
+
+    #: What ffmpeg actually printed for the recording behind *Ziad 2* at
+    #: 2438.47s, at the noise floor `config/qa.yaml` sets. The stretch is one
+    #: dialogue scene -- an NPC talking while the player stands still -- and
+    #: the filter closes a run the instant a single frame differs, then opens
+    #: the next at the same timestamp.
+    REAL_DIALOGUE_SCENE = """[Parsed_freezedetect_0 @ 0x1] lavfi.freezedetect.freeze_start: 0.013
+[Parsed_freezedetect_0 @ 0x1] lavfi.freezedetect.freeze_duration: 2.167
+[Parsed_freezedetect_0 @ 0x1] lavfi.freezedetect.freeze_end: 2.18
+[Parsed_freezedetect_0 @ 0x1] lavfi.freezedetect.freeze_start: 2.18
+[Parsed_freezedetect_0 @ 0x1] lavfi.freezedetect.freeze_duration: 2.783
+[Parsed_freezedetect_0 @ 0x1] lavfi.freezedetect.freeze_end: 4.963
+"""
+
+    def test_back_to_back_runs_are_one_still_stretch(self) -> None:
+        runs = technical._parse_freeze(self.REAL_DIALOGUE_SCENE, 5.2)
+
+        assert len(runs) == 1, "a scene that never moved was read as two"
+        start, duration = runs[0]
+        assert start == pytest.approx(0.013)
+        assert duration == pytest.approx(4.95, abs=0.01)
+
+    def test_the_longest_run_now_clears_the_limit(self) -> None:
+        # The verdict this decides. Unmerged, the longest run was 2.783s --
+        # under config/qa.yaml's 3.0s limit -- so the source read as *moving*
+        # and a faithful render of a cutscene was blocked from export.
+        limit = load_config().qa.technical.thresholds.max_frozen_run_seconds
+        longest = max(
+            duration for _, duration in technical._parse_freeze(self.REAL_DIALOGUE_SCENE, 5.2)
+        )
+
+        assert longest > limit
+
+    def test_real_movement_still_separates_two_stretches(self) -> None:
+        # The merge must not swallow a gap a viewer would see. A second of
+        # motion between two still stretches is two still stretches.
+        stderr = """\
+lavfi.freezedetect.freeze_start: 0.0
+lavfi.freezedetect.freeze_duration: 1.0
+lavfi.freezedetect.freeze_start: 2.0
+lavfi.freezedetect.freeze_duration: 1.0
+"""
+
+        runs = technical._parse_freeze(stderr, 4.0)
+
+        assert runs == ((0.0, 1.0), (2.0, 1.0))
+
+    def test_a_freeze_running_to_the_end_is_still_closed(self) -> None:
+        # The entire-video-frozen case: a start with no duration, which the
+        # merge must not drop.
+        stderr = "lavfi.freezedetect.freeze_start: 1.5"
+
+        assert technical._parse_freeze(stderr, 10.0) == ((1.5, 8.5),)
