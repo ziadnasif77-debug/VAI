@@ -157,6 +157,16 @@ class GameEventsWorker:
 
     stage = JobStage.GAME_EVENTS
 
+    def __init__(self, llm_provider: Any = None) -> None:
+        """
+        Args:
+            llm_provider: the model that reads the transcript for incidents
+                (§19). Injected the way every other model in the pipeline is,
+                so a test proves the wiring without depending on what happens
+                to be installed. Built lazily when absent.
+        """
+        self._llm = llm_provider
+
     def run(self, context: WorkerContext) -> dict[str, Any]:
         media = context.require_media()
         analysis = context.config.analysis
@@ -167,7 +177,7 @@ class GameEventsWorker:
         scenes = SceneRepository(context.database).list_for_media(media.id)
         ocr_frames = _ocr_frames(context, media.id)
         reactions = _reactions_from(audio)
-        narration = _narration_observations(context, media.id)
+        narration = _narration_observations(context, media.id, self._llm)
 
         observations = detectors.detect(
             vision=vision,
@@ -332,7 +342,9 @@ def _ocr_frames(context: WorkerContext, media_id: str):
     ]
 
 
-def _narration_observations(context: WorkerContext, media_id: str) -> list:
+def _narration_observations(
+    context: WorkerContext, media_id: str, provider: Any = None
+) -> list:
     """Read the transcript for incidents, or return nothing (§19, §95).
 
     Nothing here is required. Without a model, or without speech, the other
@@ -346,7 +358,7 @@ def _narration_observations(context: WorkerContext, media_id: str) -> list:
     if not segments:
         return []
     try:
-        incidents = read_incidents(segments, config=context.config)
+        incidents = read_incidents(segments, config=context.config, provider=provider)
     except Exception as error:  # pragma: no cover - defensive (§95)
         logger.warning(
             "Could not read the narration; continuing without it",

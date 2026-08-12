@@ -98,9 +98,29 @@ def config_dir(repo_root: Path) -> Path:
 
 @pytest.fixture
 def config(config_dir: Path) -> Iterator[AppConfig]:
-    """The real shipped configuration, loaded fresh."""
+    """The real shipped configuration, loaded fresh -- with narration off.
+
+    Every other model in the pipeline is injected as a fake by the fixture that
+    needs it. The narration reader builds its own provider lazily, so a machine
+    with Ollama running had the pipeline tests quietly consulting a real 7B
+    model: eight of them failed on clip counts that changed between runs, and
+    on a machine without Ollama they would have passed. A test whose result
+    depends on what is installed is not a test.
+
+    `tests/unit/test_narration.py` injects a fake and exercises the reader
+    properly; anything wanting it inside a pipeline run should do the same.
+    """
     reset_config_cache()
-    yield load_config(config_dir)
+    loaded = load_config(config_dir)
+    yield loaded.model_copy(
+        update={
+            "analysis": loaded.analysis.model_copy(
+                update={"narration": loaded.analysis.narration.model_copy(
+                    update={"enabled": False}
+                )}
+            )
+        }
+    )
     reset_config_cache()
 
 

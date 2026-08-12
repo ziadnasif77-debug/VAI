@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -65,12 +66,18 @@ class TestWithoutAProfile:
     """The acceptance criterion itself."""
 
     def test_events_are_detected_with_timestamps_and_no_profile(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, media = _project_with(media_service, project_manager, scene_clip, game="auto")
 
         outcomes = {o.job.stage: o for o in runner.run_project(project.id)}
@@ -88,13 +95,19 @@ class TestWithoutAProfile:
         assert all(0.0 < event.confidence <= 1.0 for event in events)
 
     def test_on_screen_text_is_read_and_timestamped(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
         # §25: every OCR result must have a timestamp.
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, media = _project_with(media_service, project_manager, scene_clip)
         runner.run_project(project.id)
 
@@ -106,13 +119,19 @@ class TestWithoutAProfile:
         assert {detection.region for detection in detections} == {"full_frame"}
 
     def test_the_text_becomes_a_named_event(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
         # Generic wording carries "VICTORY" without any game knowledge (§23).
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, media = _project_with(media_service, project_manager, scene_clip)
         runner.run_project(project.id)
 
@@ -121,14 +140,20 @@ class TestWithoutAProfile:
         assert any(event.is_named for event in events)
 
     def test_events_carry_every_detector_that_saw_them(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
         # §26's `sources`, and the thing that distinguishes a corroborated
         # event from a lone audio spike.
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, media = _project_with(media_service, project_manager, scene_clip)
         outcomes = {o.job.stage: o.job for o in runner.run_project(project.id)}
 
@@ -137,13 +162,19 @@ class TestWithoutAProfile:
         assert outcomes[JobStage.GAME_EVENTS].result["multi_source_events"] >= 1
 
     def test_correlation_produces_fewer_events_than_observations(
-        self, media_service, project_manager, paths, database, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        paths,
+        database,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
         # §27: agreeing detectors raise confidence, they do not multiply events.
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, _ = _project_with(media_service, project_manager, scene_clip)
         outcomes = {o.job.stage: o.job for o in runner.run_project(project.id)}
 
@@ -155,16 +186,21 @@ class TestWithAProfile:
     """A profile improves accuracy; it does not enable the feature."""
 
     def test_a_profile_restricts_ocr_to_its_regions(
-        self, media_service, project_manager, database, paths, config, tmp_path,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        tmp_path,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
         _install_profile(paths.profiles_dir, "testgame")
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
-        project, media = _project_with(
-            media_service, project_manager, scene_clip, game="testgame"
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
+        project, media = _project_with(media_service, project_manager, scene_clip, game="testgame")
         outcomes = {o.job.stage: o.job for o in runner.run_project(project.id)}
 
         assert outcomes[JobStage.OCR].result["mode"] == "regions"
@@ -174,16 +210,21 @@ class TestWithAProfile:
         assert {detection.region for detection in detections} <= {"banner", "kill_feed"}
 
     def test_a_profile_rule_produces_a_more_specific_event(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        scene_clip: Path,
     ) -> None:
         _install_profile(paths.profiles_dir, "testgame")
         # Wording only this game uses: generic patterns cannot read it.
         ocr = FakeOcrProvider(default=[("ROUND WON", 0.92)])
         runner = _runner(database, paths, config, speech_provider, vision_provider, ocr)
-        project, media = _project_with(
-            media_service, project_manager, scene_clip, game="testgame"
-        )
+        project, media = _project_with(media_service, project_manager, scene_clip, game="testgame")
         outcomes = {o.job.stage: o.job for o in runner.run_project(project.id)}
 
         assert outcomes[JobStage.GAME_EVENTS].result["profile_exact"] is True
@@ -193,12 +234,18 @@ class TestWithAProfile:
         assert all(event.game_profile == "testgame" for event in events)
 
     def test_an_unknown_game_falls_back_without_failing(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, _ = _project_with(
             media_service, project_manager, scene_clip, game="unwritten_game"
         )
@@ -214,15 +261,26 @@ class TestWithAProfile:
 
 class TestDegradation:
     def test_missing_ocr_degrades_rather_than_failing(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, reaction_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        reaction_clip: Path,
     ) -> None:
         # §95: OCR failing falls back to vision and audio. It never invents
         # text. Run on the clip that carries real impacts, so "the sources that
         # did run" have something to report -- otherwise the test would be
         # demanding that the pipeline invent events from silence.
         runner = _runner(
-            database, paths, config, speech_provider, vision_provider,
+            database,
+            paths,
+            config,
+            speech_provider,
+            vision_provider,
             FakeOcrProvider(available=False),
         )
         project, media = _project_with(media_service, project_manager, reaction_clip)
@@ -236,49 +294,204 @@ class TestDegradation:
         assert outcomes[JobStage.GAME_EVENTS].job.result["events"] > 0
 
     def test_re_running_replaces_rather_than_appends(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, media = _project_with(media_service, project_manager, scene_clip)
         runner.run_project(project.id)
         first = GameEventRepository(database).count_for_media(media.id)
 
-        job = next(
-            j for j in runner.jobs.list_jobs(project.id) if j.stage is JobStage.GAME_EVENTS
-        )
+        job = next(j for j in runner.jobs.list_jobs(project.id) if j.stage is JobStage.GAME_EVENTS)
         runner.jobs.requeue(job.id)
         assert runner.run_job(job.id).succeeded
         assert GameEventRepository(database).count_for_media(media.id) == first
 
 
+class TestNarrationReachesTheEvents:
+    """The wire from what the player said to what the editor knows (§19, §21).
+
+    Worth an end-to-end test rather than a unit one, because everything here
+    was already unit-tested and the thing that broke was the wiring: the
+    prompt's placeholders were doubled, so the model received a prompt with a
+    hole where the transcript belonged and invented four English incidents for
+    an Arabic recording. Nothing reading only `narration.py` would have noticed.
+
+    What is asserted is deliberately narrow. §27 merges observations that agree,
+    so a narration observation lands *inside* whatever event the other
+    detectors built around it -- and in this fixture OCR reads "VICTORY" off
+    every frame, so that event is a victory spanning the whole clip. The type
+    is correlation's to decide; the only thing this stage owes is that the
+    player's account reached it at all.
+    """
+
+    def _narrating(self, config):
+        return config.model_copy(
+            update={
+                "analysis": config.analysis.model_copy(
+                    update={
+                        "narration": config.analysis.narration.model_copy(update={"enabled": True})
+                    }
+                )
+            }
+        )
+
+    def _runner_with_narration(self, database, paths, config, speech, vision, ocr, incidents):
+        from ai.llm.fake_provider import FakeLLMProvider
+        from backend.pipeline.workers.gaming_workers import GameEventsWorker
+
+        workers = workers_through("game_events")
+        workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech)
+        workers[JobStage.VISION] = VisionWorker(vision)
+        workers[JobStage.OCR] = OcrWorker(ocr)
+        workers[JobStage.GAME_EVENTS] = GameEventsWorker(
+            FakeLLMProvider(default={"incidents": incidents})
+        )
+        return PipelineRunner(database, paths, self._narrating(config), workers=workers)
+
+    INCIDENT: ClassVar[dict] = {
+        "title": "العنكبوت",
+        "event_type": "near_death",
+        "start_seconds": 0.2,
+        "climax_seconds": 1.0,
+        "end_seconds": 3.5,
+        "importance": 0.9,
+        "quote": "بيخرع علينا",
+    }
+
+    def test_what_the_player_said_reaches_the_events(
+        self,
+        database,
+        paths,
+        config,
+        project_manager,
+        media_service,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        reaction_clip: Path,
+    ) -> None:
+        runner = self._runner_with_narration(
+            database,
+            paths,
+            config,
+            speech_provider,
+            vision_provider,
+            ocr_provider,
+            [self.INCIDENT],
+        )
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+
+        runner.run_project(project.id)
+
+        events = GameEventRepository(database).list_for_project(project.id)
+        assert [item for item in events if "narration" in item.sources], (
+            "the transcript reader produced nothing the correlator could see"
+        )
+
+    def test_a_transcript_the_model_reads_as_empty_changes_nothing(
+        self,
+        database,
+        paths,
+        config,
+        project_manager,
+        media_service,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        reaction_clip: Path,
+    ) -> None:
+        # The common case, and it must be free: most windows of most recordings
+        # contain no situation, and saying so is a real answer.
+        runner = self._runner_with_narration(
+            database,
+            paths,
+            config,
+            speech_provider,
+            vision_provider,
+            ocr_provider,
+            [],
+        )
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+
+        outcomes = {item.job.stage: item for item in runner.run_project(project.id)}
+
+        assert outcomes[JobStage.GAME_EVENTS].succeeded
+        events = GameEventRepository(database).list_for_project(project.id)
+        assert not [item for item in events if "narration" in item.sources]
+
+    def test_without_a_model_the_events_are_what_they_always_were(
+        self,
+        database,
+        paths,
+        config,
+        project_manager,
+        media_service,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        reaction_clip: Path,
+    ) -> None:
+        # §95: this adds a source. It does not become one the others need.
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+
+        outcomes = {item.job.stage: item for item in runner.run_project(project.id)}
+
+        assert outcomes[JobStage.GAME_EVENTS].succeeded
+        events = GameEventRepository(database).list_for_project(project.id)
+        assert not [item for item in events if "narration" in item.sources]
+
+
 class TestStageWiring:
     def test_the_gaming_stages_run_after_everything_they_read(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
     ) -> None:
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, _ = _project_with(media_service, project_manager, scene_clip)
         order = [o.job.stage for o in runner.run_project(project.id) if o.succeeded]
 
         assert order.index(JobStage.FRAMES) < order.index(JobStage.OCR)
         for dependency in (
-            JobStage.SCENES, JobStage.VISION, JobStage.OCR,
-            JobStage.AUDIO_EVENTS, JobStage.TRANSCRIPT,
+            JobStage.SCENES,
+            JobStage.VISION,
+            JobStage.OCR,
+            JobStage.AUDIO_EVENTS,
+            JobStage.TRANSCRIPT,
         ):
             assert order.index(dependency) < order.index(JobStage.GAME_EVENTS)
 
     def test_the_runner_stops_at_the_frontier(
-        self, media_service, project_manager, database, paths, config,
-        speech_provider, vision_provider, ocr_provider, scene_clip: Path, frontier_check,
+        self,
+        media_service,
+        project_manager,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        scene_clip: Path,
+        frontier_check,
     ) -> None:
-        runner = _runner(
-            database, paths, config, speech_provider, vision_provider, ocr_provider
-        )
+        runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         project, _ = _project_with(media_service, project_manager, scene_clip)
         runner.run_project(project.id)
         frontier_check(runner, project.id)
@@ -361,13 +574,19 @@ class TestReadingTheHud:
         clear_profile_cache()
 
     def test_a_declared_indicator_is_read_and_travels_to_the_next_stage(
-        self, database, paths, config, speech_provider, vision_provider, ocr_provider,
-        media_service, project_manager, test_clip,
+        self,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        media_service,
+        project_manager,
+        test_clip,
     ) -> None:
         self._install_hud_profile(paths.profiles_dir, "hud_game")
-        project, media = _project_with(
-            media_service, project_manager, test_clip, game="hud_game"
-        )
+        project, media = _project_with(media_service, project_manager, test_clip, game="hud_game")
         runner = _runner(database, paths, config, speech_provider, vision_provider, ocr_provider)
         while runner.run_next(project.id) is not None:
             pass
@@ -384,8 +603,16 @@ class TestReadingTheHud:
         assert (events_job.result or {})["inputs"]["hud_readings"] == len(readings)
 
     def test_a_profile_with_no_hud_reads_nothing_and_costs_nothing(
-        self, database, paths, config, speech_provider, vision_provider, ocr_provider,
-        media_service, project_manager, test_clip,
+        self,
+        database,
+        paths,
+        config,
+        speech_provider,
+        vision_provider,
+        ocr_provider,
+        media_service,
+        project_manager,
+        test_clip,
     ) -> None:
         # §23: the unknown-game path opens no frames for a HUD nobody declared.
         project, media = _project_with(media_service, project_manager, test_clip)
