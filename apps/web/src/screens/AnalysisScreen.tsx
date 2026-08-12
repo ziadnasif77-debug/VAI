@@ -11,7 +11,7 @@
  * a failed stage here shows what failed and what to do, rather than a red mark.
  */
 
-import {useCallback, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 
 import {usePolling} from '../lib/usePolling';
 import {api, type JobStatus, type Project, type StageStatus} from '../lib/api';
@@ -25,8 +25,24 @@ const GROUPS: ReadonlyArray<{label: string; stages: string[]}> = [
   {label: 'Gaming events', stages: ['ocr', 'game_events']},
   {label: 'Moments', stages: ['moments']},
   {label: 'Story', stages: ['story', 'edl']},
-  {label: 'Render', stages: ['render', 'qa']},
+  // Render and QA are their own rows rather than one "Render" group. Grouping
+  // them averaged a stage that takes half an hour with one that takes seconds,
+  // so a render at 59% displayed as 30% -- and a number that low, not moving,
+  // reads as a stall. §60 lists them together; §60 was not watching a real
+  // encode at the time.
+  {label: 'Render', stages: ['render']},
+  {label: 'Checks', stages: ['qa']},
 ];
+
+/** How long a stage has been running, as "6m 12s". */
+function elapsed(startedAt: string | null | undefined, now: number): string | null {
+  if (!startedAt) return null;
+  const started = Date.parse(startedAt);
+  if (Number.isNaN(started)) return null;
+  const seconds = Math.max(0, Math.round((now - started) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
 
 function mark(status: JobStatus | null): string {
   if (status === 'completed') return '✓';
@@ -34,6 +50,24 @@ function mark(status: JobStatus | null): string {
   if (status === 'failed') return '✕';
   if (status === 'cancelled') return '⊘';
   return '○';
+}
+
+/**
+ * How far a group has actually got, 0-1.
+ *
+ * A completed stage counts as done whatever its last reported progress was:
+ * several stages finish without ever reporting 100%, and a group showing "83%"
+ * beside a tick reads as a stall rather than a success. Averaging across the
+ * group's stages means a two-stage group sits at 50% between them, which is
+ * the truth — half the work is left.
+ */
+function groupProgress(stages: StageStatus[]): number {
+  if (stages.length === 0) return 0;
+  const total = stages.reduce(
+    (sum, stage) => sum + (stage.status === 'completed' ? 1 : stage.progress),
+    0,
+  );
+  return total / stages.length;
 }
 
 /** A group is as far along as its least advanced stage. */
@@ -49,6 +83,14 @@ function groupStatus(stages: StageStatus[]): JobStatus | null {
 
 export function AnalysisScreen({project, onDone}: {project: Project; onDone: () => void}) {
   const [busy, setBusy] = useState(false);
+  // A ticking clock, so "running for 6m 12s" keeps counting while a long
+  // encode reports nothing. The whole point is that a frozen number should
+  // not be the only thing on screen.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const status = usePolling(() => api.projects.status(project.id), {
     intervalMs: 1500,
     // Stop once nothing is moving: a local app should not spin while idle.
@@ -88,19 +130,27 @@ export function AnalysisScreen({project, onDone}: {project: Project; onDone: () 
               .map((name) => byStage.get(name as StageStatus['stage']))
               .filter((stage): stage is StageStatus => Boolean(stage));
             const state = groupStatus(stages);
-            const progress =
-              stages.length > 0
-                ? stages.reduce((total, stage) => total + stage.progress, 0) / stages.length
-                : 0;
+            const progress = groupProgress(stages);
+            const percent = Math.round(progress * 100);
+            const active = (jobs.data?.items ?? []).find(
+              (job) => job.status === 'running' && group.stages.includes(job.stage),
+            );
+            const age = state === 'running' ? elapsed(active?.started_at, now) : null;
             return (
               <li key={group.label} className={`stage stage-${state ?? 'pending'}`}>
                 <span className="stage-mark">{mark(state)}</span>
                 <span className="stage-name">{group.label}</span>
-                {state === 'running' && (
-                  <span className="stage-bar">
-                    <span className="stage-fill" style={{width: `${Math.round(progress * 100)}%`}} />
-                  </span>
-                )}
+                {/* The bar is drawn for every stage, not only the running one:
+                    a row that gains a bar the moment it starts makes the list
+                    jump, and a stage that failed at 40% should still show where
+                    it got to. */}
+                <span className="stage-bar">
+                  <span className="stage-fill" style={{width: `${percent}%`}} />
+                </span>
+                <span className="stage-percent">
+                  {percent}%
+                  {age && <em className="stage-age">{age}</em>}
+                </span>
               </li>
             );
           })}

@@ -24,7 +24,7 @@ import pytest
 from backend.core.duration import DurationPolicy
 from backend.core.models.enums import GameEventType, MomentType, VideoMode
 from backend.gaming.correlation import GameEvent
-from backend.moments.formation import Moment
+from backend.moments.formation import Moment, replace_moment
 from backend.narrative.hook import HOOK_STRENGTH, choose_hook
 from backend.narrative.optimizer import optimise
 from backend.narrative.pacing import intensity_of, order, report
@@ -415,3 +415,83 @@ class TestAcceptance:
             config=config.narrative, policy=policy,
         )
         assert policy.contains(plan.total_seconds)
+
+
+class TestHookWithoutReplay:
+    """The first real viewer's defect: 25 seconds shown twice.
+
+    The hook is cut from the tail of its moment (§37 keeps the payoff), and
+    with replay off the body copy must keep its lead-up and lose only the
+    seconds the opening already showed. The old behaviour dropped the whole
+    body copy, which traded "shown twice" for "the setup never shown" -- a
+    different defect wearing the fix's name.
+    """
+
+    def test_replay_is_off_by_default(self, config) -> None:
+        assert config.narrative.hook.allow_replay_in_body is False
+
+    def test_the_body_copy_keeps_the_lead_up_and_loses_the_hooked_tail(
+        self, config
+    ) -> None:
+        from backend.narrative.hook import choose_hook
+        from backend.narrative.story import _apply_hook
+
+        # One long moment (context 0..78) whose tail becomes the 25s hook.
+        big = _moment(60.0, duration=78.0, moment_type=MomentType.EPIC, score=0.9)
+        big = replace_moment(big, context_start=0.0, context_end=78.0)
+        other = _moment(200.0, moment_type=MomentType.SKILL)
+
+        hook = choose_hook([big, other], config.narrative.hook)
+        assert hook.exists
+        assert hook.moment.context_start > 0.0  # trimmed from the front
+
+        ordered = _apply_hook([big, other], hook, config.narrative)
+
+        assert ordered[0].metadata.get("role") == "hook"
+        body = ordered[1]
+        assert body.context_start == 0.0
+        # The body ends where the hook begins: nothing appears twice.
+        assert abs(body.context_end - hook.moment.context_start) < 1e-6
+        assert body.metadata.get("hook_span_removed_seconds", 0) > 0
+
+    def test_no_second_of_source_appears_twice_in_the_plan(self, config) -> None:
+        moments = [
+            _moment(60.0, duration=78.0, moment_type=MomentType.EPIC, score=0.9),
+            _moment(150.0, moment_type=MomentType.CLUTCH, score=0.7),
+            _moment(300.0, moment_type=MomentType.FUNNY, score=0.6),
+        ]
+        moments[0] = replace_moment(moments[0], context_start=0.0, context_end=78.0)
+
+        plan = build_plan(
+            moments,
+            mode=VideoMode.STORY,
+            target_seconds=600.0,
+            config=config.narrative,
+            policy=config.duration_policy,
+        )
+
+        from itertools import pairwise
+
+        spans = sorted(
+            (m.media_id, m.context_start, m.context_end) for m in plan.moments
+        )
+        for earlier, later in pairwise(spans):
+            if earlier[0] != later[0]:
+                continue
+            assert later[1] >= earlier[2] - 1e-6, (
+                f"{later[1]} overlaps a span ending {earlier[2]}"
+            )
+
+    def test_a_moment_fully_used_by_the_hook_is_not_repeated(self, config) -> None:
+        from backend.narrative.hook import choose_hook
+        from backend.narrative.story import _apply_hook
+
+        # Shorter than max_seconds: the hook consumes it whole.
+        small = _moment(20.0, duration=18.0, moment_type=MomentType.EPIC, score=0.9)
+        hook = choose_hook([small], config.narrative.hook)
+        assert hook.exists
+
+        ordered = _apply_hook([small], hook, config.narrative)
+
+        assert len(ordered) == 1
+        assert ordered[0].metadata.get("role") == "hook"

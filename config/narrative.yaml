@@ -45,8 +45,13 @@ narrative:
       - funny
       - surprise
       - outcome_preview
-    # A moment used as the hook may be replayed in its chronological position.
-    allow_replay_in_body: true
+    # A moment used as the hook may be replayed in its chronological position
+    # (the cold-open convention). Off by default: the first person to watch a
+    # real edit reported the repeat as a defect, and the human has the last
+    # word on taste (SPEC 78). When off, the hooked span is trimmed OUT of the
+    # body copy rather than the whole moment being dropped -- the setup stays,
+    # only the already-shown seconds go.
+    allow_replay_in_body: false
 
   # Pacing (§38).
   pacing:

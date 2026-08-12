@@ -220,6 +220,11 @@ def _gameplay(moment: Moment) -> float:
     return moment.importance
 
 
+#: Labels that are evidence of *nothing* to look at. Kept in step with
+#: :data:`backend.moments.dead_time._LABEL_CATEGORIES`'s screens.
+_NOTHING_TO_SEE: frozenset[str] = frozenset({"menu", "loading"})
+
+
 def _visual(moment: Moment, context: ScoringContext) -> float:
     """How much there was to look at.
 
@@ -227,6 +232,13 @@ def _visual(moment: Moment, context: ScoringContext) -> float:
     confidence. Absence of observations is not absence of action -- the cascade
     only looked where something was nominated -- so this floors at a neutral
     value rather than zero.
+
+    A menu or loading label counts *against* the span, not for it. It used to
+    count as density like any other observation, so a model confidently
+    reporting "menu" raised the visual score of the very footage a viewer
+    skips -- and the first real edit had QA flag 28 selected moments as menu or
+    loading screens. The model being sure it sees a menu is exactly as strong
+    an argument against the clip as "epic fight" is for it.
     """
     inside = [
         item
@@ -235,9 +247,23 @@ def _visual(moment: Moment, context: ScoringContext) -> float:
     ]
     if not inside:
         return 0.35
-    density = min(len(inside) / 4.0, 1.0)
-    quality = sum(item.confidence for item in inside) / len(inside)
-    return round(0.5 * density + 0.5 * quality, 4)
+
+    dead = [
+        item
+        for item in inside
+        if _NOTHING_TO_SEE & {str(label).lower() for label in item.labels}
+    ]
+    alive = [item for item in inside if item not in dead]
+    if not alive:
+        # Every look at this span found interface, not play.
+        return 0.05
+
+    density = min(len(alive) / 4.0, 1.0)
+    quality = sum(item.confidence for item in alive) / len(alive)
+    base = 0.5 * density + 0.5 * quality
+    # The more of the span is screens, the less there is to watch in it.
+    screen_fraction = len(dead) / len(inside)
+    return round(base * (1.0 - 0.8 * screen_fraction), 4)
 
 
 def _audio(moment: Moment, context: ScoringContext) -> float:

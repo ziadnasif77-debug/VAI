@@ -574,3 +574,69 @@ class TestScoring:
         )
         scored = score_moments([weak], config.moments.scoring, self._context())[0]
         assert any("review" in line.lower() for line in scored.explanation)
+
+
+class TestMenuFramesAndTheVisualScore:
+    """A model sure it sees a menu is an argument AGAINST the clip.
+
+    Menu and loading observations used to count as visual density like any
+    other, so a confident "menu" label raised the visual score of the very
+    footage a viewer skips. The first real edit had QA flag 28 selected
+    moments as menu or loading screens; the first real viewer asked for more
+    accurate selection. Same defect, two witnesses.
+    """
+
+    def _observation(self, timestamp: float, labels: tuple[str, ...], confidence=0.9):
+        from ai.providers.base import VisionObservation
+        from backend.database.repositories.vision import StoredObservation
+
+        return StoredObservation(
+            observation=VisionObservation(
+                timestamp=timestamp,
+                description=" ".join(labels),
+                labels=labels,
+                confidence=confidence,
+            ),
+            region_start=None, region_end=None, sources=(),
+            model_name="m", model_version="1", prompt_id=None, prompt_version=None,
+        )
+
+    def _visual_for(self, labels_per_frame, config):
+        from backend.moments.scoring import ScoringContext, score_moments
+
+        moment = _moment(100.0)
+        vision = [
+            self._observation(100.0 + index * 3.0, labels)
+            for index, labels in enumerate(labels_per_frame)
+        ]
+        scored = score_moments(
+            [moment],
+            config.moments.scoring,
+            ScoringContext(duration_seconds=600.0, vision=vision),
+        )
+        return scored[0].score_breakdown["visual"]
+
+    def test_menu_frames_score_below_gameplay_frames(self, config) -> None:
+        gameplay = self._visual_for(
+            [("combat",), ("explosion",), ("combat",), ("vehicle",)], config
+        )
+        menus = self._visual_for(
+            [("menu",), ("menu",), ("loading",), ("combat",)], config
+        )
+
+        assert menus < gameplay
+
+    def test_a_span_that_is_all_menus_hits_the_floor(self, config) -> None:
+        value = self._visual_for([("menu",), ("loading",), ("menu",)], config)
+
+        assert value <= 0.05
+
+    def test_a_confident_menu_label_does_not_raise_the_score(self, config) -> None:
+        # The exact old failure: high confidence on "menu" used to *increase*
+        # quality. Now more menu frames can only pull the value down.
+        some_menus = self._visual_for(
+            [("combat",), ("menu",), ("combat",)], config
+        )
+        no_menus = self._visual_for([("combat",), ("combat",)], config)
+
+        assert some_menus < no_menus

@@ -120,6 +120,8 @@ export type Job = {
   message: string | null;
   error_code: string | null;
   error_message: string | null;
+  /** When the worker picked it up. The API has always sent this. */
+  started_at: string | null;
   duration_seconds: number | null;
   result: Record<string, unknown>;
 };

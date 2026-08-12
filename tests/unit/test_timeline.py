@@ -910,3 +910,87 @@ class TestPersistence:
 
         assert repository.clip_count(project.id) == 4
         assert repository.load(project.id).clip(clip.id) is None
+
+
+class TestSourceExclusivity:
+    """Each second of source appears at most once (§42, and a real viewer).
+
+    The narrative stage should guarantee this; the first real edit proved it
+    can fail to (a replayed hook, and two context windows overlapping by
+    1.2s after §29 expansion). The builder is the boundary where "the same
+    footage twice" is stopped regardless of which upstream stage slipped.
+    """
+
+    def _build(self, clips, policy=None):
+        from backend.core.duration import DurationPolicy
+        from backend.timeline.builder import build_timeline
+
+        return build_timeline(
+            clips,
+            project_id="proj-x",
+            policy=policy
+            or DurationPolicy(
+                min_seconds=600,
+                max_seconds=3600,
+                presets_seconds=(600,),
+                default_seconds=600,
+                tolerance_seconds=60.0,
+                tolerance_ratio=0.1,
+            ),
+            target_seconds=600.0,
+        )
+
+    def test_an_edge_overlap_is_trimmed_from_the_later_clip(self) -> None:
+        result = self._build(
+            [
+                PlannedClip(media_id=MEDIA, source_start=53.0, source_end=78.0, score=0.9),
+                PlannedClip(media_id=MEDIA, source_start=0.0, source_end=78.0, score=0.5),
+            ]
+        )
+
+        clips = result.timeline.video_clips()
+        assert [(c.source_in, c.source_out) for c in clips] == [(53.0, 78.0), (0.0, 53.0)]
+        assert any("already in the edit" in note for note in result.notes)
+
+    def test_a_fully_contained_clip_is_dropped_with_a_note(self) -> None:
+        result = self._build(
+            [
+                PlannedClip(media_id=MEDIA, source_start=0.0, source_end=100.0, score=0.9),
+                PlannedClip(media_id=MEDIA, source_start=20.0, source_end=40.0, score=0.5),
+            ]
+        )
+
+        assert len(result.timeline.video_clips()) == 1
+        assert any("dropped" in note for note in result.notes)
+
+    def test_the_same_seconds_on_different_media_are_untouched(self) -> None:
+        result = self._build(
+            [
+                PlannedClip(media_id=MEDIA, source_start=0.0, source_end=30.0, score=0.9),
+                PlannedClip(media_id="other", source_start=0.0, source_end=30.0, score=0.9),
+            ]
+        )
+
+        assert len(result.timeline.video_clips()) == 2
+
+    def test_a_sliver_below_the_minimum_is_dropped_not_kept(self) -> None:
+        # 1.5s of unseen footage is a glitch, not a shot.
+        result = self._build(
+            [
+                PlannedClip(media_id=MEDIA, source_start=10.0, source_end=40.0, score=0.9),
+                PlannedClip(media_id=MEDIA, source_start=8.5, source_end=40.0, score=0.5),
+            ]
+        )
+
+        assert len(result.timeline.video_clips()) == 1
+
+    def test_disjoint_clips_pass_untouched(self) -> None:
+        result = self._build(
+            [
+                PlannedClip(media_id=MEDIA, source_start=0.0, source_end=30.0, score=0.9),
+                PlannedClip(media_id=MEDIA, source_start=100.0, source_end=130.0, score=0.9),
+            ]
+        )
+
+        assert len(result.timeline.video_clips()) == 2
+        assert not any("already in the edit" in note for note in result.notes)

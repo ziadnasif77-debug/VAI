@@ -31,8 +31,8 @@ mistake.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass, field, replace
+from typing import Any, Final
 
 from backend.core.duration import DurationPolicy
 from backend.core.ids import derived_id
@@ -179,7 +179,9 @@ def build_timeline(
         )
 
     bounded = _bounded(clips, media_durations or {})
+    bounded, exclusivity_notes = _exclusive(bounded)
     bounded, clamped, clamp_notes = _apply_duration_band(bounded, policy)
+    clamp_notes = [*exclusivity_notes, *clamp_notes]
     if not bounded:
         return BuildResult(
             timeline=Timeline(
@@ -238,6 +240,65 @@ def build_timeline(
 # ---------------------------------------------------------------------------
 # internals
 # ---------------------------------------------------------------------------
+
+
+#: The smallest piece of a clip worth keeping after overlap removal. Below
+#: this a fragment reads as a glitch, not a shot.
+MIN_EXCLUSIVE_SECONDS: Final[float] = 2.0
+
+
+def _exclusive(clips: Sequence[PlannedClip]) -> tuple[list[PlannedClip], list[str]]:
+    """Each second of source appears in the edit at most once.
+
+    The narrative stage is supposed to guarantee this, and mostly does -- but
+    the first real viewer watched 25 seconds twice (a hook replayed by
+    configuration) and another 1.2 seconds twice (two moments whose context
+    windows overlapped after §29 expansion). Upstream fixes exist for both;
+    this is the rule at the boundary, because "the same footage twice" is a
+    defect a viewer sees in the finished video, and the EDL is the last place
+    it can be stopped (§42).
+
+    Clips keep the order the narrative chose. A later clip loses whatever
+    seconds an earlier one already used: overlap at an edge is trimmed away,
+    and a clip swallowed whole is dropped with a note. Earlier wins because
+    the narrative put it earlier on purpose.
+    """
+    used: dict[str, list[tuple[float, float]]] = {}
+    kept: list[PlannedClip] = []
+    notes: list[str] = []
+    for clip in clips:
+        spans = used.setdefault(clip.media_id, [])
+        start, end = clip.source_start, clip.source_end
+        # Subtract every already-used interval; keep the longest remainder.
+        pieces = [(start, end)]
+        for taken_start, taken_end in spans:
+            next_pieces: list[tuple[float, float]] = []
+            for piece_start, piece_end in pieces:
+                if taken_end <= piece_start or taken_start >= piece_end:
+                    next_pieces.append((piece_start, piece_end))
+                    continue
+                if piece_start < taken_start:
+                    next_pieces.append((piece_start, taken_start))
+                if taken_end < piece_end:
+                    next_pieces.append((taken_end, piece_end))
+            pieces = next_pieces
+        best = max(pieces, key=lambda piece: piece[1] - piece[0], default=None)
+        if best is None or best[1] - best[0] < MIN_EXCLUSIVE_SECONDS:
+            notes.append(
+                f"dropped a {clip.seconds:.1f}s clip at "
+                f"{clip.source_start:.1f}s: its footage was already in the edit"
+            )
+            continue
+        removed = clip.seconds - (best[1] - best[0])
+        if removed > 0.25:
+            notes.append(
+                f"trimmed {removed:.1f}s from the clip at {clip.source_start:.1f}s: "
+                "those seconds were already in the edit"
+            )
+            clip = replace(clip, source_start=best[0], source_end=best[1])
+        spans.append((clip.source_start, clip.source_end))
+        kept.append(clip)
+    return kept, notes
 
 
 def _bounded(

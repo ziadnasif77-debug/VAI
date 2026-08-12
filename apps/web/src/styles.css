@@ -159,7 +159,7 @@ button.link { background: none; padding: 0; color: var(--accent); text-decoratio
 .mode.active { border-color: var(--accent); }
 
 .pipeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.stage { display: grid; grid-template-columns: 24px 140px 1fr; align-items: center; gap: 8px; }
+.stage { display: grid; grid-template-columns: 24px 140px 1fr 84px; align-items: center; gap: 8px; }
 .stage-mark { font-size: 16px; text-align: center; color: var(--muted); }
 .stage-completed .stage-mark { color: var(--ok); }
 .stage-running .stage-mark { color: var(--accent); }
@@ -169,6 +169,22 @@ button.link { background: none; padding: 0; color: var(--accent); text-decoratio
 .stage-bar { height: 6px; background: var(--panel-edge); border-radius: 3px; overflow: hidden; }
 .stage-bar.wide { width: 100%; margin: 8px 0; }
 .stage-fill { display: block; height: 100%; background: var(--accent); transition: width 0.3s; }
+/* Tabular figures so the column does not shift as 9% becomes 10%. */
+.stage-percent {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.stage-completed .stage-percent { color: var(--ok); }
+.stage-running .stage-percent { color: var(--accent); }
+.stage-failed .stage-percent { color: var(--fail); }
+.stage-completed .stage-fill { background: var(--ok); }
+.stage-failed .stage-fill { background: var(--fail); }
+/* The elapsed time sits under the percentage: a long encode reports nothing
+   for minutes, and a clock that keeps moving is the difference between
+   "working" and "hung". */
+.stage-age { display: block; font-size: 11px; font-style: normal; color: var(--muted); }
 
 .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .chip {

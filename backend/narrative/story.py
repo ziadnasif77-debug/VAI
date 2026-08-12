@@ -272,22 +272,62 @@ def _apply_hook(
     """Move the hook to the front (§37).
 
     When replay is allowed the moment stays in its chronological place as well,
-    which is the cold-open convention. When it is not, the body copy is removed
-    so the same footage does not appear twice in a row.
+    which is the cold-open convention. When it is not, the hooked span is
+    **trimmed out of** the body copy rather than the copy being dropped: the
+    hook is usually the tail of its moment, and dropping the whole moment threw
+    away the setup along with the repeat. The first real viewer saw the old
+    behaviour as 25 seconds shown twice, and the fix for "shown twice" must not
+    be "the first half never shown at all".
     """
     if not hook.exists:
         return list(moments)
 
-    body = [
-        moment
-        for moment in moments
-        if not _same_moment(moment, hook.moment)
-        or config.hook.allow_replay_in_body
-    ]
+    body: list[Moment] = []
+    for moment in moments:
+        if not _same_moment(moment, hook.moment):
+            body.append(moment)
+            continue
+        if config.hook.allow_replay_in_body:
+            body.append(moment)
+            continue
+        remainder = _without_hooked_span(moment, hook.moment, config)
+        if remainder is not None:
+            body.append(remainder)
     opening = replace_moment(
         hook.moment, metadata={**hook.moment.metadata, "role": "hook"}
     )
     return [opening, *body]
+
+
+def _without_hooked_span(
+    moment: Moment, hook: Moment, config: NarrativeConfig
+) -> Moment | None:
+    """The body copy with the hook's seconds removed, or ``None`` if nothing
+    watchable remains.
+
+    The hook is trimmed from the front by :func:`~backend.narrative.hook._fit`,
+    so it occupies the *tail* of its moment and the remainder is normally the
+    lead-up. Both sides are computed anyway and the longer kept, so a future
+    change to how hooks are cut cannot quietly reintroduce the repeat.
+    """
+    left = (moment.context_start, min(hook.context_start, moment.context_end))
+    right = (max(hook.context_end, moment.context_start), moment.context_end)
+    start, end = max((left, right), key=lambda span: span[1] - span[0])
+    if end - start < config.hook.min_seconds:
+        return None
+    return replace_moment(
+        moment,
+        context_start=start,
+        context_end=end,
+        start_seconds=min(max(moment.start_seconds, start), end),
+        end_seconds=max(min(moment.end_seconds, end), start),
+        metadata={
+            **moment.metadata,
+            "hook_span_removed_seconds": round(
+                moment.context_duration - (end - start), 2
+            ),
+        },
+    )
 
 
 def _same_moment(left: Moment, right: Moment | None) -> bool:
