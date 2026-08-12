@@ -9,7 +9,7 @@
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
 | Last updated | 2026-08-12, end of Phase 15 |
 | Current phase | **All 15 phases complete.** Next: whatever the numbers in PHASE_15 point at |
-| Tests | 1259 passing (4 opt-in model tests skipped by default) |
+| Tests | 1314 passing (4 opt-in model tests skipped by default) |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
@@ -39,7 +39,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 1259 passing (~23 min)
+.venv/bin/python -m pytest               # expect 1314 passing (~24 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
