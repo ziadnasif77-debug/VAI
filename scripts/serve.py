@@ -61,6 +61,39 @@ from backend.services.worker import JobWorker, recover_stale_jobs
 logger = get_logger("serve", LogChannel.APPLICATION)
 
 
+def _open_browser_when_ready(host: str, port: int) -> None:
+    """Open the browser once the page answers, from a daemon thread.
+
+    In-process, replacing a helper script the launcher used to spawn: a second
+    process was a second thing that could fail unseen on a machine we have
+    never sat at. The page rather than ``/api/health``, whose first call
+    probes the GPU, the OCR engine and Ollama and measured 23 seconds cold.
+    Gives up silently: the console owns the address and the failure story, and
+    a background thread shouting over them would obscure both.
+    """
+    import threading
+    import time
+    import urllib.request
+    import webbrowser
+
+    url = f"http://{host}:{port}/"
+
+    def poll() -> None:
+        deadline = time.monotonic() + 90.0
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(url, timeout=2) as response:
+                    ready = 200 <= response.status < 400
+            except Exception:
+                ready = False
+            if ready:
+                webbrowser.open(url)
+                return
+            time.sleep(0.4)
+
+    threading.Thread(target=poll, name="open-browser", daemon=True).start()
+
+
 def _owns_port(host: str, port: int) -> bool:
     """Whether what is listening there is *this* application.
 
@@ -182,6 +215,11 @@ def main() -> int:
         action="store_true",
         help="fail if the port is taken instead of restarting what is there",
     )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="open the browser once the interface answers",
+    )
     arguments = parser.parse_args()
 
     state = build_state()
@@ -250,6 +288,8 @@ def main() -> int:
     say()
 
     app = create_app(state=state)
+    if arguments.open:
+        _open_browser_when_ready(host, port)
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     finally:
