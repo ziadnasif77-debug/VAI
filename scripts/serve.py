@@ -61,6 +61,104 @@ from backend.services.worker import JobWorker, recover_stale_jobs
 logger = get_logger("serve", LogChannel.APPLICATION)
 
 
+def _owns_port(host: str, port: int) -> bool:
+    """Whether what is listening there is *this* application.
+
+    Asked before stopping anything. Restarting our own server on every launch
+    is what a person means by "start the app"; terminating whatever happens to
+    hold port 8765 is a different and much worse thing to do on someone's
+    machine.
+    """
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}/api/health", timeout=3) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return False
+    # The shape of our own health response, not merely "something answered".
+    return isinstance(body, dict) and "checks" in body and "status" in body
+
+
+def _pids_on_port(port: int) -> list[int]:
+    """Process ids listening on ``port``, via netstat.
+
+    netstat rather than psutil because this has to work when the reason the
+    application will not start is a broken install.
+    """
+    import re
+    import subprocess
+
+    try:
+        output = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+    pids: list[int] = []
+    for line in output.splitlines():
+        if "LISTENING" not in line:
+            continue
+        match = re.search(rf":{port}\s", line)
+        if not match:
+            continue
+        parts = line.split()
+        if parts and parts[-1].isdigit():
+            pids.append(int(parts[-1]))
+    return sorted(set(pids))
+
+
+def _stop_existing(host: str, port: int) -> bool:
+    """Stop the copy already running, so this launch can take over.
+
+    Returns False when the port belongs to something that is not us, which is
+    the case where the right answer is to say so and stop.
+    """
+    import os
+    import signal
+    import time
+
+    if not _owns_port(host, port):
+        print()
+        print(f"  Port {port} on {host} is in use by something that is not this")
+        print("  application, so it has been left alone.")
+        print(f"  Use another port:   python scripts/serve.py --port {port + 1}")
+        print()
+        return False
+
+    pids = _pids_on_port(port)
+    if not pids:
+        print()
+        print(f"  Port {port} is in use but the process could not be identified.")
+        print(f"  Use another port:   python scripts/serve.py --port {port + 1}")
+        print()
+        return False
+
+    print(f"  Restarting  stopping the copy already running (pid {pids[0]})", flush=True)
+    for pid in pids:
+        with contextlib.suppress(OSError, PermissionError):
+            os.kill(pid, signal.SIGTERM)
+
+    # Wait for the socket to clear. A port does not free the instant its owner
+    # dies, and starting into a half-closed socket fails in a way that reads
+    # like the restart itself not working.
+    for _ in range(40):
+        if not _port_taken(host, port):
+            return True
+        time.sleep(0.25)
+
+    print()
+    print(f"  The copy on port {port} did not stop. Close its window and try again.")
+    print()
+    return False
+
+
 def _port_taken(host: str, port: int) -> bool:
     """Whether something is already listening there."""
     import socket
@@ -79,6 +177,11 @@ def main() -> int:
         action="store_true",
         help="serve the API without running jobs (for debugging a stuck queue)",
     )
+    parser.add_argument(
+        "--keep-existing",
+        action="store_true",
+        help="fail if the port is taken instead of restarting what is there",
+    )
     arguments = parser.parse_args()
 
     state = build_state()
@@ -92,14 +195,16 @@ def main() -> int:
         # process silently and take the worker with it -- the log read "worker
         # started ... API started ... worker stopped", which looks exactly like
         # a completed run. It cost a real analysis before anyone noticed.
-        print()
-        print(f"  Port {port} on {host} is already in use.")
-        print("  Another copy of this application is probably already running.")
-        print(f"  Try it first:   http://{host}:{port}")
-        print(f"  Or use another port:   python scripts/serve.py --port {port + 1}")
-        print()
-        state.close()
-        return 2
+        if arguments.keep_existing:
+            print()
+            print(f"  Port {port} on {host} is already in use.")
+            print(f"  Try it:   http://{host}:{port}")
+            print()
+            state.close()
+            return 2
+        if not _stop_existing(host, port):
+            state.close()
+            return 2
 
     worker: JobWorker | None = None
     if not arguments.no_worker:
@@ -116,18 +221,33 @@ def main() -> int:
     from backend.api.app import INTERFACE_DIR
 
     built = (INTERFACE_DIR / "index.html").is_file()
-    print()
-    if built:
-        print(f"  Open this   http://{host}:{port}")
-    else:
-        print("  Interface   not built. Run:  npm run build -w apps/web")
-        print("              (or use VAI.bat, which builds it for you)")
-    print(f"  API         http://{host}:{port}/api")
-    print(f"  Docs        http://{host}:{port}/docs")
-    print(f"  Data        {state.paths.data_root}")
+    # `flush` on every line, and the address last so it is the final thing on
+    # screen. Without the flush Python buffers stdout while the logging
+    # handler writes to stderr unbuffered, so the banner arrives *after* a
+    # wall of INFO lines -- or, if the process is still running, not at all.
+    # The first version of this printed the address nowhere a person would see
+    # it, which is indistinguishable from the application not starting.
+    def say(line: str = "") -> None:
+        print(line, flush=True)
+
+    say()
+    say(f"  API         http://{host}:{port}/api")
+    say(f"  Docs        http://{host}:{port}/docs")
+    say(f"  Data        {state.paths.data_root}")
     if worker is None:
-        print("  Worker      not started (--no-worker): queued jobs will not run")
-    print()
+        say("  Worker      not started (--no-worker): queued jobs will not run")
+    say()
+    if built:
+        say("  " + "=" * 46)
+        say(f"     OPEN THIS:   http://{host}:{port}")
+        say("  " + "=" * 46)
+    else:
+        say("  The interface is not built, so this is the API only.")
+        say("  Build it with:  npm run build -w apps/web")
+        say("  (or use VAI.bat, which builds it for you)")
+    say()
+    say("  Leave this window open. Close it to stop the application.")
+    say()
 
     app = create_app(state=state)
     try:

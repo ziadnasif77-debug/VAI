@@ -77,11 +77,16 @@ python scripts/serve.py                # everything: interface, API, worker
 
 Then open **http://127.0.0.1:8765**.
 
-On Windows, double-clicking **`VAI.bat`** does all of the above and opens the
-browser for you — including finding an interpreter that has the dependencies.
-With several Pythons installed, plain `python` is whichever is first on PATH
-and is rarely the right one; `py -3.11 scripts/serve.py` is the reliable
-spelling if you are running it by hand.
+On Windows, double-clicking **`VAI.bat`** does all of the above, opens the
+browser once the server answers, and finds an interpreter that has the
+dependencies — with several Pythons installed, plain `python` is whichever is
+first on PATH and is rarely the right one. Running it by hand, `py -3.11
+scripts/serve.py` is the reliable spelling.
+
+Launching again while a copy is running **restarts it**, which is what "start
+the app" means when you have just closed the tab. It checks first that the
+port belongs to this application, and leaves anything else alone. Pass
+`--keep-existing` to fail instead of taking over.
 
 `doctor.py` reports what is missing and what the pipeline will fall back to. A
 missing GPU or model is a warning, not a failure.

@@ -65,10 +65,11 @@ echo   Starting the API on its own instead.
 echo.
 REM Open the browser shortly after the server starts listening. `start` returns
 REM immediately, so this does not hold up the server.
-REM `ping` rather than `timeout` for the delay: `timeout` refuses to run when
-REM stdin is redirected, which it is whenever this is launched from anything
-REM but a console window.
-start "" /b cmd /c "ping -n 5 127.0.0.1 >nul & start http://127.0.0.1:8765"
+REM Open the browser once the server is actually listening, rather than after
+REM a guessed delay. A fixed wait either opens too early -- on a cold start the
+REM health checks probe the GPU, Ollama and the OCR engine -- or wastes seconds
+REM on a warm one. This polls, and gives up rather than hanging.
+start "" /b %VAI_PY% "%~dp0scripts\open_when_ready.py"
 
 %VAI_PY% scripts\serve.py
 if errorlevel 1 (
