@@ -228,7 +228,7 @@ def _render_command(
         config.composition_id,
         str(output_path),
         f"--codec={codec}",
-        f"--concurrency={config.concurrency}",
+        f"--concurrency={resolved_concurrency(config)}",
         f"--props={composition_path}",
         # An overlay has no sound. Without this Remotion adds a silent Opus
         # track, which the composite would then have to know to ignore.
@@ -419,6 +419,22 @@ def _platform_kwargs() -> dict[str, Any]:
 #: rectangle over the gameplay -- a failure invisible to every check except
 #: watching the video. Naming the decoder is the whole fix.
 VP9_ALPHA_DECODER: Final[str] = "libvpx-vp9"
+
+
+def resolved_concurrency(config: Any) -> int:
+    """How many Chromium tabs render in parallel.
+
+    ``0`` sizes to the machine: every core but two, floor of two. The overlay
+    pass is embarrassingly parallel -- each frame is an independent
+    screenshot -- so this is the closest thing the render has to a free
+    speed-up, and the shipped ``2`` on a 12-thread machine was measured
+    costing most of an hour on a ten-minute video.
+    """
+    import os
+
+    if config.concurrency and config.concurrency > 0:
+        return int(config.concurrency)
+    return max(2, (os.cpu_count() or 4) - 2)
 
 
 def overlay_input_arguments(overlay_path: Path, overlay_format: str) -> list[str]:

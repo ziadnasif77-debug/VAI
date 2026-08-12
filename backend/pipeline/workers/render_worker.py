@@ -221,6 +221,8 @@ class RenderWorker:
     ):
         """Render the caption and graphics layer, or skip it (§66, D-008)."""
         captions = repository.list_captions(context.project_id)
+        remotion_config = context.config.remotion
+        overlay_fps = remotion_config.overlay_fps or target.fps
         composition = build_composition(
             timeline,
             captions=captions,
@@ -228,12 +230,12 @@ class RenderWorker:
             caption_config=context.config.captions,
             width=target.width,
             height=target.height,
-            fps=target.fps,
+            fps=overlay_fps,
         )
         # The overlay must be exactly as long as the picture it sits on, and
         # the picture's measured length is the only number that is certainly
         # right (a frame per cut can differ from the sum of the spans).
-        composition = _resized(composition, duration_seconds, target.fps)
+        composition = _resized(composition, duration_seconds, overlay_fps)
 
         result = render_overlay(
             composition,

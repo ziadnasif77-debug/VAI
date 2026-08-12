@@ -103,7 +103,13 @@ remotion:
   mode: overlay              # overlay | full  ("full" is for experiments only)
   project_dir: remotion
   composition_id: OverlayLayer
-  concurrency: 2
+  # 0 = size to this machine (cores minus two). The shipped 2 left ten of a
+  # 12-thread machine's cores idle through an hour-long overlay pass.
+  concurrency: 0
+  # The overlay's own frame rate; 0 = match the output. Captions at 30
+  # composite invisibly over 60fps gameplay (the overlay filter holds frames
+  # by timestamp), and half the frames is half the Chromium pass.
+  overlay_fps: 30
   timeout_seconds: 28800
   input_filename: composition.json
   # Alpha-capable intermediate. VP9/WebM keeps the file small; ProRes 4444 is

@@ -342,3 +342,35 @@ class TestLocalMusicOnly:
 
     def test_a_missing_directory_is_simply_no_music(self, tmp_path: Path) -> None:
         assert audio_mix.find_music(tmp_path / "absent") == []
+
+
+class TestOverlaySpeedKnobs:
+    """The two dials behind an hour-long overlay pass (found on a real video).
+
+    A 9:45 story rendered its caption layer for over an hour: Chromium
+    screenshots every frame, and the config used 2 tabs on a 12-thread
+    machine at the full 60 fps. Concurrency 0 now sizes to the machine, and
+    the overlay renders at its own rate.
+    """
+
+    def test_zero_concurrency_sizes_to_the_machine(self, config) -> None:
+        import os
+
+        from backend.rendering.remotion import resolved_concurrency
+
+        remotion = config.remotion.model_copy(update={"concurrency": 0})
+
+        assert resolved_concurrency(remotion) == max(2, (os.cpu_count() or 4) - 2)
+
+    def test_an_explicit_concurrency_is_respected(self, config) -> None:
+        from backend.rendering.remotion import resolved_concurrency
+
+        remotion = config.remotion.model_copy(update={"concurrency": 3})
+
+        assert resolved_concurrency(remotion) == 3
+
+    def test_the_shipped_config_renders_the_overlay_at_30(self, config) -> None:
+        # 30 over 60 composites by timestamp (overlay=shortest=0); half the
+        # frames is half the Chromium pass.
+        assert config.remotion.overlay_fps == 30
+        assert config.remotion.concurrency == 0

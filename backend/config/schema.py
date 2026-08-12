@@ -764,7 +764,15 @@ class RemotionConfig(_Section):
     mode: Literal["overlay", "full"] = "overlay"
     project_dir: str = "remotion"
     composition_id: str = "OverlayLayer"
-    concurrency: int = Field(default=2, ge=1)
+    #: Chromium tabs rendering in parallel. 0 means "size to this machine"
+    #: (cores minus two). The shipped 2 on a 12-thread machine was measured
+    #: leaving an hour-long overlay pass on the table.
+    concurrency: int = Field(default=0, ge=0)
+    #: Frame rate of the overlay layer. 0 means "match the output video".
+    #: Captions and lower thirds at 30 composite invisibly over 60 fps
+    #: gameplay -- the overlay filter holds frames by timestamp -- and halving
+    #: the frames halves the Chromium pass.
+    overlay_fps: int = Field(default=0, ge=0)
     timeout_seconds: int = Field(default=28800, ge=1)
     input_filename: str = "composition.json"
     overlay_format: str = "webm_vp9_alpha"
