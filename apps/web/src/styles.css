@@ -205,6 +205,9 @@ button.link { background: none; padding: 0; color: var(--accent); text-decoratio
   padding: 6px 8px;
 }
 .moments td { padding: 6px 8px; border-bottom: 1px solid var(--panel-edge); }
+.moments th.sortable { cursor: pointer; user-select: none; }
+.moments th.sortable:hover { color: var(--text); }
+.moments th.sortable.active { color: var(--accent); }
 .moment-row.open td { background: var(--bg); }
 .moment-detail td { background: var(--bg); }
 

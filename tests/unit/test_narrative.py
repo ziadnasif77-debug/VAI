@@ -495,3 +495,52 @@ class TestHookWithoutReplay:
 
         assert len(ordered) == 1
         assert ordered[0].metadata.get("role") == "hook"
+
+
+class TestStoryChronology:
+    """A single session's causality IS its story.
+
+    The first hour-long session shipped a video that jumped 0:00 -> 51:15 ->
+    38:34 -> 66:36 -- beats used to dictate *position*, and the viewer called
+    the result "not a story, it is fragmented". Beats now choose roles; the
+    recording keeps its own order; the hook stays the one announced
+    flash-forward.
+    """
+
+    def test_the_body_plays_in_recording_order(self, config) -> None:
+        from itertools import pairwise
+
+        plan = build_plan(
+            _pool(), mode=VideoMode.STORY, target_seconds=TARGET,
+            config=config.narrative, policy=config.duration_policy,
+        )
+        body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
+
+        for earlier, later in pairwise(body):
+            if earlier.media_id != later.media_id:
+                continue
+            assert later.context_start >= earlier.context_start, (
+                f"{later.context_start} plays after {earlier.context_start} "
+                "but happens earlier in the recording"
+            )
+
+    def test_beats_still_choose_roles(self, config) -> None:
+        # The arc did not disappear -- it moved from positions to labels.
+        plan = build_plan(
+            _pool(), mode=VideoMode.STORY, target_seconds=TARGET,
+            config=config.narrative, policy=config.duration_policy,
+        )
+
+        assert plan.beats
+        assert set(plan.beats) - {"body"}, "no beat was assigned to any moment"
+
+    def test_the_hook_is_the_only_flash_forward(self, config) -> None:
+        plan = build_plan(
+            _pool(), mode=VideoMode.STORY, target_seconds=TARGET,
+            config=config.narrative, policy=config.duration_policy,
+        )
+        if not plan.hook.exists:
+            pytest.skip("this pool produced no hook")
+
+        first = plan.moments[0]
+        assert first.metadata.get("role") == "hook"

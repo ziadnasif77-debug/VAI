@@ -29,7 +29,14 @@ export function MomentsScreen({project}: {project: Project}) {
     {intervalMs: 5000, active: (value) => (value?.total ?? 0) === 0},
   );
 
-  const items = moments.data?.items ?? [];
+  // Score is how the pipeline ranks; time is how a person remembers the
+  // session. The first viewer read the ranked list as "the video's order"
+  // and reasonably concluded the story was scrambled -- so the order is now
+  // theirs to choose, and the header says which is active.
+  const [sortBy, setSortBy] = useState<'score' | 'when'>('score');
+  const items = [...(moments.data?.items ?? [])].sort((a, b) =>
+    sortBy === 'when' ? a.start_seconds - b.start_seconds : b.score - a.score,
+  );
   const counts = moments.data?.by_type ?? {};
 
   return (
@@ -73,9 +80,19 @@ export function MomentsScreen({project}: {project: Project}) {
         <table className="moments">
           <thead>
             <tr>
-              <th>When</th>
+              <th
+                className={sortBy === 'when' ? 'sortable active' : 'sortable'}
+                onClick={() => setSortBy('when')}
+              >
+                When {sortBy === 'when' ? '↓' : ''}
+              </th>
               <th>Type</th>
-              <th>Score</th>
+              <th
+                className={sortBy === 'score' ? 'sortable active' : 'sortable'}
+                onClick={() => setSortBy('score')}
+              >
+                Score {sortBy === 'score' ? '↓' : ''}
+              </th>
               <th>Confidence</th>
               <th>Length</th>
               <th />

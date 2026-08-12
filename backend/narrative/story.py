@@ -165,14 +165,27 @@ def _story_order(
 ) -> tuple[list[Moment], list[str], list[str]]:
     """Arrange moments along the §35 structure, coherence first (§36).
 
-    Each beat takes the best *available* moment of a type that fits it, where
-    "best" weighs coherence against score by the configured ratio. Everything
-    unassigned keeps its chronological place around the beats, so the arc is a
-    shape imposed on the session rather than a replacement for it.
+    The beats choose **roles**, not positions. Each beat takes the best
+    available moment of a fitting type -- that decides which clip carries the
+    climax, which the ending -- and then everything plays in the order the
+    session played, with the beat riding along as a label for pacing and
+    captions.
+
+    The first version ordered by beat, §35's sequence imposed on the footage,
+    and the first hour-long session shipped a video that jumped 0:00 → 51:15 →
+    38:34 → 66:36 -- four backwards leaps in twelve clips. The viewer called
+    it "not a story, it is fragmented", and they were right: a single
+    session's causality *is* its story. Game state visibly rewinds when the
+    footage does. The one deliberate flash-forward remains the hook (§37),
+    which announces itself as one.
+
+    Chronology is per recording (media_id first in the key): two recordings in
+    one project each keep their own internal order rather than interleaving by
+    unrelated clocks.
     """
     story = config.story
     remaining = list(moments)
-    assignments: list[tuple[str, Moment]] = []
+    role_of: dict[tuple[str, float], str] = {}
 
     for beat in story.structure:
         allowed = BEAT_TYPES.get(beat, frozenset())
@@ -187,19 +200,14 @@ def _story_order(
             ),
         )
         remaining.remove(best)
-        assignments.append((beat, best))
+        role_of[(best.media_id, best.start_seconds)] = beat
 
     notes: list[str] = []
-    if story.require_climax and not any(beat == "climax" for beat, _ in assignments):
+    if story.require_climax and "climax" not in role_of.values():
         notes.append("no moment strong enough to serve as a climax")
 
-    # The assigned beats define the spine, in §35's order rather than the
-    # recording's -- an arc is the point of story mode. The unassigned
-    # remainder follows in recording order, so the session's own sequence
-    # survives everywhere the arc does not override it.
-    ordered = [moment for _, moment in assignments]
-    ordered.extend(sorted(remaining, key=lambda moment: moment.context_start))
-    beats = [beat for beat, _ in assignments] + ["body"] * len(remaining)
+    ordered = sorted(moments, key=lambda m: (m.media_id, m.context_start))
+    beats = [role_of.get((m.media_id, m.start_seconds), "body") for m in ordered]
     return ordered, beats, notes
 
 
