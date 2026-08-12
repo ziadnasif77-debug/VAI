@@ -182,9 +182,7 @@ class TestQueueing:
 
 
 class TestLifecycle:
-    def test_start_complete(
-        self, job_manager: JobManager, project_id: str, media_id: str
-    ) -> None:
+    def test_start_complete(self, job_manager: JobManager, project_id: str, media_id: str) -> None:
         job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
         started = job_manager.start(job.id)
         assert started.status is JobStatus.RUNNING
@@ -223,9 +221,7 @@ class TestLifecycle:
         job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
         job_manager.start(job.id)
         job_manager.fail(job.id, error_code=ErrorCode.WORKER_FAILED, error_message="x")
-        requeued = job_manager.queue(
-            project_id, JobStage.IMPORT, media_id=media_id
-        )
+        requeued = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
         assert requeued.status is JobStatus.QUEUED
         restarted = job_manager.start(requeued.id)
         assert restarted.attempt == 2
@@ -260,6 +256,65 @@ class TestCancellation:
         job_manager.start(job.id)
         job_manager.complete(job.id)
         assert job_manager.cancel_project(project_id) == 0
+
+
+class TestCancellationLeavesNothingBehind:
+    """A cancelled job that nothing will ever run must not read as "queued".
+
+    The bug this pins cost a real project eight hours. Cancelling flagged the
+    queued jobs and left them queued; `next_runnable` skipped them, correctly,
+    and nothing ever settled them. The worker was healthy and idle, the screen
+    said "queued", and the pipeline for that project was dead.
+    """
+
+    def test_cancelling_a_queued_job_settles_it(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+
+        job_manager.cancel_project(project_id)
+
+        assert job_manager.get_job(job.id).status is JobStatus.CANCELLED
+
+    def test_a_cancelled_project_has_nothing_runnable_left(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        # The symptom, stated directly: not "the right job is chosen" but
+        # "nothing is left claiming it is about to start".
+        job_manager.queue_import_chain(project_id, media_id)
+
+        job_manager.cancel_project(project_id)
+
+        assert job_manager.next_runnable(project_id) is None
+        statuses = {job.status for job in job_manager.list_jobs(project_id)}
+        assert JobStatus.QUEUED not in statuses
+
+    def test_a_running_job_is_only_asked_to_stop(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        # §82 stays advisory where it has to be: a worker mid-encode reaches
+        # its own checkpoint, so the project is never left half-written.
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+        job_manager.start(job.id)
+
+        job_manager.cancel_project(project_id)
+
+        running = job_manager.get_job(job.id)
+        assert running.status is JobStatus.RUNNING
+        assert running.cancel_requested is True
+
+    def test_startup_closes_jobs_an_older_build_abandoned(
+        self, database, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        # Rows already on disk cannot be fixed by fixing the writer, and this
+        # is what makes the user's stuck project start moving again.
+        job = job_manager.queue(project_id, JobStage.IMPORT, media_id=media_id)
+        database.execute("UPDATE analysis_jobs SET cancel_requested = 1 WHERE id = ?", (job.id,))
+        assert job_manager.get_job(job.id).status is JobStatus.QUEUED
+
+        job_manager.recover()
+
+        assert job_manager.get_job(job.id).status is JobStatus.CANCELLED
 
 
 class TestReanalysis:
@@ -341,9 +396,7 @@ class TestRecovery:
         job_manager.start(done.id)
         job_manager.complete(done.id)
 
-        crashed = job_manager.queue(
-            project_id, JobStage.PROBE, media_id=media_id
-        )
+        crashed = job_manager.queue(project_id, JobStage.PROBE, media_id=media_id)
         job_manager.start(crashed.id)
 
         job_manager.recover(project_id)
@@ -409,9 +462,7 @@ class TestStatusReport:
         job_manager.start(first.id)
         job_manager.complete(first.id)
         job_manager.start(second.id)
-        job_manager.fail(
-            second.id, error_code=ErrorCode.MEDIA_CORRUPTED, error_message="bad file"
-        )
+        job_manager.fail(second.id, error_code=ErrorCode.MEDIA_CORRUPTED, error_message="bad file")
 
         report = {item.stage: item for item in job_manager.project_status(project_id)}
         assert report[JobStage.IMPORT].status is JobStatus.FAILED

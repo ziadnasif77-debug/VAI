@@ -39,9 +39,7 @@ class JobRepository:
         return job
 
     def get(self, job_id: str) -> Job | None:
-        row = self._db.fetch_one(
-            f"SELECT {_COLUMNS} FROM analysis_jobs WHERE id = ?", (job_id,)
-        )
+        row = self._db.fetch_one(f"SELECT {_COLUMNS} FROM analysis_jobs WHERE id = ?", (job_id,))
         return _from_row(row) if row is not None else None
 
     def require(self, job_id: str) -> Job:
@@ -71,9 +69,7 @@ class JobRepository:
             )
         return _from_row(row) if row is not None else None
 
-    def list_for_project(
-        self, project_id: str, *, status: JobStatus | None = None
-    ) -> list[Job]:
+    def list_for_project(self, project_id: str, *, status: JobStatus | None = None) -> list[Job]:
         sql = f"SELECT {_COLUMNS} FROM analysis_jobs WHERE project_id = ?"
         parameters: list[object] = [project_id]
         if status is not None:
@@ -121,17 +117,48 @@ class JobRepository:
         return job
 
     def request_cancel(self, project_id: str) -> int:
-        """Flag every unfinished job of a project for cancellation (§82).
+        """Cancel every unfinished job of a project (§82).
 
-        The flag is advisory: a worker stops at its next checkpoint so the
-        project is never left half-written.
+        For a **running** job the flag is advisory: a worker stops at its next
+        checkpoint, so the project is never left half-written.
+
+        A **queued** job has no worker to reach a checkpoint, so the flag alone
+        is not a cancellation -- it is a job that will never run and never say
+        so. `next_runnable` skips it, correctly, and it sits at "queued"
+        forever while the screen reads as "about to start". One project spent
+        eight hours that way with the worker healthy and idle beside it.
+        Nothing is executing, so nothing needs interrupting: it is cancelled
+        here and now.
         """
+        finished_at = datetime.now(timezone.utc).isoformat()
+        cursor = self._db.execute(
+            "UPDATE analysis_jobs SET cancel_requested = 1, status = 'cancelled', "
+            "completed_at = ? WHERE project_id = ? AND status = 'queued'",
+            (finished_at, project_id),
+        )
+        settled = cursor.rowcount
         cursor = self._db.execute(
             "UPDATE analysis_jobs SET cancel_requested = 1 "
-            "WHERE project_id = ? AND status IN ('queued', 'running')",
+            "WHERE project_id = ? AND status = 'running'",
             (project_id,),
         )
-        return cursor.rowcount
+        return settled + cursor.rowcount
+
+    def abandoned_queued_jobs(self, project_id: str | None = None) -> list[Job]:
+        """Queued jobs flagged for cancellation, which nothing will ever run.
+
+        Rows written by an older build, before cancelling a queued job settled
+        it immediately. Startup is where state is made true (§47), so this is
+        read there.
+        """
+        sql = (
+            f"SELECT {_COLUMNS} FROM analysis_jobs WHERE status = 'queued' AND cancel_requested = 1"
+        )
+        params: tuple[object, ...] = ()
+        if project_id is not None:
+            sql += " AND project_id = ?"
+            params = (project_id,)
+        return [_from_row(row) for row in self._db.fetch_all(sql, params)]
 
     def stale_running_jobs(self, project_id: str | None = None) -> list[Job]:
         """Jobs left RUNNING by a crash (§47).
@@ -145,8 +172,7 @@ class JobRepository:
             )
         else:
             rows = self._db.fetch_all(
-                f"SELECT {_COLUMNS} FROM analysis_jobs "
-                "WHERE status = 'running' AND project_id = ?",
+                f"SELECT {_COLUMNS} FROM analysis_jobs WHERE status = 'running' AND project_id = ?",
                 (project_id,),
             )
         return [_from_row(row) for row in rows]

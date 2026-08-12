@@ -145,6 +145,12 @@ class JobManager:
     def start(self, job_id: str) -> Job:
         """Mark a job RUNNING after checking its prerequisites."""
         job = self._jobs.require(job_id)
+        if job.status is JobStatus.CANCELLED:
+            # Already settled. Asking a cancelled job to start gets a cancelled
+            # job back, not an exception: cancellation can land between the
+            # moment a caller picks a job and the moment it starts it, and that
+            # race is ordinary rather than a programming error.
+            return job
         if job.status not in (JobStatus.QUEUED, JobStatus.FAILED):
             raise JobError(
                 f"Job {job_id!r} cannot start from status {job.status.value!r}.",
@@ -156,9 +162,7 @@ class JobManager:
             return self.cancel(job_id)
 
         completed = self._jobs.completed_stages(job.project_id)
-        unmet = [
-            stage.value for stage in dependencies_of(job.stage) if stage not in completed
-        ]
+        unmet = [stage.value for stage in dependencies_of(job.stage) if stage not in completed]
         if unmet:
             raise JobError(
                 f"Stage {job.stage.value!r} cannot start: {', '.join(unmet)} incomplete.",
@@ -190,9 +194,7 @@ class JobManager:
         )
         return started
 
-    def report_progress(
-        self, job_id: str, progress: float, *, message: str | None = None
-    ) -> Job:
+    def report_progress(self, job_id: str, progress: float, *, message: str | None = None) -> Job:
         """Update progress for the analysis screen (§60)."""
         job = self._jobs.require(job_id)
         updated = job.model_copy(
@@ -325,9 +327,7 @@ class JobManager:
         """
         with self._db.transaction():
             affected = self._jobs.request_cancel(project_id)
-        logger.info(
-            "Cancellation requested", extra={"project_id": project_id, "jobs": affected}
-        )
+        logger.info("Cancellation requested", extra={"project_id": project_id, "jobs": affected})
         return affected
 
     def cancel(self, job_id: str) -> Job:
@@ -394,7 +394,41 @@ class JobManager:
                     "stages": sorted({job.stage.value for job in recovered}),
                 },
             )
+        self._settle_abandoned(project_id)
         return recovered
+
+    def _settle_abandoned(self, project_id: str | None) -> list[Job]:
+        """Close queued jobs that were cancelled but never settled.
+
+        An older build flagged queued jobs for cancellation and left them
+        queued. Nothing runs them -- `next_runnable` skips a cancelled job --
+        so they sit at "queued" forever and the pipeline for that project is
+        dead while the screen says it is waiting its turn. Startup is where
+        state is made true (§47), so they are closed here.
+        """
+        abandoned = self._jobs.abandoned_queued_jobs(project_id)
+        settled: list[Job] = []
+        for job in abandoned:
+            closed = job.model_copy(
+                update={
+                    "status": JobStatus.CANCELLED,
+                    "completed_at": datetime.now(timezone.utc),
+                    "message": "Cancelled before it started",
+                }
+            )
+            with self._db.transaction():
+                self._jobs.update(closed)
+            settled.append(closed)
+        if settled:
+            logger.warning(
+                "Closed jobs that were cancelled but left queued",
+                extra={
+                    "project_id": project_id,
+                    "jobs": len(settled),
+                    "stages": sorted({job.stage.value for job in settled}),
+                },
+            )
+        return settled
 
     # -- reporting ------------------------------------------------------
 
@@ -416,9 +450,7 @@ class JobManager:
                     stage=stage,
                     status=_aggregate_status(stage_jobs),
                     progress=sum(job.progress for job in stage_jobs) / len(stage_jobs),
-                    error_code=next(
-                        (job.error_code for job in stage_jobs if job.error_code), None
-                    ),
+                    error_code=next((job.error_code for job in stage_jobs if job.error_code), None),
                     updated_at=max(
                         (
                             job.completed_at or job.started_at or job.created_at
