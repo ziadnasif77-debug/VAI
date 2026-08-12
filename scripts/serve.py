@@ -147,14 +147,39 @@ def _pids_on_port(port: int) -> list[int]:
     return sorted(set(pids))
 
 
+def _stop_tree(pid: int) -> None:
+    """Stop a process and everything it started.
+
+    Killing only the server orphans its children -- and the children are
+    FFmpeg encodes holding files open. The first takeover that happened during
+    a real analysis left an orphaned FFmpeg writing a proxy segment; the new
+    worker resumed the stage, hit the still-locked file, and the user's import
+    failed with a PermissionError that looked like a disk problem. ``taskkill
+    /T`` is the Windows way to say "and the whole tree".
+    """
+    import subprocess
+
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        return
+    import os
+    import signal
+
+    with contextlib.suppress(OSError, PermissionError):
+        os.kill(pid, signal.SIGTERM)
+
+
 def _stop_existing(host: str, port: int) -> bool:
     """Stop the copy already running, so this launch can take over.
 
     Returns False when the port belongs to something that is not us, which is
     the case where the right answer is to say so and stop.
     """
-    import os
-    import signal
     import time
 
     if not _owns_port(host, port):
@@ -175,8 +200,7 @@ def _stop_existing(host: str, port: int) -> bool:
 
     print(f"  Restarting  stopping the copy already running (pid {pids[0]})", flush=True)
     for pid in pids:
-        with contextlib.suppress(OSError, PermissionError):
-            os.kill(pid, signal.SIGTERM)
+        _stop_tree(pid)
 
     # Wait for the socket to clear. A port does not free the instant its owner
     # dies, and starting into a half-closed socket fails in a way that reads
