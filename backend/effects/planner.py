@@ -122,7 +122,9 @@ class EffectPlanner:
             )
             return EffectPlan(intensity=0.0, style=style, rejected=[reason])
 
-        candidates = self._collect(moments, style, intensity)
+        candidates = self._collect(
+            moments, style, intensity, ranked=self._ranked_scores(moments)
+        )
         instances, rejected = self._enforce_budgets(
             candidates, intensity=intensity, video_duration_seconds=video_duration_seconds
         )
@@ -150,16 +152,58 @@ class EffectPlanner:
 
     # -- candidate collection -------------------------------------------
 
+    def _ranked_scores(self, moments: Sequence[PlannedMoment]) -> dict[str, float]:
+        """Each moment's standing among this video's own moments, 0-1.
+
+        A trigger's ``min_score`` reads as "how good, absolutely" -- and the
+        library's numbers were calibrated on footage with a game profile, a
+        microphone and detected reactions. Analyse a recording without those
+        and the reaction, skill and narrative dimensions have no evidence to
+        weigh, so the entire distribution shifts down: a real session's best
+        moment scored 0.53 against a lowest threshold of 0.55, and the effects
+        engine went silent on the exact footage §23 promises to support.
+
+        So a moment is ranked against its peers. The best moment of any video
+        ranks 1.0 and can earn what its type allows; the median ranks 0.5 and
+        earns what a middling moment should. What ranking cannot do is rescue
+        a video where nothing happened -- ``absolute_floor`` still applies to
+        the raw score.
+        """
+        if not self._effects.relative_thresholds or not moments:
+            return {moment.id: moment.score for moment in moments}
+
+        scores = sorted(moment.score for moment in moments)
+        lowest, highest = scores[0], scores[-1]
+        if highest - lowest < 1e-9:
+            # Every moment scored the same: ranking says nothing, so keep the
+            # raw score rather than promoting them all to 1.0.
+            return {moment.id: moment.score for moment in moments}
+
+        ranked: dict[str, float] = {}
+        for moment in moments:
+            if moment.score < self._effects.absolute_floor:
+                ranked[moment.id] = moment.score
+                continue
+            position = sum(1 for value in scores if value < moment.score)
+            ranked[moment.id] = position / max(len(scores) - 1, 1)
+        return ranked
+
     def _collect(
-        self, moments: Sequence[PlannedMoment], style: str, intensity: float
+        self,
+        moments: Sequence[PlannedMoment],
+        style: str,
+        intensity: float,
+        *,
+        ranked: dict[str, float] | None = None,
     ) -> list[EffectCandidate]:
         """Every effect that any moment could justify, ranked."""
         candidates: list[EffectCandidate] = []
+        ranked = ranked or {}
         for moment in moments:
             definitions = self._library.candidates_for(
                 moment_type=moment.moment_type,
                 events=moment.events,
-                score=moment.score,
+                score=ranked.get(moment.id, moment.score),
                 style=style,
             )
             for definition in definitions:

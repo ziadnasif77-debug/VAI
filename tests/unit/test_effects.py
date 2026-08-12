@@ -338,3 +338,107 @@ class TestPlanModel:
         separate = first.model_copy(update={"start_seconds": 13.0})
         assert first.overlaps(overlapping) is True
         assert first.overlaps(separate) is False
+
+
+class TestRelativeThresholds:
+    """§23's promise reaching the effects engine.
+
+    Trigger thresholds were calibrated on footage with a game profile, a
+    microphone and detected reactions. Without those, the reaction, skill and
+    narrative dimensions have no evidence, the whole distribution shifts down,
+    and a real session's best moment scored 0.53 against a lowest threshold of
+    0.55 -- zero effects on a twelve-clip video. Ranking each moment against
+    its own video is what keeps the engine alive on generic-profile footage.
+    """
+
+    def _moments(self, scores):
+        from backend.core.models.enums import MomentType
+        from backend.effects.planner import PlannedMoment
+
+        return [
+            PlannedMoment(
+                id=f"m{index}",
+                moment_type=MomentType.TENSION,
+                timeline_start=index * 60.0,
+                timeline_end=index * 60.0 + 30.0,
+                score=score,
+                clip_id=f"c{index}",
+            )
+            for index, score in enumerate(scores)
+        ]
+
+    def test_a_low_scoring_video_still_gets_effects(self, config) -> None:
+        from backend.effects.planner import EffectPlanner
+        from backend.interaction.models import EditingIntent
+
+        # The real distribution that produced nothing.
+        moments = self._moments([0.53, 0.53, 0.49, 0.48, 0.46, 0.41, 0.33, 0.28])
+
+        plan = EffectPlanner(config).plan(
+            moments, EditingIntent(), video_duration_seconds=600.0
+        )
+
+        assert plan.instances, "a video below every absolute threshold got no effects"
+
+    def test_the_best_moment_earns_more_than_the_median(self, config) -> None:
+        from backend.effects.planner import EffectPlanner
+        from backend.interaction.models import EditingIntent
+
+        moments = self._moments([0.53, 0.45, 0.40, 0.35, 0.30])
+        plan = EffectPlanner(config).plan(
+            moments, EditingIntent(), video_duration_seconds=600.0
+        )
+
+        by_moment: dict[str, int] = {}
+        for instance in plan.instances:
+            by_moment[instance.moment_id or ""] = by_moment.get(instance.moment_id or "", 0) + 1
+        assert by_moment.get("m0", 0) >= by_moment.get("m4", 0)
+
+    def test_ranking_never_rescues_a_dead_video(self, config) -> None:
+        # Everything below the absolute floor: being "the best of nothing" is
+        # not an argument for decoration.
+        from backend.effects.planner import EffectPlanner
+        from backend.interaction.models import EditingIntent
+
+        moments = self._moments([0.10, 0.08, 0.05, 0.03])
+
+        plan = EffectPlanner(config).plan(
+            moments, EditingIntent(), video_duration_seconds=600.0
+        )
+
+        decorative = [i for i in plan.instances if i.effect.value not in {"transition", "fade"}]
+        assert not decorative
+
+    def test_identical_scores_are_not_all_promoted(self, config) -> None:
+        # Ranking a flat distribution would make every moment the best one.
+        from backend.effects.planner import EffectPlanner
+        from backend.interaction.models import EditingIntent
+
+        flat = EffectPlanner(config).plan(
+            self._moments([0.30] * 6), EditingIntent(), video_duration_seconds=600.0
+        )
+        varied = EffectPlanner(config).plan(
+            self._moments([0.53, 0.45, 0.40, 0.35, 0.30, 0.25]),
+            EditingIntent(),
+            video_duration_seconds=600.0,
+        )
+
+        assert len(flat.instances) <= len(varied.instances)
+
+    def test_absolute_thresholds_can_be_restored(self, config) -> None:
+        from backend.effects.planner import EffectPlanner
+        from backend.interaction.models import EditingIntent
+
+        absolute = config.model_copy(
+            update={"effects": config.effects.model_copy(
+                update={"relative_thresholds": False}
+            )}
+        )
+        plan = EffectPlanner(absolute).plan(
+            self._moments([0.53, 0.45, 0.40]),
+            EditingIntent(),
+            video_duration_seconds=600.0,
+        )
+
+        decorative = [i for i in plan.instances if i.effect.value not in {"transition", "fade"}]
+        assert not decorative

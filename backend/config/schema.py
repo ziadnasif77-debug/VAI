@@ -886,6 +886,16 @@ class EffectsConfig(_Section):
 
     enabled: bool = True
     intensity: float = Field(default=0.6, ge=0.0, le=1.0)
+    #: Rank each moment against *this* video's own scores before matching a
+    #: trigger's ``min_score``. Absolute thresholds were calibrated on footage
+    #: with a game profile, a microphone and detected reactions; without those
+    #: the whole distribution shifts down and no effect ever fires -- which
+    #: silently breaks §23's promise that the app works without a profile.
+    relative_thresholds: bool = True
+    #: Below this raw score no amount of ranking earns an effect. A video
+    #: where nothing happened should stay undecorated, however its best
+    #: moment ranks among its peers.
+    absolute_floor: float = Field(default=0.2, ge=0.0, le=1.0)
     global_limits: EffectGlobalLimits = Field(default_factory=EffectGlobalLimits)
     library: dict[EffectType, EffectSpecConfig]
     style_profiles: dict[str, EffectStyleProfile] = Field(default_factory=dict)

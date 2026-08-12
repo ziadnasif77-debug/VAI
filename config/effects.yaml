@@ -17,6 +17,14 @@
 
 effects:
   enabled: true
+  # Rank a moment against this video's own scores before testing a trigger's
+  # min_score. Without a game profile, a microphone or detected reactions the
+  # whole distribution shifts down -- a real session's best moment scored 0.53
+  # against a lowest threshold of 0.55, and every effect went silent on the
+  # footage §23 promises to support.
+  relative_thresholds: true
+  # Ranking never rescues a video where nothing happened.
+  absolute_floor: 0.2
 
   # Global dial, scaled by the editing intent: none -> 0.0, minimal -> 0.3,
   # moderate -> 0.6, heavy -> 1.0. Multiplies every effect's strength and its
