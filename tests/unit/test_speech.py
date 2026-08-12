@@ -194,3 +194,40 @@ class TestProviderFactory:
             create_speech_provider(config.model_copy(update={"models": models}))
         assert exc_info.value.code is ErrorCode.PROVIDER_NOT_REGISTERED
         assert exc_info.value.recoverable is False
+
+
+class TestTranscribeOptions:
+    """The fast-local-Whisper playbook, wired rather than pasted.
+
+    batch_size sat in the config for months with nothing reading it;
+    beam_size was hardcoded; condition_on_previous_text rode Whisper's
+    hallucination-friendly default. One testable dict now carries the surface.
+    """
+
+    def test_the_config_reaches_the_call(self, config) -> None:
+        from ai.speech.faster_whisper_provider import transcribe_options
+
+        options = transcribe_options(config.models.speech, None)
+
+        assert options["beam_size"] == 5
+        assert options["condition_on_previous_text"] is False
+        assert options["vad_parameters"] == {
+            "min_silence_duration_ms": 500,
+            "speech_pad_ms": 200,
+        }
+
+    def test_word_timestamps_stay_on(self, config) -> None:
+        # §71 times captions from the transcript. Words are the product.
+        from ai.speech.faster_whisper_provider import transcribe_options
+
+        assert transcribe_options(config.models.speech, None)["word_timestamps"] is True
+
+    def test_an_explicit_language_wins_over_the_config(self, config) -> None:
+        from ai.speech.faster_whisper_provider import transcribe_options
+
+        assert transcribe_options(config.models.speech, "ar")["language"] == "ar"
+
+    def test_the_batched_pipeline_is_importable_here(self) -> None:
+        # The batch_size knob promises the batched path; this machine must be
+        # able to keep the promise (fw >= 1.0).
+        from faster_whisper import BatchedInferencePipeline  # noqa: F401

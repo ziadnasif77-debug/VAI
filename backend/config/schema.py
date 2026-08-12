@@ -320,7 +320,23 @@ class _ModelBase(_Section):
 class SpeechModelConfig(_ModelBase):
     device: Device = "auto"
     compute_type: Literal["float16", "float32", "int8", "int8_float16"] = "float16"
+    #: >1 routes through CTranslate2's BatchedInferencePipeline, which
+    #: transcribes the VAD-split segments of a long file in parallel batches.
+    #: This field existed decoratively for months before anything read it.
     batch_size: int = Field(default=8, ge=1)
+    #: 5 is quality; 1 is greedy decoding, roughly 2x faster with a small
+    #: accuracy cost. Captions are user-visible (§71), so quality by default.
+    beam_size: int = Field(default=5, ge=1)
+    #: Off: a gameplay track is music and gunfire between callouts, and
+    #: conditioning on previous text is how Whisper repeats one hallucinated
+    #: sentence for minutes.
+    condition_on_previous_text: bool = False
+    #: Silero VAD tuning. The pad keeps word onsets that a hard gate clips.
+    vad_min_silence_ms: int = Field(default=500, ge=0)
+    vad_speech_pad_ms: int = Field(default=200, ge=0)
+    #: Feeding threads for CTranslate2; they prepare audio while the GPU works.
+    cpu_threads: int = Field(default=4, ge=0)
+    num_workers: int = Field(default=2, ge=1)
     language: str | None = None
     word_timestamps: bool = True
     vad_filter: bool = True

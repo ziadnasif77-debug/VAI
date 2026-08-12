@@ -107,8 +107,24 @@ class FasterWhisperProvider:
                     self._config.model,
                     device=device,
                     compute_type=compute_type,
+                    cpu_threads=self._config.cpu_threads,
+                    num_workers=self._config.num_workers,
                     download_root=str(self._model_root) if self._model_root else None,
                 )
+                self._pipeline = None
+                if self._config.batch_size > 1:
+                    # The batched pipeline transcribes the VAD-split segments
+                    # of one file in parallel. Guarded: if this build of
+                    # faster-whisper cannot, the plain path still works (§95).
+                    try:
+                        from faster_whisper import BatchedInferencePipeline
+
+                        self._pipeline = BatchedInferencePipeline(model=self._model)
+                    except Exception as error:
+                        logger.warning(
+                            "Batched transcription unavailable; using the plain path",
+                            extra={"error": str(error)[:160]},
+                        )
             except Exception as exc:
                 raise ModelError(
                     f"Could not load speech model {self._config.model!r}: {exc}",
@@ -167,16 +183,25 @@ class FasterWhisperProvider:
         self.load()
         assert self._model is not None  # load() raises rather than returning None
 
+        options = transcribe_options(self._config, language)
         try:
-            segments, _ = self._model.transcribe(
-                str(source),
-                language=language or self._config.language,
-                beam_size=5,
-                word_timestamps=self._config.word_timestamps,
-                # Kept on: a gameplay recording is mostly silence between
-                # callouts, and Whisper fills silence with invented text.
-                vad_filter=self._config.vad_filter,
-            )
+            pipeline = getattr(self, "_pipeline", None)
+            if pipeline is not None:
+                try:
+                    segments, _ = pipeline.transcribe(
+                        str(source), batch_size=self._config.batch_size, **options
+                    )
+                    return tuple(
+                        _to_segment(segment, start_offset) for segment in segments
+                    )
+                except Exception as error:
+                    # Batched is an optimisation; the plain path is the
+                    # contract. One warning, then fall through (§95).
+                    logger.warning(
+                        "Batched transcription failed; retrying unbatched",
+                        extra={"error": str(error)[:160], "path": source.name},
+                    )
+            segments, _ = self._model.transcribe(str(source), **options)
             return tuple(
                 _to_segment(segment, start_offset) for segment in segments
             )
@@ -242,6 +267,33 @@ class FasterWhisperProvider:
                 details={"model": self._config.model, "needed_mb": needed,
                          "usable_mb": usable},
             )
+
+
+def transcribe_options(config: Any, language: str | None) -> dict[str, Any]:
+    """The tuning surface, in one testable place (§91).
+
+    Every knob here was audited against the standard fast-local-Whisper
+    playbook. What is deliberately NOT here: ``word_timestamps=False`` -- §71
+    times captions from the transcript, so words are the product, not an
+    option -- and ``beam_size=1`` as a default, because captions are read by
+    viewers and greedy decoding's errors are theirs to opt into.
+    """
+    return {
+        "language": language or config.language,
+        "beam_size": config.beam_size,
+        "word_timestamps": config.word_timestamps,
+        # Kept on: a gameplay recording is mostly silence between callouts,
+        # and Whisper fills silence with invented text.
+        "vad_filter": config.vad_filter,
+        # Off: conditioning on previous text is how one hallucinated sentence
+        # repeats for minutes over music.
+        "condition_on_previous_text": config.condition_on_previous_text,
+        "vad_parameters": {
+            "min_silence_duration_ms": config.vad_min_silence_ms,
+            # The pad keeps word onsets a hard gate would clip.
+            "speech_pad_ms": config.vad_speech_pad_ms,
+        },
+    }
 
 
 def _to_segment(segment: Any, start_offset: float) -> TranscriptSegment:

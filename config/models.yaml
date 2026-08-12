@@ -19,8 +19,17 @@ models:
     model: "large-v3-turbo"
     version: "faster-whisper-large-v3-turbo"
     device: auto            # auto | cuda | cpu
+    # float16 is the fp reference. int8_float16 saves ~40% VRAM with near-zero
+    # accuracy cost -- the right dial if an 8GB card ever runs tight.
     compute_type: float16
+    # >1 = CTranslate2's batched pipeline over the VAD-split segments.
     batch_size: 8
+    beam_size: 5            # 1 = greedy, ~2x faster, small accuracy cost
+    condition_on_previous_text: false
+    vad_min_silence_ms: 500
+    vad_speech_pad_ms: 200
+    cpu_threads: 4
+    num_workers: 2
     language: null          # null -> detect
     word_timestamps: true
     vad_filter: true
