@@ -30,6 +30,7 @@ from backend.api.routers import (
     media,
     profiles,
     projects,
+    system,
 )
 from backend.config.schema import AppConfig
 from backend.core.errors import ErrorCode, GamingEditorError, http_status_for
@@ -154,6 +155,7 @@ def create_app(
     app.include_router(interaction.router, prefix=API_PREFIX)
     app.include_router(interaction.presets_router, prefix=API_PREFIX)
     app.include_router(profiles.router, prefix=API_PREFIX)
+    app.include_router(system.router, prefix=API_PREFIX)
 
     _mount_interface(app)
     return app

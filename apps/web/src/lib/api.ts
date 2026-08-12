@@ -267,6 +267,12 @@ export const api = {
     list: () => get<{generic: string; items: ProfileSummary[]}>('/profiles'),
   },
 
+  system: {
+    /** Open the OS file dialog on the machine the server runs on (§50). */
+    pickFile: (initialDir?: string | null) =>
+      post<{path: string | null}>('/system/pick-file', {initial_dir: initialDir ?? null}),
+  },
+
   media: {
     list: (projectId: string) =>
       get<{total: number; items: Media[]}>(`/projects/${projectId}/media`),

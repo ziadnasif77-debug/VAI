@@ -306,3 +306,72 @@ class TestServingTheInterface:
         # is how a real leak stays unnoticed.
         for path in ("/no-such-screen", "/api/no-such-endpoint", "/Windows/win.ini"):
             assert api_client.get(path).status_code == 404, path
+
+
+class TestTheFilePicker:
+    """The native dialog, without ever opening one (§50, §95).
+
+    A suite that pops file dialogs cannot run unattended, so the subprocess
+    helper is substituted and what is tested is everything around it: the
+    contract, the cancel path, the one-at-a-time rule, and the degradation on
+    a machine that cannot show a dialog at all.
+    """
+
+    def test_a_chosen_path_is_returned(self, api_client, monkeypatch) -> None:
+        from backend.api.routers import system
+
+        monkeypatch.setattr(system, "_pick_file", lambda initial: r"D:\Gaming\clip.mkv")
+
+        body = api_client.post("/api/system/pick-file", json={}).json()
+
+        assert body["path"] == r"D:\Gaming\clip.mkv"
+
+    def test_cancelling_is_an_answer_not_an_error(self, api_client, monkeypatch) -> None:
+        from backend.api.routers import system
+
+        monkeypatch.setattr(system, "_pick_file", lambda initial: None)
+
+        response = api_client.post("/api/system/pick-file", json={})
+
+        assert response.status_code == 200
+        assert response.json()["path"] is None
+
+    def test_the_initial_directory_reaches_the_dialog(self, api_client, monkeypatch) -> None:
+        from backend.api.routers import system
+
+        seen: list[str | None] = []
+        monkeypatch.setattr(system, "_pick_file", lambda initial: seen.append(initial))
+        api_client.post("/api/system/pick-file", json={"initial_dir": "D:/Gaming 2026"})
+
+        assert seen == ["D:/Gaming 2026"]
+
+    def test_only_one_dialog_at_a_time(self, api_client, monkeypatch) -> None:
+        from backend.api.routers import system
+
+        monkeypatch.setattr(system, "_pick_file", lambda initial: "x")
+        assert system._dialog_lock.acquire(blocking=False)
+        try:
+            response = api_client.post("/api/system/pick-file", json={})
+        finally:
+            system._dialog_lock.release()
+
+        assert response.status_code == 501
+        assert response.json()["error_code"] == "FILE_PICKER_UNAVAILABLE"
+
+    def test_a_machine_without_a_dialog_degrades_with_a_typed_code(
+        self, api_client, monkeypatch
+    ) -> None:
+        from backend.api.routers import system
+        from backend.core.errors import ErrorCode, GamingEditorError
+
+        def headless(initial):
+            raise GamingEditorError(
+                "no display", code=ErrorCode.FILE_PICKER_UNAVAILABLE, recoverable=True
+            )
+
+        monkeypatch.setattr(system, "_pick_file", headless)
+
+        response = api_client.post("/api/system/pick-file", json={})
+
+        assert response.status_code == 501
+        assert response.json()["error_code"] == "FILE_PICKER_UNAVAILABLE"

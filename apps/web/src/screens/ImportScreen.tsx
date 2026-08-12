@@ -15,7 +15,10 @@
 import {useCallback, useState} from 'react';
 
 import {usePolling} from '../lib/usePolling';
-import {api, timecode, type Project, type VideoMode} from '../lib/api';
+import {api, ApiError, timecode, type Project, type VideoMode} from '../lib/api';
+
+/** Where the picker last found a recording; the dialog reopens there. */
+const LAST_DIR_KEY = 'vai.recordings.lastDir';
 
 /** The value that means "no profile"; the backend treats it as generic (§23). */
 const NO_GAME = 'auto';
@@ -66,7 +69,31 @@ export function ImportScreen({
   });
   const [path, setPath] = useState('');
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  // Hidden after a 501: a headless or Tk-less machine cannot show a dialog,
+  // and a button that always errors is worse than no button (§95).
+  const [pickerAvailable, setPickerAvailable] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const browse = useCallback(async () => {
+    setPicking(true);
+    setError(null);
+    try {
+      const chosen = await api.system.pickFile(window.localStorage.getItem(LAST_DIR_KEY));
+      if (chosen.path) {
+        setPath(chosen.path);
+        const cut = Math.max(chosen.path.lastIndexOf('\\'), chosen.path.lastIndexOf('/'));
+        if (cut > 0) window.localStorage.setItem(LAST_DIR_KEY, chosen.path.slice(0, cut));
+      }
+    } catch (failure) {
+      if (failure instanceof ApiError && failure.code === 'FILE_PICKER_UNAVAILABLE') {
+        setPickerAvailable(false);
+      }
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setPicking(false);
+    }
+  }, []);
 
   const add = useCallback(async () => {
     if (!path.trim()) return;
@@ -124,6 +151,11 @@ export function ImportScreen({
             onChange={(event) => setPath(event.target.value)}
             onKeyDown={(event) => event.key === 'Enter' && void add()}
           />
+          {pickerAvailable && (
+            <button type="button" onClick={() => void browse()} disabled={picking || busy}>
+              {picking ? 'Choosing…' : 'Browse…'}
+            </button>
+          )}
           <button type="button" onClick={() => void add()} disabled={busy || !path.trim()}>
             Add
           </button>
