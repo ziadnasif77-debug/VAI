@@ -227,6 +227,42 @@ likely to flip on a small change, and both encoders still agree there at -45 dB
 (they do not at -55 dB, where one reads 2.65 s and the other 4.10 s on the same
 picture).
 
+### The same measurement, one layer up — found 2026-08-12
+
+Matching the noise floor across encoders fixed *what* counts as a still frame.
+It did not fix how still frames are grouped into runs, and the check compares
+a **run** on the render against a **run** on the source.
+
+`freezedetect` closes a run the instant one frame differs and opens the next at
+the same timestamp, so a still scene arrives as several adjacent runs. That
+grouping is encoder-dependent in exactly the way the noise floor no longer is:
+once an encoder has quantised near-identical frames into identical ones, the
+same stillness comes back as one unbroken run.
+
+A finished 9:58 video was blocked on "3.2 s of frozen picture at 578.1 s, which
+the recording does not account for". The frames are a dialogue scene — an NPC
+talking, the player standing still. Measured on the recording behind it at
+-45 dB:
+
+| | |
+| --- | --- |
+| Source, as reported | runs of 2.167 s and 2.783 s, adjacent at 2.180 s |
+| Source, as it is | 4.95 s still out of a 5.2 s window |
+| What `_freeze_in` returned | 2.783 s — the longest single run |
+| Threshold | 3.0 s |
+| Verdict | "the recording was moving" → export blocked |
+
+Adjacent runs are now joined in `_parse_freeze`, which both call sites go
+through, so the render and the source are grouped by the same rule. The same
+render now reports "11.4 s of the edit does not move, starting at 573.7 s — the
+recording is still there too": a content warning, and the true length of the
+still stretch, which the split runs had hidden.
+
+The lesson generalises past this check. Two measurements are only comparable if
+**every** step of them matches — the threshold, the grouping, and the summary
+statistic. Matching one of the three and assuming the rest is how a comparison
+keeps a bug while looking rigorous.
+
 ### A trap for anyone re-running the measurement
 
 The first synthetic defect fixture reported a 4-second stall as a 12-second
