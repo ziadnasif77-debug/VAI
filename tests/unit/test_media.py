@@ -398,3 +398,37 @@ class TestErrorTyping:
         assert payload["details"]["segment"] == 3
         # §81: the retry policy reads this, so proxy failures must be retryable.
         assert payload["recoverable"] is True
+
+
+class TestProxyCodecArguments:
+    """One preset/crf config, translated per encoder family.
+
+    NVENC ignores -crf silently and its presets are p1-p7, so a config written
+    for libx264 fed to h264_nvenc unchanged produces a default-quality encode
+    at a preset the encoder never heard of. Found while making the analysis
+    proxy hardware-encoded for a one-hour recording.
+    """
+
+    def test_software_encoders_keep_crf_and_preset(self) -> None:
+        from backend.media.proxy import codec_arguments
+
+        assert codec_arguments("libx264", "veryfast", 28) == [
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+        ]
+
+    def test_nvenc_gets_cq_instead_of_crf(self) -> None:
+        from backend.media.proxy import codec_arguments
+
+        arguments = codec_arguments("h264_nvenc", "p4", 28)
+
+        assert "-cq" in arguments
+        assert "-crf" not in arguments
+
+    def test_a_software_preset_on_nvenc_is_mapped_not_passed(self) -> None:
+        # "veryfast" reaching NVENC is an error or a silent default; p4 is the
+        # balanced hardware preset.
+        from backend.media.proxy import codec_arguments
+
+        arguments = codec_arguments("h264_nvenc", "veryfast", 28)
+
+        assert arguments[arguments.index("-preset") + 1] == "p4"

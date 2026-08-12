@@ -139,6 +139,7 @@ def generate_proxy(
     plan = plan_chunks(duration, chunk_seconds=segment_seconds, overlap_seconds=0.0)
     filters = _video_filters(probe, config)
     mapping = _stream_mapping(probe)
+    codec = resolve_codec(config, runner)
 
     encoded: list[Path] = []
     reused = 0
@@ -166,6 +167,7 @@ def generate_proxy(
                 segment_path,
                 runner,
                 config,
+                codec=codec,
                 start=chunk.core_start,
                 duration=chunk.core_duration,
                 filters=filters,
@@ -218,6 +220,7 @@ def _encode_segment(
     runner: FFmpegRunner,
     config: ProxyConfig,
     *,
+    codec: str,
     start: float,
     duration: float,
     filters: list[str],
@@ -244,12 +247,7 @@ def _encode_segment(
         *runner.input_arguments(source, start=start, duration=duration),
         *mapping,
         *filters,
-        "-c:v",
-        config.codec,
-        "-preset",
-        config.preset,
-        "-crf",
-        str(config.crf),
+        *codec_arguments(codec, config.preset, config.crf),
         "-pix_fmt",
         "yuv420p",
         "-c:a",
@@ -476,6 +474,44 @@ def _verify_duration(
 
 def _cancelled(source: Path) -> CancelledError:
     return CancelledError(details={"source": str(source), "stage": "proxy"})
+
+
+def codec_arguments(codec: str, preset: str, quality: int) -> list[str]:
+    """The encoder flags, translated for the codec family.
+
+    NVENC ignores ``-crf`` silently and its presets are ``p1``-``p7``, so a
+    config written for libx264 fed to ``h264_nvenc`` unchanged produces a
+    default-quality encode at a preset the encoder never heard of. The config
+    keeps one ``preset`` and one ``crf`` key; this maps them to whatever the
+    chosen encoder actually reads.
+    """
+    if "nvenc" in codec:
+        chosen = preset if preset.startswith("p") and preset[1:].isdigit() else "p4"
+        return ["-c:v", codec, "-preset", chosen, "-cq", str(quality)]
+    return ["-c:v", codec, "-preset", preset, "-crf", str(quality)]
+
+
+def resolve_codec(config: ProxyConfig, runner: FFmpegRunner) -> str:
+    """The codec to actually use: the configured one, or the software fallback.
+
+    A machine without working NVENC asked for ``h264_nvenc`` should build its
+    proxy with libx264 rather than fail the import (§95) -- the proxy is
+    watched by detectors, not people, and a slower proxy is a smaller product
+    where a failed one is a broken import.
+    """
+    codec = config.codec
+    if "nvenc" not in codec:
+        return codec
+    from backend.rendering.encoder import encoder_works
+
+    works, detail = encoder_works(codec, runner)
+    if works:
+        return codec
+    logger.warning(
+        "The configured proxy encoder is unavailable; using libx264",
+        extra={"requested": codec, "detail": detail[:160]},
+    )
+    return "libx264"
 
 
 def _report(callback: ProxyProgress | None, fraction: float, message: str) -> None:

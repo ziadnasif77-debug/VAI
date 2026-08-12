@@ -66,9 +66,14 @@ proxy:
   enabled: true
   resolution: 720
   fps: 30
-  codec: libx264
-  preset: veryfast
-  crf: 28
+  # Hardware encode for the analysis proxy. The proxy is watched by detectors,
+  # not people, and NVENC measured 3.2x realtime on this machine's final
+  # renders -- on a 720p proxy it is far faster still. Falls back to libx264
+  # automatically when no working NVENC exists (SPEC 95).
+  codec: h264_nvenc
+  preset: p4
+  crf: 28   # applied as -cq for NVENC codecs, -crf for software ones
+
   audio_codec: aac
   audio_bitrate: "128k"
 
