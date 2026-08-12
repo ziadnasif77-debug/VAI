@@ -9,7 +9,7 @@ import pytest
 
 from backend.core.errors import ErrorCode, JobError
 from backend.core.ids import new_id
-from backend.core.models.enums import JobStage, JobStatus, VideoMode
+from backend.core.models.enums import JobStage, JobStatus, ProjectStatus, VideoMode
 from backend.core.models.jobs import (
     ANALYSIS_STAGES,
     DELIVERY_STAGES,
@@ -256,6 +256,63 @@ class TestCancellation:
         job_manager.start(job.id)
         job_manager.complete(job.id)
         assert job_manager.cancel_project(project_id) == 0
+
+
+class TestTheDashboardsClaim:
+    """§122: the project's status is what the dashboard reads out beside it.
+
+    `ProjectStatus` has ten states and, until this was wired, two of them were
+    ever written. A finished, QA'd, exportable video sat on the dashboard
+    labelled "importing" -- which is not a small cosmetic wrong, because that
+    line is the only thing telling a person whether their video is ready.
+    """
+
+    def test_finishing_the_last_stage_says_the_project_is_finished(
+        self,
+        job_manager: JobManager,
+        project_manager: ProjectManager,
+        project_id: str,
+        media_id: str,
+    ) -> None:
+        for stage in (JobStage.MOMENTS, JobStage.STORY, JobStage.EDL, JobStage.RENDER, JobStage.QA):
+            job = job_manager.queue(
+                project_id, stage, media_id=(media_id if stage in PER_MEDIA_STAGES else None)
+            )
+            job_manager.complete(job.id)
+
+        assert project_manager.get(project_id).status is ProjectStatus.COMPLETED
+
+    def test_each_stage_moves_it_one_step(
+        self,
+        job_manager: JobManager,
+        project_manager: ProjectManager,
+        project_id: str,
+        media_id: str,
+    ) -> None:
+        moments = job_manager.queue(project_id, JobStage.MOMENTS, media_id=media_id)
+        job_manager.complete(moments.id)
+        assert project_manager.get(project_id).status is ProjectStatus.MOMENTS_READY
+
+        story = job_manager.queue(project_id, JobStage.STORY)
+        job_manager.complete(story.id)
+        assert project_manager.get(project_id).status is ProjectStatus.EDIT_GENERATED
+
+    def test_re_running_a_stage_does_not_walk_the_status_backwards(
+        self,
+        job_manager: JobManager,
+        project_manager: ProjectManager,
+        project_id: str,
+        media_id: str,
+    ) -> None:
+        # §127: re-editing a finished project is ordinary, and re-running QA on
+        # it must not put the dashboard back to "rendering".
+        for stage in (JobStage.RENDER, JobStage.QA):
+            job_manager.complete(job_manager.queue(project_id, stage).id)
+        assert project_manager.get(project_id).status is ProjectStatus.COMPLETED
+
+        job_manager.complete(job_manager.queue(project_id, JobStage.EDL).id)
+
+        assert project_manager.get(project_id).status is ProjectStatus.COMPLETED
 
 
 class TestCancellationLeavesNothingBehind:

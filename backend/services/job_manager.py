@@ -17,7 +17,7 @@ from backend.config.schema import AppConfig
 from backend.core.errors import ErrorCode, JobError
 from backend.core.ids import new_id
 from backend.core.logging import LogChannel, get_logger
-from backend.core.models.enums import JobStage, JobStatus
+from backend.core.models.enums import JobStage, JobStatus, ProjectStatus
 from backend.core.models.jobs import (
     MANUAL_STAGES,
     Job,
@@ -54,6 +54,34 @@ PER_MEDIA_STAGES: frozenset[JobStage] = frozenset(
         JobStage.MOMENTS,
     }
 )
+
+
+#: The lifecycle in order, so a status only ever moves forwards. Re-running a
+#: stage on a finished project must not walk it backwards.
+_LIFECYCLE: tuple[ProjectStatus, ...] = (
+    ProjectStatus.CREATED,
+    ProjectStatus.IMPORTING,
+    ProjectStatus.ANALYZING,
+    ProjectStatus.MOMENTS_READY,
+    ProjectStatus.EDIT_GENERATED,
+    ProjectStatus.REVIEW,
+    ProjectStatus.RENDERING,
+    ProjectStatus.QA,
+    ProjectStatus.COMPLETED,
+)
+
+#: Which stage finishing means the project has reached which state (§122).
+#: Stages not named here do not move it -- the per-file analysis chain is all
+#: "analyzing", and saying so once is enough.
+_STATUS_AFTER: dict[JobStage, ProjectStatus] = {
+    JobStage.IMPORT: ProjectStatus.IMPORTING,
+    JobStage.PROBE: ProjectStatus.ANALYZING,
+    JobStage.MOMENTS: ProjectStatus.MOMENTS_READY,
+    JobStage.STORY: ProjectStatus.EDIT_GENERATED,
+    JobStage.EDL: ProjectStatus.REVIEW,
+    JobStage.RENDER: ProjectStatus.RENDERING,
+    JobStage.QA: ProjectStatus.COMPLETED,
+}
 
 
 class JobManager:
@@ -233,7 +261,48 @@ class JobManager:
                 "duration": completed.duration_seconds,
             },
         )
+        self._advance_project(job.project_id, job.stage)
         return completed
+
+    def _advance_project(self, project_id: str, stage: JobStage) -> None:
+        """Move the project's lifecycle status on when a stage finishes (§122).
+
+        `ProjectStatus` has ten states and, until this existed, exactly two of
+        them were ever written: CREATED at creation and IMPORTING when a file
+        was added. Everything after that kept saying "importing" -- a finished,
+        QA'd, exportable video included, which is what the dashboard read out
+        beside it.
+
+        Written rather than derived on read because `list(status=...)` filters
+        on the stored column, and a displayed value that disagrees with the one
+        being filtered on is a worse lie than the one being fixed. This is the
+        single place a stage is known to have finished, so it is the only place
+        that has to be right.
+
+        Only ever forwards. Re-running QA on a finished project must not walk
+        its status backwards to "rendering".
+        """
+        target = _STATUS_AFTER.get(stage)
+        if target is None:
+            return
+        from backend.database.repositories.projects import ProjectRepository
+
+        projects = ProjectRepository(self._db)
+        project = projects.get(project_id)
+        if project is None:
+            return
+        if project.status not in _LIFECYCLE:
+            # FAILED is not a point on the line. A project that failed and then
+            # had a stage succeed is recovering, so it re-joins at that stage.
+            pass
+        elif _LIFECYCLE.index(target) <= _LIFECYCLE.index(project.status):
+            return
+        with self._db.transaction():
+            projects.update(project.model_copy(update={"status": target}))
+        logger.info(
+            "Project status advanced",
+            extra={"project_id": project_id, "status": target.value, "after": stage.value},
+        )
 
     def fail(
         self,
