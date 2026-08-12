@@ -534,6 +534,31 @@ class TestStoryChronology:
         assert plan.beats
         assert set(plan.beats) - {"body"}, "no beat was assigned to any moment"
 
+    def test_a_type_streak_does_not_licence_time_travel(self, config) -> None:
+        # The second scrambler found on real footage: §38's run-breaker pulled
+        # the only two tension moments backwards into a sea of surprises, and
+        # the "chronological" story jumped 12:25 -> 38:34 -> 14:59. In story
+        # mode variety is the optimiser's job at selection time (§33); the
+        # pacing swap stays for the other modes.
+        from itertools import pairwise
+
+        moments = [
+            _moment(60.0 * i, moment_type=MomentType.SURPRISE, score=0.5)
+            for i in range(1, 9)
+        ] + [
+            _moment(60.0 * 12, moment_type=MomentType.TENSION, score=0.9),
+            _moment(60.0 * 14, moment_type=MomentType.TENSION, score=0.9),
+        ]
+
+        plan = build_plan(
+            moments, mode=VideoMode.STORY, target_seconds=TARGET,
+            config=config.narrative, policy=config.duration_policy,
+        )
+        body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
+
+        for earlier, later in pairwise(body):
+            assert later.context_start >= earlier.context_start
+
     def test_the_hook_is_the_only_flash_forward(self, config) -> None:
         plan = build_plan(
             _pool(), mode=VideoMode.STORY, target_seconds=TARGET,

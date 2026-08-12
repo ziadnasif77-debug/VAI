@@ -137,7 +137,14 @@ def build_plan(
         ordered, notes = _best_moments_order(selection.moments, config)
         beats = ()
 
-    ordered = pacing.order(ordered, config.pacing)
+    if mode is not VideoMode.STORY:
+        # §38's run-breaker swaps a differently-typed clip backwards to break
+        # a same-type streak. For best-moments and compilation that is pure
+        # win; for a story it is a second way to scramble the session's
+        # chronology, and the first viewer's verdict on the first scramble
+        # applies verbatim. Variety in story mode is the optimiser's job at
+        # selection time (§33), not a reorder at the end.
+        ordered = pacing.order(ordered, config.pacing)
     hook = choose_hook(ordered, config.hook)
     ordered = _apply_hook(ordered, hook, config)
 
