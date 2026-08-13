@@ -20,7 +20,10 @@ What that covers, and why each one is here rather than assumed:
     The Windows default is under ``AppData\\Local\\Temp``.
 
 ``HF_HOME`` / ``TORCH_HOME``
-    Whisper's weights are gigabytes and land in the user profile by default.
+    Whisper's weights are gigabytes and land in the user profile by default --
+    unless the machine has already moved them off the system drive, in which
+    case they are left where they are. Re-rooting a cache that is already
+    obeying the rule costs a multi-gigabyte re-download and buys nothing.
 
 ``PIP_CACHE_DIR`` / ``NPM_CONFIG_CACHE``
     Only touched by an install, but an install is exactly when a full disk
@@ -76,16 +79,42 @@ def environment(base: dict[str, str] | None = None) -> dict[str, str]:
         env["PATH"] = ahead + os.pathsep + env.get("PATH", "")
 
     env["TMP"] = env["TEMP"] = str(ROOT / ".tmp")
-    env["HF_HOME"] = str(ROOT / ".cache" / "hf")
-    env["TORCH_HOME"] = str(ROOT / ".cache" / "torch")
     env["PIP_CACHE_DIR"] = str(ROOT / ".cache" / "pip")
     env["NPM_CONFIG_CACHE"] = str(ROOT / ".cache" / "npm")
+    # Model caches are gigabytes and slow to refill, so an existing setting is
+    # kept when it already points off the system drive. This machine had
+    # HF_HOME on D: before any of this existed; overriding it would have
+    # re-downloaded Whisper's weights to say the same thing twice.
+    _keep_or_root(env, "HF_HOME", ROOT / ".cache" / "hf")
+    _keep_or_root(env, "TORCH_HOME", ROOT / ".cache" / "torch")
     # Remotion downloads a Chromium; the default is the user profile.
     env.setdefault("REMOTION_BROWSER_DOWNLOAD_DIR", str(ROOT / "remotion" / ".browser"))
     env.setdefault("PUPPETEER_CACHE_DIR", str(ROOT / "remotion" / ".browser"))
     # Someone else's models. Only fill the gap, never take it over.
     env.setdefault("OLLAMA_MODELS", str(Path("D:/Models")))
     return env
+
+
+def _keep_or_root(env: dict[str, str], name: str, fallback: Path) -> None:
+    """Keep ``name`` if it already points off the system drive, else root it.
+
+    The rule is "nothing lands on the system drive", not "everything lands
+    here". A cache someone has already moved to another disk is already
+    obeying it, and moving it again costs a re-download to no end.
+    """
+    current = env.get(name, "").strip()
+    if current and not _on_system_drive(Path(current)):
+        return
+    env[name] = str(fallback)
+
+
+def _on_system_drive(path: Path) -> bool:
+    """Whether ``path`` sits on the drive Windows boots from."""
+    system = Path(os.environ.get("SYSTEMDRIVE", "C:") + "\\")
+    try:
+        return path.resolve().drive.upper() == system.drive.upper()
+    except (OSError, ValueError):
+        return True  # unreadable: assume the worst and root it
 
 
 def prepare() -> dict[str, str]:
