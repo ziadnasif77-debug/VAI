@@ -697,6 +697,31 @@ class DurationOptimizerConfig(_Section):
     max_context_trim_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
+class RefinementConfig(_Section):
+    """The last pass over the final cut points (backend/narrative/refinement.py).
+
+    Exists because §29 snaps boundaries and §39's duration trim then re-cuts
+    them blind: 8 of 26 cut points on a finished video landed mid-sentence.
+    """
+
+    enabled: bool = True
+    #: How far a mid-speech cut may move to reach a pause. Small on purpose --
+    #: a cut that wanders four seconds has changed the clip, not refined it.
+    snap_window_seconds: float = Field(default=2.5, gt=0)
+    #: The shortest inter-word gap that counts as a pause worth cutting in.
+    min_pause_seconds: float = Field(default=0.35, gt=0)
+    #: How far a cut may retreat *into* the core span to reach a pause. §28's
+    #: core is content and stays protected in substance -- but its edges come
+    #: from event detectors with seconds of slop, and when the optimiser trims
+    #: all context the boundary IS the core edge, pinned mid-word by a rule
+    #: meant to protect a kill, not a syllable.
+    core_give_seconds: float = Field(default=1.0, ge=0.0)
+    #: Reach in the direction that only adds context -- earlier for a start,
+    #: later for an end. Wider than the window because extending an end to let
+    #: a sentence finish is the classic edit, and it cannot lose content.
+    stretch_window_seconds: float = Field(default=4.0, gt=0)
+
+
 class NarrativeConfig(_Section):
     story: StoryConfig
     best_moments: BestMomentsConfig = Field(default_factory=BestMomentsConfig)
@@ -704,6 +729,7 @@ class NarrativeConfig(_Section):
     hook: HookConfig = Field(default_factory=HookConfig)
     pacing: PacingConfig = Field(default_factory=PacingConfig)
     optimizer: DurationOptimizerConfig
+    refinement: RefinementConfig = Field(default_factory=RefinementConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -1093,6 +1119,13 @@ class CaptionLanguagesConfig(_Section):
 
 class CaptionsConfig(_Section):
     enabled: bool = True
+    #: Below this transcription confidence a segment is not captioned. Whisper
+    #: reports exp(avg_logprob) -- its own belief in what it wrote -- and on a
+    #: real recording 95 of 129 segments sat under 0.45, several of them the
+    #: classic Arabic subtitle hallucinations ("المترجم...") at 0.08. Burning
+    #: text the model itself did not believe into the picture reads as broken.
+    #: The speech still plays; only the caption is withheld.
+    min_confidence: float = Field(default=0.30, ge=0.0, le=1.0)
     formats: list[Literal["srt", "vtt"]] = Field(min_length=1)
     burn_in: bool = True
     style: Literal["standard", "animated"] = "animated"

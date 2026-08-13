@@ -156,6 +156,16 @@ def _captions_for_clip(
     captions: list[Caption] = []
     lead_in = config.timing.lead_in_ms / 1000.0
     for segment in segments:
+        if (
+            segment.confidence is not None
+            and segment.confidence < config.min_confidence
+        ):
+            # Whisper's own belief in what it wrote. Below the floor the words
+            # are as likely hallucinated as heard -- the classic "المترجم..."
+            # watermark lines arrive at 0.08 -- and burning text the model did
+            # not believe into the picture reads as broken. The audio still
+            # plays; only the caption is withheld.
+            continue
         overlap_start = max(segment.start, clip.source_in)
         overlap_end = min(segment.end, clip.source_out)
         if overlap_end - overlap_start <= 0:

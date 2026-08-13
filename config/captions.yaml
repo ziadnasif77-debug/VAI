@@ -5,6 +5,12 @@
 
 captions:
   enabled: true
+  # Below this transcription confidence a segment is not captioned. Whisper
+  # reports its own belief in what it wrote; on a real recording 95 of 129
+  # segments sat under 0.45, several of them the classic hallucinated
+  # "المترجم..." watermark lines at 0.08 -- burned into the finished picture.
+  # The speech still plays; only the caption is withheld.
+  min_confidence: 0.30
   # Sidecar files always; burning in is a Remotion composition concern.
   formats: [srt, vtt]
   burn_in: true

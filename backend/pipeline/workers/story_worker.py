@@ -24,6 +24,7 @@ from backend.core.models.enums import JobStage, VideoMode
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.projects import ProjectRepository
+from backend.database.repositories.transcript import TranscriptRepository
 from backend.interaction.service import InteractionService
 from backend.moments.formation import Moment
 from backend.narrative.story import NarrativePlan, build_plan
@@ -67,6 +68,18 @@ class StoryWorker:
         requested = intent.mode or project.mode
         mode = requested if isinstance(requested, VideoMode) else VideoMode(requested)
 
+        # §14's word timestamps, for the final cut-point refinement: without
+        # them a cut can land mid-word and nothing downstream can repair it.
+        transcripts = TranscriptRepository(context.database)
+        media_repository = MediaRepository(context.database)
+        media_ids = sorted({moment.media_id for moment in moments})
+        speech = {media_id: transcripts.list_for_media(media_id) for media_id in media_ids}
+        durations = {
+            media_id: media.metadata.duration_seconds
+            for media_id in media_ids
+            if (media := media_repository.require(media_id)).metadata.duration_seconds
+        }
+
         context.report(0.4, f"Selecting clips for a {target / 60:.0f}-minute {mode.value} edit")
         plan = build_plan(
             moments,
@@ -75,6 +88,8 @@ class StoryWorker:
             config=context.config.narrative,
             policy=context.config.duration_policy,
             chronological=intent.chronological,
+            speech=speech,
+            media_durations=durations,
         )
 
         if plan.is_empty:

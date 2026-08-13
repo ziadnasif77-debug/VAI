@@ -123,9 +123,7 @@ class TestReproducesThePlan:
 
     def test_it_validates(self, policy) -> None:
         timeline = _build(_planned(20), policy).timeline
-        report = validation.validate(
-            timeline, media_durations={MEDIA: 100_000.0}, policy=policy
-        )
+        report = validation.validate(timeline, media_durations={MEDIA: 100_000.0}, policy=policy)
 
         assert report.is_valid, [str(item) for item in report.errors]
 
@@ -343,9 +341,7 @@ class TestValidation:
         # No amount of editing makes a short recording into a long video.
         timeline = _build(_planned(2), policy).timeline
 
-        report = validation.validate(
-            timeline, media_durations={MEDIA: 100_000.0}, policy=policy
-        )
+        report = validation.validate(timeline, media_durations={MEDIA: 100_000.0}, policy=policy)
         assert report.is_valid
         assert any(item.code == "under_minimum" for item in report.warnings)
 
@@ -401,9 +397,7 @@ class TestDurationClamp:
         assert report.is_valid, [str(item) for item in report.errors]
 
     def test_a_clip_never_reads_past_the_end_of_its_recording(self, policy) -> None:
-        planned = [
-            PlannedClip(media_id=MEDIA, source_start=0.0, source_end=9_999.0, score=0.5)
-        ]
+        planned = [PlannedClip(media_id=MEDIA, source_start=0.0, source_end=9_999.0, score=0.5)]
         result = _build(planned, policy, durations={MEDIA: 42.0})
 
         assert result.timeline.video_clips()[0].source_out == pytest.approx(42.0)
@@ -420,9 +414,7 @@ class TestDurationClamp:
     def test_no_clip_is_left_shorter_than_the_minimum(self, policy) -> None:
         result = _build(_planned(60, seconds=90.0), policy)
 
-        assert all(
-            clip.duration >= MIN_CLIP_SECONDS for clip in result.timeline.video_clips()
-        )
+        assert all(clip.duration >= MIN_CLIP_SECONDS for clip in result.timeline.video_clips())
 
 
 class TestStructure:
@@ -516,7 +508,6 @@ class TestFromTheStoryResult:
         assert clips_from_story_result({"skipped": True, "clips": 0}) == []
 
 
-
 class TestCaptions:
     """§71: caption timing always derives from transcript timestamps."""
 
@@ -549,9 +540,7 @@ class TestCaptions:
         spoken_at = clip.source_in + 10.0
         segments = self._segments((spoken_at, spoken_at + 2.0, "no way that landed"))
 
-        captions = caption_builder.build_captions(
-            timeline, {MEDIA: segments}, config.captions
-        )
+        captions = caption_builder.build_captions(timeline, {MEDIA: segments}, config.captions)
 
         assert len(captions) == 1
         assert captions[0].timeline_start == pytest.approx(clip.timeline_start + 10.0)
@@ -562,9 +551,7 @@ class TestCaptions:
         between = (first.source_out + second.source_in) / 2
         segments = self._segments((between, between + 2.0, "words that were cut"))
 
-        captions = caption_builder.build_captions(
-            timeline, {MEDIA: segments}, config.captions
-        )
+        captions = caption_builder.build_captions(timeline, {MEDIA: segments}, config.captions)
 
         assert captions == []
 
@@ -572,23 +559,17 @@ class TestCaptions:
         clip = timeline.video_clips()[0]
         segments = self._segments((clip.source_out - 1.0, clip.source_out + 20.0, "a b c d"))
 
-        captions = caption_builder.build_captions(
-            timeline, {MEDIA: segments}, config.captions
-        )
+        captions = caption_builder.build_captions(timeline, {MEDIA: segments}, config.captions)
 
         for caption in captions:
             assert caption.timeline_end <= clip.timeline_end + 1e-6
 
-    def test_word_timings_are_carried_into_timeline_coordinates(
-        self, timeline, config
-    ) -> None:
+    def test_word_timings_are_carried_into_timeline_coordinates(self, timeline, config) -> None:
         clip = timeline.video_clips()[2]
         start = clip.source_in + 5.0
         segments = self._segments((start, start + 4.0, "one two three four"))
 
-        captions = caption_builder.build_captions(
-            timeline, {MEDIA: segments}, config.captions
-        )
+        captions = caption_builder.build_captions(timeline, {MEDIA: segments}, config.captions)
 
         assert captions[0].words
         for _word, word_start, word_end in captions[0].words:
@@ -601,9 +582,7 @@ class TestCaptions:
             *[(base + index * 1.0, base + index * 1.0 + 0.6, f"line {index}") for index in range(8)]
         )
 
-        captions = caption_builder.build_captions(
-            timeline, {MEDIA: segments}, config.captions
-        )
+        captions = caption_builder.build_captions(timeline, {MEDIA: segments}, config.captions)
 
         for previous, following in pairwise(captions):
             assert previous.timeline_end <= following.timeline_start + 1e-6
@@ -615,9 +594,7 @@ class TestCaptions:
             (clips[0].source_in + 1.0, clips[0].source_in + 3.0, "earlier words"),
         )
 
-        captions = caption_builder.build_captions(
-            timeline, {MEDIA: segments}, config.captions
-        )
+        captions = caption_builder.build_captions(timeline, {MEDIA: segments}, config.captions)
 
         assert [caption.index for caption in captions] == list(range(len(captions)))
         assert captions[0].text == "earlier words"
@@ -631,9 +608,7 @@ class TestCaptions:
     def test_srt_carries_the_timeline_timings(self, timeline, config) -> None:
         clip = timeline.video_clips()[0]
         segments = self._segments((clip.source_in + 1.0, clip.source_in + 3.0, "hello there"))
-        captions = caption_builder.build_captions(
-            timeline, {MEDIA: segments}, config.captions
-        )
+        captions = caption_builder.build_captions(timeline, {MEDIA: segments}, config.captions)
 
         srt = caption_builder.to_srt(captions)
         assert "00:00:01,000 --> " in srt
@@ -749,9 +724,7 @@ class TestPersistence:
         loaded = repository.load(project.id)
 
         assert len(loaded.video_clips()) == len(timeline.video_clips())
-        for original, clip in zip(
-            timeline.video_clips(), loaded.video_clips(), strict=True
-        ):
+        for original, clip in zip(timeline.video_clips(), loaded.video_clips(), strict=True):
             assert clip.id == original.id
             assert clip.source_in == pytest.approx(original.source_in)
             assert clip.source_out == pytest.approx(original.source_out)
@@ -803,9 +776,7 @@ class TestPersistence:
 
         assert repository.clip_count(project.id) == 1
 
-    def test_effects_are_stored_relative_to_the_clip_they_decorate(
-        self, stored, database
-    ) -> None:
+    def test_effects_are_stored_relative_to_the_clip_they_decorate(self, stored, database) -> None:
         # The schema says clip-relative; the planner works in absolute timeline
         # coordinates. Converting on write is what lets a clip move without
         # every effect on it silently pointing at the wrong second.
@@ -994,3 +965,56 @@ class TestSourceExclusivity:
 
         assert len(result.timeline.video_clips()) == 2
         assert not any("already in the edit" in note for note in result.notes)
+
+
+class TestCaptionConfidenceFloor:
+    """§71 + the honesty rule: a caption the model did not believe is not shown.
+
+    Measured on a real project: 95 of 129 transcript segments sat below 0.45
+    confidence, including Whisper's classic Arabic subtitle hallucinations
+    ("المترجم...") at 0.08 — burned into the finished picture. The speech
+    still plays; only the caption is withheld.
+    """
+
+    def _clip(self) -> TimelineClip:
+        return TimelineClip(
+            id="clip-000000000cap",
+            media_id="media-aaaaaaaaaaaa",
+            clip_index=0,
+            source_in=0.0,
+            source_out=30.0,
+            timeline_start=0.0,
+            timeline_end=30.0,
+        )
+
+    def _timeline(self) -> Timeline:
+        return Timeline(project_id="proj-aaaaaaaaaaaa").with_track(
+            Track(kind=TrackKind.VIDEO, clips=(self._clip(),))
+        )
+
+    def test_a_hallucinated_segment_is_not_captioned(self, config) -> None:
+        segments = {
+            "media-aaaaaaaaaaaa": [
+                TranscriptSegment(start=1.0, end=3.0, text="كلام حقيقي", confidence=0.8),
+                TranscriptSegment(start=5.0, end=7.0, text="المترجم للقناة", confidence=0.08),
+            ]
+        }
+
+        captions = caption_builder.build_captions(self._timeline(), segments, config.captions)
+
+        texts = [item.text for item in captions]
+        assert "كلام حقيقي" in " ".join(texts)
+        assert all("المترجم" not in text for text in texts)
+
+    def test_an_unscored_segment_is_given_the_benefit_of_the_doubt(self, config) -> None:
+        # A provider that reports no confidence (the fake, an old analysis)
+        # must not lose every caption to a floor it never measured against.
+        segments = {
+            "media-aaaaaaaaaaaa": [
+                TranscriptSegment(start=1.0, end=3.0, text="بلا تقييم", confidence=None),
+            ]
+        }
+
+        captions = caption_builder.build_captions(self._timeline(), segments, config.captions)
+
+        assert any("بلا تقييم" in item.text for item in captions)

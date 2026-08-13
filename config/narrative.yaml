@@ -79,3 +79,16 @@ narrative:
     # before dropping a moment entirely.
     allow_context_trim: true
     max_context_trim_ratio: 0.5
+
+  # The last pass over the final cut points (backend/narrative/refinement.py).
+  # §29 snaps boundaries and §39's duration trim re-cuts them blind; this runs
+  # after both, at word level, and is what keeps cuts out of the middle of a
+  # sentence. Measured on a real project it took 5 mid-word cuts to 3 (the
+  # remaining ones sit in speech with no pause within reach, and say so in the
+  # plan notes), merged 2 needless joins, and healed a 3.5s overlap.
+  refinement:
+    enabled: true
+    snap_window_seconds: 2.5    # how far a cut may move to reach a pause
+    stretch_window_seconds: 4.0 # further, in the direction that only adds context
+    min_pause_seconds: 0.35     # the shortest inter-word gap worth cutting in
+    core_give_seconds: 1.0      # slack into the core span; event edges carry detector slop

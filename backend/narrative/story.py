@@ -23,16 +23,18 @@ higher-scoring kill that would make the arc nonsense.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import dataclasses
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from ai.providers.base import TranscriptSegment
 from backend.config.schema import NarrativeConfig
 from backend.core.duration import DurationPolicy
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import MomentType, VideoMode
 from backend.moments.formation import Moment, replace_moment
-from backend.narrative import pacing
+from backend.narrative import pacing, refinement
 from backend.narrative.hook import HookSelection, choose_hook
 from backend.narrative.optimizer import OptimisationResult, optimise
 
@@ -111,6 +113,8 @@ def build_plan(
     config: NarrativeConfig,
     policy: DurationPolicy,
     chronological: bool = False,
+    speech: Mapping[str, Sequence[TranscriptSegment]] | None = None,
+    media_durations: Mapping[str, float] | None = None,
 ) -> NarrativePlan:
     """Turn ranked moments into an ordered edit of the requested length (§35-§39).
 
@@ -163,6 +167,31 @@ def build_plan(
     else:
         hook = choose_hook(ordered, config.hook)
         ordered = _apply_hook(ordered, hook, config)
+
+    if speech:
+        # Last, deliberately: these are the boundaries the viewer will see, and
+        # every earlier stage -- the optimiser's duration trim above all -- has
+        # had its say. Measured before this existed, 8 of 26 cut points on a
+        # finished video landed mid-sentence (§29 snapped them; §39 re-cut them).
+        refined = refinement.refine(
+            ordered,
+            beats,
+            speech,
+            snap_window_seconds=config.refinement.snap_window_seconds,
+            min_pause_seconds=config.refinement.min_pause_seconds,
+            core_give_seconds=config.refinement.core_give_seconds,
+            stretch_window_seconds=config.refinement.stretch_window_seconds,
+            duration_by_media=media_durations,
+            enabled=config.refinement.enabled,
+        )
+        ordered, beats = list(refined.moments), list(refined.beats)
+        notes = [*notes, *refined.notes]
+        # The totals the selection reported were measured before the snap
+        # drifted them, and `within_target` reads them (§39).
+        selection = dataclasses.replace(
+            selection,
+            total_seconds=sum(moment.context_duration for moment in ordered),
+        )
 
     plan = NarrativePlan(
         mode=mode,
