@@ -30,7 +30,19 @@ from backend.core.versions import APPLICATION_VERSION
 logger = get_logger("services.health", LogChannel.APPLICATION)
 
 #: Every probe is bounded: a hung binary must not hang the dashboard.
-_COMMAND_TIMEOUT_SECONDS = 10
+#:
+#: Generous, because the machine this runs on is the machine that renders.
+#: At ten seconds, opening the health screen during a render reported FFmpeg,
+#: ffprobe and node as "found but does not run" and the GPU as absent -- every
+#: check that spawns a process failed, every in-process one passed, and the
+#: hardware profile dropped to "low". None of it was true: the same machine was
+#: encoding with h264_nvenc at that moment.
+_COMMAND_TIMEOUT_SECONDS = 30
+
+#: A probe that times out says so. "Found but does not run" sends someone to
+#: reinstall a working binary; "did not answer in time" sends them to look at
+#: what else the machine is doing, which is where the answer was.
+_TIMED_OUT = "__timed_out__"
 
 #: Package behind each OCR engine name, so the report can distinguish
 #: "not installed" from "installed but broken".
@@ -150,6 +162,18 @@ class HealthService:
         )
         duration = time.perf_counter() - started
 
+        if output is _TIMED_OUT:
+            # "No GPU" would drop the hardware profile to low and degrade the
+            # analysis -- on a machine whose GPU is busy because this
+            # application is using it.
+            return HealthCheck(
+                name="gpu",
+                status=HealthStatus.WARNING,
+                required=False,
+                detail=f"nvidia-smi did not answer within {_COMMAND_TIMEOUT_SECONDS}s.",
+                remediation="Check again once the current render or analysis finishes.",
+                duration_seconds=duration,
+            )
         if output is None:
             return HealthCheck(
                 name="gpu",
@@ -206,6 +230,14 @@ class HealthService:
             )
 
         output = _run([self._config.ffmpeg.binary, "-hide_banner", "-encoders"])
+        if output is _TIMED_OUT:
+            return HealthCheck(
+                name="nvenc",
+                status=HealthStatus.WARNING,
+                required=False,
+                detail=f"FFmpeg did not list its encoders within {_COMMAND_TIMEOUT_SECONDS}s.",
+                remediation="Check again once the current render or analysis finishes.",
+            )
         if output is None:
             return HealthCheck(
                 name="nvenc",
@@ -495,6 +527,18 @@ class HealthService:
 
         output = _run([resolved, *version_args])
         duration = time.perf_counter() - started
+        if output is _TIMED_OUT:
+            return HealthCheck(
+                name=name,
+                status=HealthStatus.WARNING,
+                required=required,
+                detail=(
+                    f"{binary} did not answer within {_COMMAND_TIMEOUT_SECONDS}s. "
+                    "The machine is busy rather than the binary broken."
+                ),
+                remedy="Check again once the current render or analysis finishes.",
+                duration_seconds=duration,
+            )
         if output is None:
             return HealthCheck(
                 name=name,
@@ -517,9 +561,14 @@ class HealthService:
 
 
 def _run(command: Sequence[str]) -> str | None:
-    """Run a command and return its combined output, or ``None`` on any failure.
+    """Run a command and return its output, ``None`` on failure, or ``_TIMED_OUT``.
 
     Explicit argument list, no shell (§85).
+
+    A timeout is reported separately from a failure because they mean opposite
+    things: a binary that cannot run needs reinstalling, and a binary that did
+    not answer in time usually means the machine is busy doing exactly what
+    this application asked it to do.
     """
     try:
         completed = subprocess.run(  # fixed argv, shell disabled (SPEC 85)
@@ -530,6 +579,8 @@ def _run(command: Sequence[str]) -> str | None:
             check=False,
             shell=False,
         )
+    except subprocess.TimeoutExpired:
+        return _TIMED_OUT
     except (OSError, subprocess.SubprocessError):
         return None
     if completed.returncode != 0 and not completed.stdout:
@@ -553,7 +604,9 @@ def _detected_vram_mb() -> int | None:
     output = _run(
         ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"]
     )
-    if output is None:
+    if output is None or output is _TIMED_OUT:
+        # Unknown, not zero. A busy GPU is still a GPU, and treating a timeout
+        # as "no card" is how the hardware profile silently drops to low.
         return None
     return _parse_int(output.splitlines()[0] if output.splitlines() else "")
 

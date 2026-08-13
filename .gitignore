@@ -21,6 +21,12 @@ dist/
 # Rust / Tauri
 target/
 
+# Everything the application runs on, kept beside it rather than on the system
+# drive (scripts/rooted.py). Bundled binaries and a multi-gigabyte virtual
+# environment are the machine's, not the repository's.
+/tools/
+/.cache/
+
 # Application data - never commit user media, models, logs or databases
 /projects/*
 !/projects/.gitkeep

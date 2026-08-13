@@ -18,6 +18,26 @@ dev = [
     "ruff>=0.5",
 ]
 
+# The analysis stack. Declared here rather than installed by hand, which is how
+# it was until now -- these lived only in one machine's global site-packages,
+# so the versions the whole pipeline was validated against existed nowhere in
+# the repository and a second machine had no way to reproduce them.
+#
+# torch is pinned to a CUDA build. The CPU wheel works and is much slower; on a
+# machine with an RTX 3070 it would silently give up the GPU (§52).
+ai = [
+    "faster-whisper==1.2.1",
+    "ctranslate2==4.8.1",
+    "scenedetect==0.7.1",
+    "easyocr==1.7.2",
+    "numpy==2.2.6",
+    "opencv-python-headless==4.11.0.86",
+    "Pillow==12.2.0",
+    "av==18.0.0",
+    "onnxruntime==1.27.0",
+    "requests>=2.32",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

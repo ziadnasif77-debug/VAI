@@ -35,6 +35,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rooted  # imported after the path insert above, deliberately
+
 ROOT = Path(__file__).resolve().parents[1]
 LOG_FILE = ROOT / ".tmp" / "launch.log"
 
@@ -99,12 +102,22 @@ def snapshot_environment() -> None:
 
 
 def discover() -> list[tuple[str, ...]]:
-    """Every interpreter worth trying, absolute paths first, deduplicated."""
+    """Every interpreter worth trying, absolute paths first, deduplicated.
+
+    The project's own virtual environment leads when it exists. Its packages
+    live beside everything else this application writes, which on a machine
+    with 5.7 GB free on its system drive is the difference between working and
+    filling the disk mid-render.
+    """
     found: dict[str, tuple[str, ...]] = {}
 
     def add(command: tuple[str, ...]) -> None:
         key = " ".join(command).lower()
         found.setdefault(key, command)
+
+    own = rooted.python_executable()
+    if own is not None:
+        add((str(own),))
 
     for exe in KNOWN_EXES:
         if exe.is_file():
@@ -260,7 +273,11 @@ def server_environment(python: tuple[str, ...]) -> dict[str, str]:
     cannot be reproduced from anywhere else, so they are neutralised rather
     than diagnosed.
     """
-    environment = dict(os.environ)
+    # Everything the application writes goes under the project root: PATH
+    # leads with the bundled ffmpeg and node, temp and every model cache point
+    # inside D:\VAI. Applied to the child rather than to this process, because
+    # the child is what renders.
+    environment = rooted.environment()
     for key in list(environment):
         upper = key.upper()
         if upper.startswith("PYTHON") and upper != "PYTHONIOENCODING":

@@ -71,7 +71,7 @@ Nothing is uploaded. No cloud API is required.
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e ".[dev]"      # Windows: .venv\Scripts\pip
+.venv/bin/pip install -e ".[dev,ai]"   # Windows: .venv\Scripts\pip
 
 python scripts/doctor.py               # check the environment
 python scripts/db_init.py              # create the database
@@ -79,6 +79,29 @@ npm install && npm run build -w apps/web
 
 python scripts/serve.py                # everything: interface, API, worker
 ```
+
+`[ai]` is the analysis stack — Whisper, PySceneDetect, EasyOCR, torch. It is a
+few gigabytes and pinned to a CUDA build of torch; the CPU wheel works and is
+much slower.
+
+### Everything lives beside the project
+
+The machine this was built on has 5.7 GB free on its system drive and 1.3 TB on
+its data drive, so nothing is left to a library's idea of where a cache goes.
+`scripts/rooted.py` puts all of it under the project root and the launcher
+applies it to every process it starts:
+
+| | |
+| --- | --- |
+| `.venv/` | interpreter and packages (torch alone is gigabytes) |
+| `tools/ffmpeg`, `tools/node` | bundled binaries, ahead of `PATH` |
+| `.tmp/` | `TMP`/`TEMP` — segments, audio slices, frame dumps |
+| `.cache/hf`, `.cache/torch` | model weights |
+| `.cache/pip`, `.cache/npm` | package caches |
+| `remotion/.browser` | Remotion's Chromium |
+
+Ollama's `OLLAMA_MODELS` is only set if the machine has not chosen one: it is a
+service this application talks to rather than owns.
 
 Then open **http://127.0.0.1:8765**.
 
