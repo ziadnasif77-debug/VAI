@@ -377,23 +377,7 @@ def _decode_findings(
         findings.append(passed("decodes", "decoded end to end without error"))
 
     if "black_frames" in checks:
-        longest = measurements.longest_black
-        if longest > thresholds.max_black_run_seconds:
-            findings.append(
-                failure(
-                    "black_frames",
-                    f"{longest:.1f}s of black video, the longest of "
-                    f"{len(measurements.black_runs)} run(s)",
-                    remedy=(
-                        "A gap in the timeline or a clip that reads past the end of "
-                        "its recording. Validate the timeline before re-rendering."
-                    ),
-                    longest_seconds=round(longest, 2),
-                    runs=len(measurements.black_runs),
-                )
-            )
-        else:
-            findings.append(passed("black_frames", f"longest black run {longest:.2f}s"))
+        findings.append(_black_frames(measurements, config, runner, sources))
 
     if "frozen_frames" in checks:
         findings.append(_frozen_frames(measurements, config, runner, sources))
@@ -417,6 +401,155 @@ def _decode_findings(
         else:
             findings.append(passed("loudness", f"{lufs:.1f} LUFS"))
     return findings
+
+
+def _black_frames(
+    measurements: DecodeMeasurements,
+    config: QaConfig,
+    runner: FFmpegRunner,
+    sources: Sequence[SourceSpan],
+) -> Finding:
+    """Did the picture go black, and did the *recording* go black too? (§76)
+
+    The same question frozen_frames learned to ask, for the same reason. A
+    chronological edit of one real session included fifty seconds of gameplay
+    the game itself renders as strobing black -- a cutscene transition -- and
+    the check blocked the export of a render that reproduced its source
+    exactly. Blackness the recording contains is an editorial call (§77);
+    blackness the recording does not contain is a broken render, and only that
+    is a fact about the file.
+    """
+    limit = config.technical.thresholds.max_black_run_seconds
+    longest = measurements.longest_black
+    if longest <= limit:
+        return passed("black_frames", f"longest black run {longest:.2f}s")
+
+    over = [
+        (start, end - start)
+        for start, end in measurements.black_runs
+        if end - start > limit
+    ]
+    moving: list[tuple[float, float]] = []
+    unverified: list[tuple[float, float]] = []
+    explained: list[tuple[float, float]] = []
+    for start, seconds in over:
+        held = _source_blackness(start, seconds, runner, config, sources)
+        if held is None:
+            unverified.append((start, seconds))
+        elif held[0] > limit or held[1] >= _BLACK_COVERAGE_EXPLAINS:
+            explained.append((start, seconds))
+        else:
+            moving.append((start, seconds))
+
+    if moving:
+        start, seconds = max(moving, key=lambda run: run[1])
+        return failure(
+            "black_frames",
+            f"{seconds:.1f}s of black video at {start:.1f}s, which the "
+            f"recording does not account for",
+            remedy=(
+                "A gap in the timeline or a clip that reads past the end of "
+                "its recording. Validate the timeline before re-rendering."
+            ),
+            longest_seconds=round(seconds, 2),
+            at_seconds=round(start, 2),
+            runs=len(moving),
+        )
+
+    if unverified:
+        start, seconds = max(unverified, key=lambda run: run[1])
+        return failure(
+            "black_frames",
+            f"{seconds:.1f}s of black video at {start:.1f}s",
+            remedy=(
+                "The source could not be read back at that timestamp. Check the "
+                "clip covering it and re-render."
+            ),
+            longest_seconds=round(seconds, 2),
+            at_seconds=round(start, 2),
+            runs=len(unverified),
+        )
+
+    start, seconds = max(explained, key=lambda run: run[1])
+    return warning(
+        "black_frames",
+        f"{seconds:.1f}s of the edit is black, starting at {start:.1f}s -- "
+        f"the recording is black there too",
+        remedy=(
+            "The render is faithful, so this is an editing call: a fade or "
+            "cutscene transition survived into the video. Trim that clip if "
+            "it was not deliberate."
+        ),
+        category="content",
+        longest_seconds=round(seconds, 2),
+        at_seconds=round(start, 2),
+        runs=len(explained),
+    )
+
+
+#: The source explains a black stretch when at least this much of the mapped
+#: window is black, even if no single run clears the limit. Measured need: a
+#: game cutscene strobes -- black, a dark flash of picture, black again. The
+#: source reads as runs of 0.8s/1.65s/0.6s with 0.66s of dark picture between;
+#: the re-encoded render quantises those flashes under the threshold and reads
+#: as one 3.27s run. Same footage, two encoders, two groupings -- the exact
+#: failure the frozen check hit twice. Coverage is robust to the grouping.
+_BLACK_COVERAGE_EXPLAINS: Final[float] = 0.4
+
+
+def _source_blackness(
+    start: float,
+    seconds: float,
+    runner: FFmpegRunner,
+    config: QaConfig,
+    sources: Sequence[SourceSpan],
+) -> tuple[float, float] | None:
+    """The recording's blackness behind this stretch: (longest run, coverage).
+
+    ``None`` when nothing could be read back -- which claims nothing, exactly
+    as :func:`_source_stillness` treats it.
+    """
+    best: tuple[float, float] | None = None
+    for span in sources:
+        window = span.window(start, start + seconds)
+        if window is None:
+            continue
+        source_start, source_seconds = window
+        measured = _black_in(span.path, source_start, source_seconds, runner)
+        if measured is None:
+            continue
+        if best is None or measured[1] > best[1]:
+            best = measured
+    return best
+
+
+def _black_in(
+    path: Path, start: float, seconds: float, runner: FFmpegRunner
+) -> tuple[float, float] | None:
+    """One window of one recording: (longest black run, black coverage 0-1)."""
+    if not path.is_file():
+        return None
+    padded = seconds + 2 * _SOURCE_PAD_SECONDS
+    argv = [
+        *runner.base_arguments(loglevel="info"),
+        *runner.input_arguments(
+            path, start=max(0.0, start - _SOURCE_PAD_SECONDS), duration=padded
+        ),
+        "-an",
+        "-vf", "blackdetect=d=0.5:pix_th=0.10",
+        "-f", "null", "-",
+    ]
+    result = runner.run(argv, check=False)
+    if not result.ok:
+        logger.warning(
+            "Could not read the source behind a black stretch",
+            extra={"path": str(path), "start": round(start, 2)},
+        )
+        return None
+    runs = _parse_black(result.stderr)
+    longest = max((end - begin for begin, end in runs), default=0.0)
+    coverage = sum(end - begin for begin, end in runs) / padded if padded > 0 else 0.0
+    return longest, coverage
 
 
 def _frozen_frames(

@@ -34,8 +34,7 @@ WIDTH, HEIGHT, FPS, SECONDS = 320, 240, 15, 6
 
 #: One frame of `testsrc`, held for the whole clip.
 _HELD = (
-    f"trim=start_frame=0:end_frame=1,"
-    f"loop=loop={FPS * SECONDS - 1}:size=1:start=0,setpts=N/{FPS}/TB"
+    f"trim=start_frame=0:end_frame=1,loop=loop={FPS * SECONDS - 1}:size=1:start=0,setpts=N/{FPS}/TB"
 )
 #: A picture that is *almost* still: a held frame carrying faint temporal
 #: noise, which is what a captured menu screen is. A perfectly still source
@@ -49,8 +48,18 @@ NEAR_STATIC = f"{_HELD},noise=alls=2:allf=t:all_seed=20260812"
 #: is what used to decide the frozen-frames verdict.
 QUALITY_TARGET = ("-c:v", "libx264", "-preset", "medium", "-crf", "19")
 BITRATE_TARGET = (
-    "-c:v", "libx264", "-preset", "medium",
-    "-b:v", "2M", "-minrate", "2M", "-maxrate", "2M", "-bufsize", "4M",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "medium",
+    "-b:v",
+    "2M",
+    "-minrate",
+    "2M",
+    "-maxrate",
+    "2M",
+    "-bufsize",
+    "4M",
 )
 
 
@@ -94,8 +103,16 @@ def _make(
     separator = ":" if "=" in video else "="
     source = f"{video}{separator}s={WIDTH}x{HEIGHT}:r={FPS}:d={seconds}"
     argv = [
-        "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-        "-f", "lavfi", "-i", source,
+        "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        source,
     ]
     if audio is not None:
         argv += ["-f", "lavfi", "-i", f"{audio}:d={seconds}"]
@@ -129,8 +146,11 @@ def near_static(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     directory = tmp_path_factory.mktemp("rate")
     return {
         name: _make(
-            directory / f"{name}.mp4", "testsrc", None,
-            filters=NEAR_STATIC, encode=encode,
+            directory / f"{name}.mp4",
+            "testsrc",
+            None,
+            filters=NEAR_STATIC,
+            encode=encode,
         )
         for name, encode in (
             ("quality", QUALITY_TARGET),
@@ -140,9 +160,7 @@ def near_static(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
 
 
 def _inspect(clips, name: str, expected, runner, qa_config):
-    findings = technical.inspect(
-        clips[name], expected, runner=runner, config=qa_config.qa
-    )
+    findings = technical.inspect(clips[name], expected, runner=runner, config=qa_config.qa)
     return findings, build_report(findings, qa_config.qa)
 
 
@@ -156,9 +174,7 @@ def _status_of(findings, check: str) -> QAStatus | None:
 class TestAcceptance:
     """**A deliberately broken render is detected.**"""
 
-    def test_a_good_render_passes_every_check(
-        self, clips, expected, runner, qa_config
-    ) -> None:
+    def test_a_good_render_passes_every_check(self, clips, expected, runner, qa_config) -> None:
         # The half that is easy to forget: a QA engine that cries wolf is one
         # people switch off.
         findings, report = _inspect(clips, "good", expected, runner, qa_config)
@@ -192,9 +208,7 @@ class TestAcceptance:
         # to a bitrate target, and the two must agree.
         verdicts = {}
         for name, path in near_static.items():
-            findings = technical.inspect(
-                path, expected, runner=runner, config=qa_config.qa
-            )
+            findings = technical.inspect(path, expected, runner=runner, config=qa_config.qa)
             verdicts[name] = _status_of(findings, "frozen_frames")
 
         assert verdicts["quality"] == verdicts["bitrate"], (
@@ -217,13 +231,72 @@ class TestAcceptance:
             ),
         )
         findings = technical.inspect(
-            clips["frozen"], expected, runner=runner, config=qa_config.qa,
+            clips["frozen"],
+            expected,
+            runner=runner,
+            config=qa_config.qa,
             sources=source,
         )
         report = build_report(findings, qa_config.qa)
 
         assert _status_of(findings, "frozen_frames") is QAStatus.WARNING
         assert not report.blocks_export
+
+    def test_blackness_the_recording_also_has_does_not_block(
+        self, clips, expected, runner, qa_config
+    ) -> None:
+        # The same question frozen_frames learned to ask. A chronological edit
+        # of a real session included fifty seconds the game itself renders as
+        # strobing black -- a cutscene transition -- and the check blocked a
+        # render that reproduced its source exactly. Faithful blackness is an
+        # editing call (§77), not a fact about the file.
+        source = (
+            technical.SourceSpan(
+                path=clips["black"],
+                timeline_start=0.0,
+                timeline_end=float(SECONDS),
+                source_in=0.0,
+            ),
+        )
+        findings = technical.inspect(
+            clips["black"],
+            expected,
+            runner=runner,
+            config=qa_config.qa,
+            sources=source,
+        )
+        report = build_report(findings, qa_config.qa)
+
+        assert _status_of(findings, "black_frames") is QAStatus.WARNING
+        assert not any(
+            item.check == "black_frames" and item.status is QAStatus.FAILED for item in findings
+        )
+        assert not report.blocks_export
+
+    def test_blackness_the_recording_does_not_have_still_blocks(
+        self, clips, expected, runner, qa_config
+    ) -> None:
+        # The render went black where the recording has picture: a timeline
+        # gap or a clip read past its file. The defect the check exists for.
+        source = (
+            technical.SourceSpan(
+                path=clips["good"],
+                timeline_start=0.0,
+                timeline_end=float(SECONDS),
+                source_in=0.0,
+            ),
+        )
+        findings = technical.inspect(
+            clips["black"],
+            expected,
+            runner=runner,
+            config=qa_config.qa,
+            sources=source,
+        )
+        report = build_report(findings, qa_config.qa)
+
+        assert _status_of(findings, "black_frames") is QAStatus.FAILED
+        assert report.blocks_export
 
     def test_a_freeze_the_recording_does_not_have_still_blocks(
         self, clips, expected, runner, qa_config
@@ -240,7 +313,10 @@ class TestAcceptance:
             ),
         )
         findings = technical.inspect(
-            clips["frozen"], expected, runner=runner, config=qa_config.qa,
+            clips["frozen"],
+            expected,
+            runner=runner,
+            config=qa_config.qa,
             sources=source,
         )
         report = build_report(findings, qa_config.qa)
@@ -303,9 +379,7 @@ class TestWhatWasChecked:
 
         assert {"duration", "resolution", "fps", "audio_stream", "decodes"} <= names
 
-    def test_a_disabled_check_does_not_run(
-        self, clips, expected, runner, qa_config
-    ) -> None:
+    def test_a_disabled_check_does_not_run(self, clips, expected, runner, qa_config) -> None:
         # And its absence is visible, rather than looking like a pass.
         narrowed = qa_config.qa.model_copy(
             update={
@@ -314,9 +388,7 @@ class TestWhatWasChecked:
                 )
             }
         )
-        findings = technical.inspect(
-            clips["black"], expected, runner=runner, config=narrowed
-        )
+        findings = technical.inspect(clips["black"], expected, runner=runner, config=narrowed)
 
         assert _status_of(findings, "black_frames") is None
 
@@ -337,15 +409,11 @@ class TestWhatWasChecked:
                 )
             }
         )
-        findings = technical.inspect(
-            near_static["quality"], expected, runner=runner, config=strict
-        )
+        findings = technical.inspect(near_static["quality"], expected, runner=runner, config=strict)
 
         assert _status_of(findings, "frozen_frames") is QAStatus.PASSED
 
-    def test_the_explanation_carries_the_remedies(
-        self, clips, expected, runner, qa_config
-    ) -> None:
+    def test_the_explanation_carries_the_remedies(self, clips, expected, runner, qa_config) -> None:
         _, report = _inspect(clips, "black", expected, runner, qa_config)
         lines = report.explain()
 
@@ -355,27 +423,19 @@ class TestWhatWasChecked:
 class TestPolicy:
     """§76's policy: technical blocks, content warns (§78)."""
 
-    def test_a_technical_failure_blocks_export(
-        self, clips, expected, runner, qa_config
-    ) -> None:
+    def test_a_technical_failure_blocks_export(self, clips, expected, runner, qa_config) -> None:
         _, report = _inspect(clips, "black", expected, runner, qa_config)
 
         assert report.blocks_export
         assert report.needs_review
 
-    def test_the_policy_can_be_told_not_to_block(
-        self, clips, expected, runner, qa_config
-    ) -> None:
+    def test_the_policy_can_be_told_not_to_block(self, clips, expected, runner, qa_config) -> None:
         permissive = qa_config.qa.model_copy(
             update={
-                "policy": qa_config.qa.policy.model_copy(
-                    update={"fail_on_technical_error": False}
-                )
+                "policy": qa_config.qa.policy.model_copy(update={"fail_on_technical_error": False})
             }
         )
-        findings = technical.inspect(
-            clips["black"], expected, runner=runner, config=qa_config.qa
-        )
+        findings = technical.inspect(clips["black"], expected, runner=runner, config=qa_config.qa)
         report = build_report(findings, permissive)
 
         # The finding is still reported; only the consequence changed.
