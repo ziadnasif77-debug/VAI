@@ -61,13 +61,23 @@ def _project_with(media_service, project_manager, clip: Path, *, mode=VideoMode.
 
 
 @pytest.fixture
-def edited(media_service, project_manager, runner, database, reaction_clip: Path):
-    """A project run all the way to a stored timeline.
+def edited(media_service, project_manager, runner, database, config, reaction_clip: Path):
+    """A project run all the way to a stored timeline, with at least two clips.
+
+    The hook is requested explicitly. Chronological became the product default,
+    and on this recording the two moments are continuous footage -- the
+    refinement rightly merges them into one clip, but a one-clip timeline
+    cannot exercise "delete clip 1", caption movement, or id stability across a
+    rebuild. The hook order (teaser first, body second) yields two clips whose
+    ids survive an EDL rebuild, which is the shape every test below leans on.
 
     The media is re-read afterwards: the record handed back by ``import_media``
     predates PROBE, so its duration is still unknown at that point.
     """
+    from backend.interaction.service import InteractionService
+
     project, media = _project_with(media_service, project_manager, reaction_clip)
+    InteractionService(database, config).handle(project.id, "use a hook")
     outcomes = {outcome.job.stage: outcome for outcome in runner.run_project(project.id)}
     probed = MediaRepository(database).require(media.id)
     return project, probed, outcomes
@@ -143,7 +153,9 @@ class TestEdlStage:
         outcome = runner.run_job(edl.id)
 
         assert outcome.succeeded
-        assert outcome.job.result["clips"] == 2
+        # However many clips the trimmed plan holds is however many the EDL
+        # lays out -- the assertion is fidelity, not a magic number.
+        assert outcome.job.result["clips"] == len(trimmed["clips"])
 
     def test_a_round_trip_through_the_database_preserves_the_timeline(
         self, edited, database
