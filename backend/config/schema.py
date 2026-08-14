@@ -722,6 +722,24 @@ class RefinementConfig(_Section):
     stretch_window_seconds: float = Field(default=4.0, gt=0)
 
 
+class TransitionsConfig(_Section):
+    """Film grammar at the joins (§40): a hard cut says "continuous time".
+
+    Every cut in the edit was hard, and a chronological gaming edit jumps
+    minutes of session time at nearly every join -- so each join *claimed*
+    continuity it did not have, which is one reason the result read as "clips
+    from everywhere". The dip to black is the standard signal for time passing;
+    kept short enough (well under blackdetect's 0.5s floor) that QA's black
+    check never mistakes it for a broken render.
+    """
+
+    enabled: bool = True
+    #: A same-recording jump at least this long reads as "later", not "next".
+    time_jump_seconds: float = Field(default=45.0, gt=0)
+    #: The dip itself, each side of the join.
+    dip_seconds: float = Field(default=0.3, gt=0, le=0.45)
+
+
 class NarrativeConfig(_Section):
     story: StoryConfig
     best_moments: BestMomentsConfig = Field(default_factory=BestMomentsConfig)
@@ -730,6 +748,7 @@ class NarrativeConfig(_Section):
     pacing: PacingConfig = Field(default_factory=PacingConfig)
     optimizer: DurationOptimizerConfig
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
+    transitions: TransitionsConfig = Field(default_factory=TransitionsConfig)
 
 
 # ---------------------------------------------------------------------------

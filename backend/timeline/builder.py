@@ -34,6 +34,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
+from backend.config.schema import TransitionsConfig
 from backend.core.duration import DurationPolicy
 from backend.core.ids import derived_id
 from backend.core.logging import LogChannel, get_logger
@@ -150,6 +151,7 @@ def build_timeline(
     media_durations: Mapping[str, float] | None = None,
     notes: Sequence[str] = (),
     metadata: Mapping[str, Any] | None = None,
+    transitions: TransitionsConfig | None = None,
 ) -> BuildResult:
     """Lay selected clips onto a non-destructive timeline (§40, §42).
 
@@ -194,6 +196,7 @@ def build_timeline(
         )
 
     laid_out = _lay_out(bounded, project_id)
+    laid_out = _mark_time_jumps(laid_out, transitions)
     video = Track(kind=TrackKind.VIDEO, name="gameplay", clips=tuple(laid_out))
     timeline = Timeline(
         project_id=project_id,
@@ -428,6 +431,54 @@ def _lay_out(clips: Sequence[PlannedClip], project_id: str) -> list[TimelineClip
         )
         cursor += clip.seconds
     return laid_out
+
+
+def _mark_time_jumps(
+    clips: list[TimelineClip], transitions: TransitionsConfig | None
+) -> list[TimelineClip]:
+    """Give every large jump in source time the join film grammar expects.
+
+    A hard cut says "continuous time". A chronological gaming edit jumps
+    minutes of session time at nearly every join, so every hard cut *claimed*
+    continuity it did not have -- one reason a faithful edit still read as
+    "clips from everywhere". A short dip to black is the standard signal for
+    time passing; a change of recording is a change of session and gets one
+    unconditionally.
+
+    Kept well under blackdetect's 0.5s floor so the §76 black check never
+    mistakes the grammar for a broken render.
+    """
+    if transitions is None or not transitions.enabled or len(clips) < 2:
+        return clips
+
+    marked = list(clips)
+    for index in range(1, len(marked)):
+        previous, current = marked[index - 1], marked[index]
+        jump = (
+            previous.media_id != current.media_id
+            or current.source_in - previous.source_out >= transitions.time_jump_seconds
+        )
+        if not jump:
+            continue
+        marked[index - 1] = previous.model_copy(
+            update={
+                "transition_out": TransitionType.DIP_TO_BLACK,
+                "metadata": {
+                    **previous.metadata,
+                    "fade_out_seconds": transitions.dip_seconds,
+                },
+            }
+        )
+        marked[index] = current.model_copy(
+            update={
+                "transition_in": TransitionType.DIP_TO_BLACK,
+                "metadata": {
+                    **current.metadata,
+                    "fade_in_seconds": transitions.dip_seconds,
+                },
+            }
+        )
+    return marked
 
 
 def _markers(clips: Sequence[TimelineClip]) -> list[Marker]:

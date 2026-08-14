@@ -1018,3 +1018,101 @@ class TestCaptionConfidenceFloor:
         captions = caption_builder.build_captions(self._timeline(), segments, config.captions)
 
         assert any("بلا تقييم" in item.text for item in captions)
+
+
+class TestTimeJumpGrammar:
+    """§40 + film grammar: a hard cut says "continuous time".
+
+    Every cut in the edit was hard, and a chronological gaming edit jumps
+    minutes of session time at nearly every join -- so each join claimed a
+    continuity it did not have. A short dip to black is the standard signal
+    for time passing, and until this existed no transition reached the
+    picture at all: FADE and DIP_TO_BLACK were honoured by the audio mix and
+    silently dropped by every frame.
+    """
+
+    def _built(self, config, *spans, media=None):
+        clips = [
+            PlannedClip(
+                media_id=(media or ["m"] * len(spans))[index],
+                source_start=start,
+                source_end=end,
+            )
+            for index, (start, end) in enumerate(spans)
+        ]
+        result = build_timeline(
+            clips,
+            project_id="proj-aaaaaaaaaaaa",
+            policy=config.output.duration_policy(),
+            transitions=config.narrative.transitions,
+        )
+        return list(result.timeline.track(TrackKind.VIDEO).clips)
+
+    def test_a_small_gap_stays_a_hard_cut(self, config) -> None:
+        # Two seconds of trimmed footage is a beat, not a scene change --
+        # dipping to black there would read as the video stuttering.
+        clips = self._built(config, (0.0, 30.0), (32.0, 60.0))
+
+        assert clips[0].transition_out is TransitionType.CUT
+        assert clips[1].transition_in is TransitionType.CUT
+
+    def test_a_time_jump_earns_a_dip(self, config) -> None:
+        clips = self._built(config, (0.0, 30.0), (300.0, 340.0))
+
+        assert clips[0].transition_out is TransitionType.DIP_TO_BLACK
+        assert clips[1].transition_in is TransitionType.DIP_TO_BLACK
+
+    def test_a_change_of_recording_is_a_change_of_session(self, config) -> None:
+        clips = self._built(config, (0.0, 30.0), (10.0, 40.0), media=["m", "other"])
+
+        assert clips[0].transition_out is TransitionType.DIP_TO_BLACK
+        assert clips[1].transition_in is TransitionType.DIP_TO_BLACK
+
+    def test_the_dip_stays_under_the_qa_black_floor(self, config) -> None:
+        # blackdetect's floor is 0.5s (§76). A dip that long would make the
+        # QA black check argue with the grammar on every render.
+        assert config.narrative.transitions.dip_seconds < 0.5
+        clips = self._built(config, (0.0, 30.0), (300.0, 340.0))
+        assert clips[1].metadata["fade_in_seconds"] < 0.5
+
+    def test_the_picture_actually_fades(self, config) -> None:
+        # Three clips so the middle one has no programme edge: cut in from
+        # clip 0, dip out toward clip 2. Exactly one fade, on the right end.
+        from backend.rendering.ffmpeg_renderer import _fade_filter
+
+        clips = self._built(config, (0.0, 30.0), (32.0, 60.0), (300.0, 340.0))
+
+        middle = _fade_filter(clips[1])
+        assert "fade=t=out" in middle
+        assert middle.count("fade=") == 1, "a cut edge grew a fade"
+        assert "fade=t=in" in _fade_filter(clips[2])
+
+    def test_a_reused_segment_carries_its_fades_in_its_name(self, config) -> None:
+        # Segment reuse checks duration, and a 0.3s dip baked into the file
+        # does not change its length -- the name is what keeps a re-render
+        # from splicing in yesterday's fade-less segment.
+        from backend.rendering.ffmpeg_renderer import _fade_token
+
+        dipped = self._built(config, (0.0, 30.0), (300.0, 340.0), (302.0, 330.0))
+        continuous = self._built(config, (0.0, 30.0), (32.0, 60.0), (62.0, 90.0))
+
+        # Middle clips: same position, same duration check -- the token is the
+        # only thing telling the dipped one from the plain one.
+        assert _fade_token(dipped[1]) != ""
+        assert _fade_token(continuous[1]) == ""
+
+    def test_disabled_means_every_join_is_a_cut(self, config) -> None:
+        narrowed = config.narrative.transitions.model_copy(update={"enabled": False})
+        clips = [
+            PlannedClip(media_id="m", source_start=0.0, source_end=30.0),
+            PlannedClip(media_id="m", source_start=300.0, source_end=340.0),
+        ]
+        result = build_timeline(
+            clips,
+            project_id="proj-aaaaaaaaaaaa",
+            policy=config.output.duration_policy(),
+            transitions=narrowed,
+        )
+        laid = list(result.timeline.track(TrackKind.VIDEO).clips)
+
+        assert laid[0].transition_out is TransitionType.CUT

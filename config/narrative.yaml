@@ -92,3 +92,12 @@ narrative:
     stretch_window_seconds: 4.0 # further, in the direction that only adds context
     min_pause_seconds: 0.35     # the shortest inter-word gap worth cutting in
     core_give_seconds: 1.0      # slack into the core span; event edges carry detector slop
+
+  # Film grammar at the joins (§40). A hard cut says "continuous time", and a
+  # chronological gaming edit jumps minutes at nearly every join -- the dip to
+  # black is the standard "later..." signal. Kept under blackdetect's 0.5s
+  # floor so QA never mistakes it for a broken render.
+  transitions:
+    enabled: true
+    time_jump_seconds: 45    # a same-recording jump this long reads as "later", not "next"
+    dip_seconds: 0.3         # each side of the join

@@ -71,6 +71,7 @@ class EdlWorker:
             policy=policy,
             target_seconds=float(story.get("target_seconds", 0.0)),
             media_durations=durations,
+            transitions=context.config.narrative.transitions,
             notes=story.get("notes", ()),
             metadata={
                 "mode": story.get("mode"),

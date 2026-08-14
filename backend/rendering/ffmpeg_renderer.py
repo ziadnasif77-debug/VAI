@@ -31,6 +31,7 @@ from typing import Any, Final
 from backend.config.schema import AppConfig
 from backend.core.errors import ErrorCode, MediaError, RenderError
 from backend.core.logging import LogChannel, get_logger, log_duration
+from backend.core.models.enums import TransitionType
 from backend.media.ffmpeg import CancelledError, FFmpegRunner, format_seconds, progress_arguments
 from backend.media.probe import probe_media
 from backend.rendering.encoder import EncoderChoice, EncodeTarget, intermediate_arguments
@@ -131,7 +132,11 @@ def render_programme(
                 recoverable=False,
             )
 
-        segment = segments_dir / f"{position:05d}_{clip.id}.mp4"
+        # The transition is part of the picture, so it is part of the name:
+        # a reused segment must carry the same fades the plan now asks for,
+        # and a duration check alone cannot see a 0.3s dip baked into the
+        # same-length file.
+        segment = segments_dir / f"{position:05d}_{clip.id}{_fade_token(clip)}.mp4"
         if _is_complete(segment, clip.duration, runner):
             reused += 1
         else:
@@ -226,7 +231,7 @@ def _cut(
         # separately, because the mix needs the tracks apart (§72).
         "-map", "0:v:0",
         "-an",
-        *_scale_arguments(clip, target),
+        *_scale_arguments(clip, target, fades=_fade_filter(clip)),
         *intermediate_arguments(encoder, config.render),
         "-r", str(target.fps),
         # Every segment must start at zero for the concat demuxer, and a
@@ -249,7 +254,9 @@ def _cut(
     partial.replace(destination)
 
 
-def _scale_arguments(clip: TimelineClip, target: EncodeTarget) -> list[str]:
+def _scale_arguments(
+    clip: TimelineClip, target: EncodeTarget, *, fades: str = ""
+) -> list[str]:
     """Scale and pad every clip to the output frame.
 
     Recordings in a project can differ in resolution, and the concat demuxer
@@ -261,9 +268,51 @@ def _scale_arguments(clip: TimelineClip, target: EncodeTarget) -> list[str]:
         (
             f"scale={target.width}:{target.height}:force_original_aspect_ratio=decrease,"
             f"pad={target.width}:{target.height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-            "setsar=1"
+            "setsar=1" + fades
         ),
     ]
+
+
+#: Transitions the video renders as a fade through black. Until this existed
+#: no transition reached the picture at all -- FADE and DIP_TO_BLACK were
+#: honoured by the audio mix and silently dropped by every frame.
+_FADED = frozenset({TransitionType.FADE, TransitionType.DIP_TO_BLACK})
+
+#: When the timeline names the shape but not the length.
+_DEFAULT_FADE_SECONDS = 0.4
+
+
+def _fade_filter(clip: TimelineClip) -> str:
+    """The clip's edge fades, as ffmpeg filter steps. Empty for hard cuts."""
+    steps = ""
+    if clip.transition_in in _FADED:
+        seconds = _fade_length(clip, "fade_in_seconds")
+        steps += f",fade=t=in:st=0:d={seconds:.3f}"
+    if clip.transition_out in _FADED:
+        seconds = _fade_length(clip, "fade_out_seconds")
+        start = max(0.0, clip.duration - seconds)
+        steps += f",fade=t=out:st={start:.3f}:d={seconds:.3f}"
+    return steps
+
+
+def _fade_length(clip: TimelineClip, key: str) -> float:
+    """The named fade length, bounded so a short clip is not all fade."""
+    raw = clip.metadata.get(key) or clip.metadata.get("fade_seconds")
+    try:
+        seconds = float(raw) if raw is not None else _DEFAULT_FADE_SECONDS
+    except (TypeError, ValueError):
+        seconds = _DEFAULT_FADE_SECONDS
+    return min(seconds, clip.duration / 4) if clip.duration > 0 else 0.0
+
+
+def _fade_token(clip: TimelineClip) -> str:
+    """A filename fragment naming the fades baked into a segment."""
+    parts = ""
+    if clip.transition_in in _FADED:
+        parts += f"-i{round(_fade_length(clip, 'fade_in_seconds') * 1000)}"
+    if clip.transition_out in _FADED:
+        parts += f"-o{round(_fade_length(clip, 'fade_out_seconds') * 1000)}"
+    return parts
 
 
 def _is_complete(segment: Path, expected_seconds: float, runner: FFmpegRunner) -> bool:
