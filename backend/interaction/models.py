@@ -137,11 +137,16 @@ class EditingIntent(_Base):
     #: Play the recording's own order, start to finish (§37).
     #:
     #: The hook takes the strongest moment and puts it first, which is standard
-    #: practice and is the only thing that breaks chronology in a story edit --
-    #: a 25-second teaser from minute 20, then back to the beginning. Someone
-    #: watching a session they played wants to watch it in the order it
-    #: happened, and reads that one jump as the whole edit being shuffled.
-    chronological: bool = False
+    #: YouTube practice and is the only thing that breaks chronology in a story
+    #: edit -- a 25-second teaser from minute 20, then back to the beginning.
+    #:
+    #: On by default, which is a product decision with a history: the owner of
+    #: this editor asked for time order three separate times, and the third was
+    #: not a request. As a per-project preference the hook came back on every
+    #: new project and read as "the same errors" -- a default the user has to
+    #: re-defeat per project is not a default. "ابدأ بأقوى لحظة" / "use a
+    #: hook" turns the teaser back on for a project that wants one.
+    chronological: bool = True
 
     priority_moment_types: list[MomentType] = Field(default_factory=list)
     priority_events: list[GameEventType] = Field(default_factory=list)

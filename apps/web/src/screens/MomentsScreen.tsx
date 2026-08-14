@@ -30,10 +30,12 @@ export function MomentsScreen({project}: {project: Project}) {
   );
 
   // Score is how the pipeline ranks; time is how a person remembers the
-  // session. The first viewer read the ranked list as "the video's order"
-  // and reasonably concluded the story was scrambled -- so the order is now
-  // theirs to choose, and the header says which is active.
-  const [sortBy, setSortBy] = useState<'score' | 'when'>('score');
+  // session. Making the toggle exist was not enough: with score as the
+  // default, the same viewer read the ranked list as "the video's order" a
+  // second time and reported the story scrambled while the edit itself was
+  // chronological. The default is the reading people bring to the screen;
+  // score stays one click away.
+  const [sortBy, setSortBy] = useState<'score' | 'when'>('when');
   const items = [...(moments.data?.items ?? [])].sort((a, b) =>
     sortBy === 'when' ? a.start_seconds - b.start_seconds : b.score - a.score,
   );
