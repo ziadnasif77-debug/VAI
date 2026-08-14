@@ -38,6 +38,20 @@ from backend.timeline.models import Timeline, TimelineClip
 
 logger = get_logger("timeline.captions", LogChannel.PIPELINE)
 
+#: Strong right-to-left LETTER ranges, with the code the rtl config lists.
+#: Deliberately narrower than the Unicode blocks: the Arabic block also holds
+#: punctuation (U+060C the comma, U+061F the question mark) and Arabic-Indic
+#: digits, all of which Whisper emits inside otherwise-Latin lines -- one of
+#: those must not flip a Latin caption right-to-left. The Arabic letter
+#: ranges also carry Persian and Urdu; the renderer only needs a code that
+#: ``captions.languages.rtl`` lists, not a full identification.
+_RTL_LETTERS: tuple[tuple[range, str], ...] = (
+    (range(0x0621, 0x064B), "ar"),
+    (range(0x066E, 0x06D4), "ar"),
+    (range(0x0750, 0x0780), "ar"),
+    (range(0x05D0, 0x05EB), "he"),
+)
+
 #: Below this much of a segment surviving a cut, the fragment is dropped rather
 #: than shown: a caption flashing two words of a sentence reads as a glitch.
 MIN_FRAGMENT_RATIO: float = 0.25
@@ -199,12 +213,37 @@ def _captions_for_clip(
                 timeline_start=start,
                 timeline_end=end,
                 text=text,
-                language=segment.language,
+                language=segment.language or _script_language(text),
                 clip_id=clip.id,
                 words=words,
             )
         )
     return captions
+
+
+def _script_language(text: str) -> str | None:
+    """A language code read off the text's own script, or ``None``.
+
+    Transcripts analysed before the provider carried the detected language
+    through have ``language`` NULL on every segment -- and the only consumer of
+    a caption's language is ``is_rtl``, which then never fired: two real Arabic
+    projects rendered their captions left-to-right.
+
+    The decision follows UAX#9's paragraph rule: the *first strong-directional
+    letter* decides. Arabic gaming commentary code-switches constantly ("nice
+    shot يا شباب"), and a Latin-first line with one Arabic word must stay laid
+    out left-to-right -- while a single Arabic comma or Arabic-Indic digit is
+    not a letter at all and decides nothing. Anything without a recognisable
+    strong letter stays ``None`` rather than guessed.
+    """
+    for char in text:
+        if char.isascii() and char.isalpha():
+            return None
+        point = ord(char)
+        for letters, code in _RTL_LETTERS:
+            if point in letters:
+                return code
+    return None
 
 
 def _words_in_span(

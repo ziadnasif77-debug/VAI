@@ -193,6 +193,157 @@ class TestPlanning:
         ]
 
 
+class TestContentGuards:
+    """An effect that names or marks something must have the something.
+
+    Both defects were found by reading the renderer against the rows it was
+    about to receive: ``text_pop`` draws nothing without ``params.text``, and
+    ``highlight_box`` falls back to a centred default box -- a marker around
+    nothing -- when no detector supplied a region.
+    """
+
+    def _plan(self, config: AppConfig, *moments_):
+        return EffectPlanner(config).plan(
+            list(moments_), intent(), video_duration_seconds=600
+        )
+
+    @staticmethod
+    def _roomy(config: AppConfig) -> AppConfig:
+        # TEXT's placement offset is 0.88 -- deliberately after the action --
+        # so under the default two-per-moment budget every earlier category
+        # outbids it. The guard under test is about the label, not the budget.
+        limits = config.effects.global_limits.model_copy(
+            update={"max_effects_per_moment": 12}
+        )
+        effects = config.effects.model_copy(update={"global_limits": limits})
+        return config.model_copy(update={"effects": effects})
+
+    def test_text_pop_always_carries_its_text(self, config: AppConfig) -> None:
+        plan = self._plan(
+            self._roomy(config),
+            moment(0, moment_type=MomentType.VICTORY, events=[GameEventType.VICTORY]),
+        )
+
+        pops = [item for item in plan.instances if item.effect is EffectType.TEXT_POP]
+        assert pops, "a high-scoring victory earns a text_pop"
+        assert all(item.params.get("text") == "VICTORY" for item in pops)
+
+    def test_the_label_falls_back_to_the_moment_type(self, config: AppConfig) -> None:
+        # No events at all -- built directly, because the module's `moment`
+        # helper substitutes a default event list for an empty one. The
+        # moment's own detected type is still detected metadata, and the
+        # renderer must never receive an empty label.
+        eventless = PlannedMoment(
+            id="mom-000000000000",
+            moment_type=MomentType.EPIC,
+            timeline_start=0.0,
+            timeline_end=20.0,
+            score=0.9,
+            events=[],
+            clip_id="clip-000000000000",
+        )
+        plan = self._plan(self._roomy(config), eventless)
+
+        pops = [item for item in plan.instances if item.effect is EffectType.TEXT_POP]
+        assert pops
+        assert all(item.params.get("text") == "EPIC" for item in pops)
+
+    def test_a_matched_event_beats_the_type_as_the_label(self, config: AppConfig) -> None:
+        plan = self._plan(
+            self._roomy(config),
+            moment(0, moment_type=MomentType.EPIC, events=[GameEventType.MULTI_KILL]),
+        )
+
+        pops = [item for item in plan.instances if item.effect is EffectType.TEXT_POP]
+        assert pops
+        assert all(item.params.get("text") == "MULTI KILL" for item in pops)
+
+    def test_an_unlistened_event_never_becomes_the_label(self, config: AppConfig) -> None:
+        # Real footage's event stream is dominated by unexpected_event, which
+        # rides along in matched_events but is not in text_pop's trigger
+        # list. "UNEXPECTED EVENT" on screen would be the software confessing;
+        # the moment's own type is the honest label.
+        plan = self._plan(
+            self._roomy(config),
+            moment(
+                0,
+                moment_type=MomentType.VICTORY,
+                events=[GameEventType.UNEXPECTED_EVENT],
+            ),
+        )
+
+        pops = [item for item in plan.instances if item.effect is EffectType.TEXT_POP]
+        assert pops
+        assert all(item.params.get("text") == "VICTORY" for item in pops)
+
+    def test_a_marker_with_no_detected_region_is_never_planned(
+        self, config: AppConfig
+    ) -> None:
+        # highlight_box declares require_detected_region and no detector
+        # supplies regions today: the correct count is zero, not a default
+        # box drawn around the centre of the screen.
+        plan = self._plan(
+            config,
+            moment(0, moment_type=MomentType.SKILL, events=[GameEventType.KILL]),
+        )
+
+        assert not any(
+            item.effect is EffectType.HIGHLIGHT_BOX for item in plan.instances
+        )
+
+    def test_a_counter_with_no_events_is_never_planned(self, config: AppConfig) -> None:
+        # kill_counter's trigger list matches on moment type alone, and its
+        # renderer defaults the count to 1 -- an "x1" tally. Without events
+        # there is nothing to count.
+        plan = self._plan(config, moment(0, moment_type=MomentType.EPIC, events=[]))
+
+        assert not any(
+            item.effect is EffectType.KILL_COUNTER for item in plan.instances
+        )
+
+    def test_one_countable_event_is_not_a_streak(self, config: AppConfig) -> None:
+        # A tally of one is noise; the counter needs at least two events its
+        # triggers can count before it earns the corner of the screen.
+        plan = self._plan(
+            self._roomy(config),
+            moment(0, moment_type=MomentType.EPIC, events=[GameEventType.MULTI_KILL]),
+        )
+
+        assert not any(
+            item.effect is EffectType.KILL_COUNTER for item in plan.instances
+        )
+
+    def test_a_real_streak_earns_a_counter_that_carries_its_tally(
+        self, config: AppConfig
+    ) -> None:
+        # The renderer defaults an absent count to 1, so the tally has to
+        # travel with the instance or the evidence guard was for nothing.
+        # The competitive style is the counter's natural habitat -- it boosts
+        # kill_counter past the graphic-category rivals that outbid it under
+        # the default profile.
+        plan = EffectPlanner(self._roomy(config)).plan(
+            [
+                moment(
+                    0,
+                    moment_type=MomentType.EPIC,
+                    events=[
+                        GameEventType.KILL,
+                        GameEventType.KILL,
+                        GameEventType.MULTI_KILL,
+                    ],
+                )
+            ],
+            intent(style="competitive"),
+            video_duration_seconds=600,
+        )
+
+        counters = [
+            item for item in plan.instances if item.effect is EffectType.KILL_COUNTER
+        ]
+        assert counters, "three countable events are a streak"
+        assert all(item.params.get("count") == 3 for item in counters)
+
+
 class TestBudgets:
     def test_per_video_density_is_bounded(self, config: AppConfig) -> None:
         # 40 strong moments in a 10-minute video must not yield 40 effects.

@@ -17,6 +17,15 @@
 
 effects:
   enabled: true
+
+  # Which renderer wires are live. The planner stored seventeen effects across
+  # three real projects before either wire existed, and not one reached the
+  # finished video. One switch per engine, so a misbehaving realiser can be
+  # turned off without silencing the planner or the other engine.
+  realisation:
+    ffmpeg_filters: true    # bake zoom/punch_in/bars/flash/shake into segments
+    remotion_overlay: true  # pass remotion-engine effects to the overlay
+
   # Rank a moment against this video's own scores before testing a trigger's
   # min_score. Without a game profile, a microphone or detected reactions the
   # whole distribution shifts down -- a real session's best moment scored 0.53

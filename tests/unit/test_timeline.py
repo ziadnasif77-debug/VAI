@@ -21,7 +21,17 @@ from ai.providers.base import TranscriptSegment, TranscriptWord
 from backend.config.loader import load_config
 from backend.core.errors import ValidationError
 from backend.core.ids import derived_id, is_valid_id
-from backend.core.models.enums import MomentType, TrackKind, TransitionType
+from backend.core.models.enums import (
+    EffectCategory,
+    EffectEngine,
+    EffectType,
+    MomentType,
+    TrackKind,
+    TransitionType,
+)
+from backend.effects.models import EffectInstance
+from backend.rendering.encoder import EncodeTarget
+from backend.rendering.ffmpeg_renderer import _effect_filters, _effects_token, _realised
 from backend.timeline import captions as caption_builder
 from backend.timeline import operations, validation
 from backend.timeline.builder import (
@@ -807,6 +817,91 @@ class TestPersistence:
         )
         assert row["start_seconds"] == pytest.approx(4.0)
 
+    def test_stored_effects_read_back_for_the_renderers(self, stored) -> None:
+        # The writer existed from Phase 8 and nothing ever read the rows:
+        # seventeen planned effects across three real projects, none in any
+        # finished video. The reader must return exactly what was planned --
+        # including a library magnitude that happens to be named "strength",
+        # which the old writer clobbered with the instance strength (blur
+        # stored 0.6 where the scaled 0.24 belonged).
+        project, repository, timeline = stored
+        clip = timeline.video_clips()[1]
+        repository.replace(
+            project.id,
+            timeline,
+            effects=[
+                EffectInstance(
+                    effect=EffectType.BLUR,
+                    engine=EffectEngine.FFMPEG,
+                    category=EffectCategory.LIGHT,
+                    start_seconds=clip.timeline_start + 2.0,
+                    duration_seconds=1.0,
+                    clip_id=clip.id,
+                    params={"strength": 0.24, "mode": "background"},
+                    strength=0.6,
+                    reason="blur on a tension moment",
+                ),
+                EffectInstance(
+                    effect=EffectType.TEXT_POP,
+                    engine=EffectEngine.REMOTION,
+                    category=EffectCategory.TEXT,
+                    start_seconds=clip.timeline_start + 5.0,
+                    duration_seconds=1.2,
+                    clip_id=clip.id,
+                    params={"text": "VICTORY"},
+                    strength=0.6,
+                ),
+            ],
+        )
+
+        loaded = repository.list_effects(project.id)
+
+        assert len(loaded) == 2
+        blur = next(item for item in loaded if item.effect is EffectType.BLUR)
+        assert blur.engine is EffectEngine.FFMPEG
+        assert blur.category is EffectCategory.LIGHT
+        assert blur.start_seconds == pytest.approx(2.0), "clip-relative, as stored"
+        assert blur.strength == pytest.approx(0.6)
+        assert blur.params["strength"] == pytest.approx(0.24), (
+            "the library magnitude must survive the instance strength"
+        )
+        assert blur.reason == "blur on a tension moment"
+        pop = next(item for item in loaded if item.effect is EffectType.TEXT_POP)
+        assert pop.engine is EffectEngine.REMOTION
+        assert pop.params["text"] == "VICTORY"
+
+    def test_a_legacy_row_gives_up_its_strength_key_entirely(self, stored, database) -> None:
+        # Rows written before the reserved key carried the instance strength
+        # under "strength". Reading it back must REMOVE it from params: left
+        # in, a renderer would take the instance value for a library
+        # magnitude, and the same effect would hash differently before and
+        # after a re-plan rewrites the row.
+        import json
+
+        project, repository, timeline = stored
+        clip = timeline.video_clips()[0]
+        database.execute(
+            "INSERT INTO timeline_effects (id, project_id, clip_id, effect_type, "
+            "start_seconds, duration_seconds, parameters, enabled) VALUES "
+            "(?, ?, ?, 'zoom', 2.0, 1.5, ?, 1)",
+            (
+                "timeline_effect-legacyrow0000",
+                project.id,
+                clip.id,
+                json.dumps(
+                    {"scale": 1.07, "engine": "ffmpeg", "category": "camera",
+                     "strength": 0.6, "reason": "legacy"}
+                ),
+            ),
+        )
+
+        loaded = repository.list_effects(project.id)
+
+        legacy = next(item for item in loaded if item.reason == "legacy")
+        assert legacy.strength == pytest.approx(0.6)
+        assert "strength" not in legacy.params
+        assert legacy.params["scale"] == pytest.approx(1.07)
+
     def test_a_reorder_survives_the_unique_index_on_clip_index(self, stored) -> None:
         # Updating indices one row at a time collides the moment two clips swap
         # places, because the unique index is checked per statement.
@@ -1116,3 +1211,336 @@ class TestTimeJumpGrammar:
         laid = list(result.timeline.track(TrackKind.VIDEO).clips)
 
         assert laid[0].transition_out is TransitionType.CUT
+
+
+class TestCaptionLanguage:
+    """Direction comes from evidence: the stored language, else the script.
+
+    Transcripts analysed before the provider carried the detected language
+    through left ``language`` NULL on every row -- and the only consumer of a
+    caption's language is ``is_rtl``, which then never fired: two real Arabic
+    projects rendered every caption left-to-right.
+    """
+
+    def _built(self, config, segment: TranscriptSegment):
+        clip = TimelineClip(
+            id="clip-00000000lang",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=30.0,
+            timeline_start=0.0,
+            timeline_end=30.0,
+        )
+        timeline = Timeline(project_id="proj-aaaaaaaaaaaa").with_track(
+            Track(kind=TrackKind.VIDEO, clips=(clip,))
+        )
+        return caption_builder.build_captions(timeline, {MEDIA: [segment]}, config.captions)
+
+    def test_arabic_text_reads_as_arabic_without_a_stored_language(self, config) -> None:
+        captions = self._built(
+            config, TranscriptSegment(start=1.0, end=3.0, text="ضربة قاضية", language=None)
+        )
+
+        assert captions and captions[0].language == "ar"
+
+    def test_latin_text_stays_unlabelled_rather_than_guessed(self, config) -> None:
+        # "Not right-to-left" is all the script proves; claiming "en" for it
+        # would be invention, and nothing downstream needs more than direction.
+        captions = self._built(
+            config, TranscriptSegment(start=1.0, end=3.0, text="nice shot", language=None)
+        )
+
+        assert captions and captions[0].language is None
+
+    def test_a_stored_language_always_wins(self, config) -> None:
+        captions = self._built(
+            config, TranscriptSegment(start=1.0, end=3.0, text="ضربة قاضية", language="en")
+        )
+
+        assert captions and captions[0].language == "en"
+
+    def test_the_first_strong_letter_decides_a_code_switched_line(self, config) -> None:
+        # Arabic gaming commentary code-switches constantly. A Latin-first
+        # line with one Arabic word must stay left-to-right (UAX#9's
+        # first-strong rule), not flip because any Arabic letter appears.
+        captions = self._built(
+            config,
+            TranscriptSegment(start=1.0, end=3.0, text="nice shot يا شباب", language=None),
+        )
+
+        assert captions and captions[0].language is None
+
+    def test_arabic_punctuation_alone_decides_nothing(self, config) -> None:
+        # Whisper emits the Arabic comma and question mark inside otherwise
+        # Latin lines; punctuation has no direction of its own.
+        captions = self._built(
+            config,
+            TranscriptSegment(start=1.0, end=3.0, text="gg wp ؟", language=None),
+        )
+
+        assert captions and captions[0].language is None
+
+
+class TestBakedEffects:
+    """§68's FFmpeg half, finally realised.
+
+    The planner stored these rows from Phase 8 on -- measured: fifteen
+    ffmpeg-engine effects across three real projects, positioned to the
+    centisecond -- and no renderer ever read them. Everything realised here is
+    duration-neutral by construction: no filter changes a timestamp or the
+    frame count, which is what keeps every §76 QA gate untouched.
+    """
+
+    def _clip(self, duration: float = 40.0) -> TimelineClip:
+        return TimelineClip(
+            id="clip-000000000efx",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=10.0,
+            source_out=10.0 + duration,
+            timeline_start=0.0,
+            timeline_end=duration,
+        )
+
+    @staticmethod
+    def _effect(effect_type, category, start: float, duration: float, params=None):
+        return EffectInstance(
+            effect=effect_type,
+            engine=EffectEngine.FFMPEG,
+            category=category,
+            start_seconds=start,
+            duration_seconds=duration,
+            clip_id="clip-000000000efx",
+            params=params or {},
+        )
+
+    @staticmethod
+    def _target(width: int = 1920, height: int = 1080) -> EncodeTarget:
+        return EncodeTarget(width=width, height=height, fps=60)
+
+    def test_each_realisable_effect_becomes_its_filter(self) -> None:
+        clip = self._clip()
+        effects = _realised(
+            clip,
+            [
+                self._effect(
+                    EffectType.ZOOM, EffectCategory.CAMERA, 19.45, 1.76, {"scale": 1.072}
+                ),
+                self._effect(
+                    EffectType.CINEMATIC_BARS, EffectCategory.FRAME, 10.0, 3.5, {"ratio": 2.39}
+                ),
+                self._effect(
+                    EffectType.FLASH, EffectCategory.LIGHT, 2.0, 0.12, {"peak_opacity": 0.33}
+                ),
+                self._effect(
+                    EffectType.CAMERA_SHAKE,
+                    EffectCategory.CAMERA,
+                    30.0,
+                    0.44,
+                    {"amplitude_px": 4.8, "frequency_hz": 14.0},
+                ),
+            ],
+        )
+        chain = _effect_filters(clip, effects, self._target())
+
+        assert "zoompan=" in chain
+        assert chain.count("drawbox=") == 2, "letterbox is a top bar and a bottom bar"
+        assert "eq=brightness=" in chain
+        assert "pad=iw+" in chain and "crop=1920:1080" in chain
+
+    def test_camera_moves_come_before_frame_furniture(self) -> None:
+        # A letterbox drawn first and zoomed after visibly thickens by the
+        # zoom factor and snaps back. Geometry reshapes the world; bars are
+        # drawn on the finished frame -- whatever the start-time order says.
+        chain = _effect_filters(
+            self._clip(),
+            _realised(
+                self._clip(),
+                [
+                    self._effect(
+                        EffectType.CINEMATIC_BARS,
+                        EffectCategory.FRAME,
+                        2.4,
+                        3.5,
+                        {"ratio": 2.39},
+                    ),
+                    self._effect(
+                        EffectType.PUNCH_IN, EffectCategory.CAMERA, 5.0, 1.2, {"scale": 1.12}
+                    ),
+                ],
+            ),
+            self._target(),
+        )
+
+        assert chain.index("zoompan=") < chain.index("drawbox="), (
+            "the earlier-starting bars must still be drawn after the zoom"
+        )
+
+    def test_bars_cover_a_quarter_of_the_frame_not_all_of_it(self) -> None:
+        # 1080 minus 1920/2.39 leaves two 138px bars: ~26% of the frame.
+        # QA's blackdetect needs the whole picture dark (§76), so a
+        # letterboxed beat can never read as a broken black run.
+        chain = _effect_filters(
+            self._clip(),
+            [
+                self._effect(
+                    EffectType.CINEMATIC_BARS, EffectCategory.FRAME, 10.0, 3.5, {"ratio": 2.39}
+                )
+            ],
+            self._target(),
+        )
+
+        assert "h=138" in chain and "y=ih-138" in chain
+
+    def test_bars_on_a_portrait_target_are_skipped(self) -> None:
+        # The same 2.39 arithmetic on a 9:16 Shorts render would yield two
+        # 734px bars -- 76% of the picture black. That is a blackout, not a
+        # cinematic beat, and it would trip QA's black check besides.
+        chain = _effect_filters(
+            self._clip(),
+            [
+                self._effect(
+                    EffectType.CINEMATIC_BARS, EffectCategory.FRAME, 10.0, 3.5, {"ratio": 2.39}
+                )
+            ],
+            self._target(width=1080, height=1920),
+        )
+
+        assert "drawbox" not in chain
+
+    def test_time_warping_effects_stay_unrealised(self) -> None:
+        # slow_motion changes playback length; realising it as a picture
+        # filter without re-laying the EDL would break the §76 duration gate.
+        kept = _realised(
+            self._clip(),
+            [self._effect(EffectType.SLOW_MOTION, EffectCategory.TIME, 5.0, 1.5, {"rate": 0.5})],
+        )
+
+        assert kept == []
+
+    def test_an_effect_past_the_clip_end_is_dropped(self) -> None:
+        kept = _realised(
+            self._clip(duration=8.0),
+            [self._effect(EffectType.FLASH, EffectCategory.LIGHT, 9.0, 0.12, {})],
+        )
+
+        assert kept == []
+
+    def test_the_frame_rate_is_conformed_before_a_zoom(self) -> None:
+        # zoompan regenerates timestamps at its own rate: fed a lower-rate
+        # source it would time-compress the clip. The chain must open with an
+        # fps conform whenever a zoom is present.
+        chain = _effect_filters(
+            self._clip(),
+            [self._effect(EffectType.PUNCH_IN, EffectCategory.CAMERA, 5.0, 1.2, {"scale": 1.12})],
+            self._target(),
+        )
+
+        assert chain.startswith(",fps=60")
+
+    def test_the_segment_name_carries_the_effects(self) -> None:
+        # Segment reuse checks duration, and a zoom baked into the file does
+        # not change its length -- the token is the only thing telling a
+        # decorated segment from yesterday's plain one (§47).
+        zoomed = [
+            self._effect(EffectType.ZOOM, EffectCategory.CAMERA, 19.45, 1.76, {"scale": 1.072})
+        ]
+        stronger = [
+            self._effect(EffectType.ZOOM, EffectCategory.CAMERA, 19.45, 1.76, {"scale": 1.2})
+        ]
+
+        assert _effects_token([]) == ""
+        assert _effects_token(zoomed) != ""
+        assert _effects_token(zoomed) != _effects_token(stronger), (
+            "a parameter change must re-cut the segment"
+        )
+
+
+class TestEffectPlacementRules:
+    """The render worker's single filter over the stored plan.
+
+    The rules are engine-independent, and enforcing them after the engine
+    split meant each renderer held its own subset: the FFmpeg half dropped a
+    disabled clip's zoom while the overlay drew the same clip's text_pop at a
+    placeholder position over unrelated footage.
+    """
+
+    @staticmethod
+    def _instance(
+        effect=EffectType.TEXT_POP,
+        engine=EffectEngine.REMOTION,
+        *,
+        clip_id: str | None = "clip-000000000one",
+        start: float = 5.0,
+        params: dict | None = None,
+    ) -> EffectInstance:
+        return EffectInstance(
+            effect=effect,
+            engine=engine,
+            category=EffectCategory.TEXT,
+            start_seconds=start,
+            duration_seconds=1.2,
+            clip_id=clip_id,
+            params={"text": "VICTORY"} if params is None else params,
+        )
+
+    @staticmethod
+    def _clips() -> dict[str, TimelineClip]:
+        clip = TimelineClip(
+            id="clip-000000000one",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=20.0,
+            timeline_start=0.0,
+            timeline_end=20.0,
+        )
+        return {clip.id: clip}
+
+    def _placeable(self, effect: EffectInstance) -> bool:
+        from backend.pipeline.workers.render_worker import RenderWorker
+
+        return RenderWorker._still_placeable(effect, self._clips())
+
+    def test_an_effect_on_a_missing_clip_is_dropped(self) -> None:
+        # §78: the user disabled the clip. Its effects must not be guessed
+        # onto the programme -- for EITHER engine.
+        assert not self._placeable(self._instance(clip_id="clip-00000000gone"))
+
+    def test_an_effect_past_a_trimmed_clip_is_dropped(self) -> None:
+        # §127's save_edit keeps effect rows across trims on purpose; a
+        # clip-relative 25s on a clip now 20s long points at footage the
+        # clip no longer shows.
+        assert not self._placeable(self._instance(start=25.0))
+
+    def test_a_legacy_text_pop_without_text_is_dropped(self) -> None:
+        # Rows planned before the content guards existed are replayed by
+        # plain re-renders without re-planning; the reader holds the same
+        # line the planner now does.
+        assert not self._placeable(self._instance(params={}))
+
+    def test_a_marker_without_its_region_is_dropped(self) -> None:
+        assert not self._placeable(
+            self._instance(
+                effect=EffectType.HIGHLIGHT_BOX,
+                params={"require_detected_region": True},
+            )
+        )
+
+    def test_a_counter_without_a_tally_is_dropped(self) -> None:
+        assert not self._placeable(
+            self._instance(
+                effect=EffectType.KILL_COUNTER,
+                params={"require_event_count": True},
+            )
+        )
+        assert self._placeable(
+            self._instance(
+                effect=EffectType.KILL_COUNTER,
+                params={"require_event_count": True, "count": 3},
+            )
+        )
+
+    def test_a_valid_effect_passes(self) -> None:
+        assert self._placeable(self._instance())

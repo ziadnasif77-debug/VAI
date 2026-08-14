@@ -179,6 +179,8 @@ def build_plan(
             speech,
             snap_window_seconds=config.refinement.snap_window_seconds,
             min_pause_seconds=config.refinement.min_pause_seconds,
+            pause_split=config.refinement.pause_split,
+            min_trailing_seconds=config.refinement.min_trailing_seconds,
             core_give_seconds=config.refinement.core_give_seconds,
             stretch_window_seconds=config.refinement.stretch_window_seconds,
             duration_by_media=media_durations,

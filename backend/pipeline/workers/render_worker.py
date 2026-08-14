@@ -22,15 +22,17 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from backend.core.errors import ErrorCode, GamingEditorError, RenderError
 from backend.core.logging import LogChannel, get_logger
-from backend.core.models.enums import JobStage
+from backend.core.models.enums import EffectEngine, EffectType, JobStage
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.renders import RenderRepository
 from backend.database.repositories.timeline import TimelineRepository
+from backend.effects.models import EffectInstance
 from backend.pipeline.workers.base import WorkerContext
 from backend.rendering import audio_mix
 from backend.rendering.composite import composite
@@ -118,6 +120,7 @@ class RenderWorker:
         work_dir = paths.renders / "work"
         work_dir.mkdir(parents=True, exist_ok=True)
         sources = self._sources(context)
+        effects = self._effects(context, repository, timeline)
 
         context.report(0.05, "Cutting the clips")
         programme = render_programme(
@@ -129,6 +132,9 @@ class RenderWorker:
             config=context.config,
             encoder=encoder,
             target=target,
+            effects_by_clip=self._by_clip(
+                effects.get(EffectEngine.FFMPEG, ()), timeline
+            ),
             on_progress=lambda fraction, message: context.report(
                 0.05 + fraction * 0.45, message
             ),
@@ -137,7 +143,13 @@ class RenderWorker:
 
         context.report(0.52, "Rendering the overlay")
         overlay = self._overlay(
-            context, timeline, repository, target, programme.duration_seconds, work_dir
+            context,
+            timeline,
+            repository,
+            target,
+            programme.duration_seconds,
+            work_dir,
+            effects=effects.get(EffectEngine.REMOTION, ()),
         )
 
         context.report(0.6, "Mixing the audio")
@@ -190,6 +202,111 @@ class RenderWorker:
         width, height = resolution_for(preset.resolution, video.aspect_ratio)
         return EncodeTarget.from_preset(preset, width=width), width, height
 
+    def _effects(
+        self,
+        context: WorkerContext,
+        repository: TimelineRepository,
+        timeline: Timeline,
+    ) -> dict[EffectEngine, list[EffectInstance]]:
+        """The stored effect plan, filtered and split by renderer (§68).
+
+        Until this existed the worker passed a hard-coded empty tuple to the
+        overlay and nothing at all to the segment cutter: seventeen planned
+        effects across three real projects, none in any finished video. Each
+        engine's wire has its own switch, so a misbehaving realiser can be
+        turned off without silencing the other.
+
+        Filtering happens here, once, for both engines -- the rules are
+        engine-independent and splitting first meant each renderer enforced
+        its own subset: the FFmpeg half dropped a disabled clip's zoom while
+        the overlay drew the same clip's text_pop at a placeholder position
+        over unrelated footage.
+        """
+        if not context.config.effects.enabled:
+            return {}
+        realisation = context.config.effects.realisation
+        wanted = {
+            EffectEngine.FFMPEG: realisation.ffmpeg_filters,
+            EffectEngine.REMOTION: realisation.remotion_overlay,
+        }
+        enabled_clips = {clip.id: clip for clip in timeline.video_clips()}
+        stored = repository.list_effects(context.project_id)
+        split: dict[EffectEngine, list[EffectInstance]] = {}
+        dropped = 0
+        for effect in stored:
+            if not wanted.get(effect.engine, False):
+                continue
+            if not self._still_placeable(effect, enabled_clips):
+                dropped += 1
+                continue
+            split.setdefault(effect.engine, []).append(effect)
+        if stored:
+            logger.info(
+                "Loaded the stored effect plan",
+                extra={
+                    "stored": len(stored),
+                    "ffmpeg": len(split.get(EffectEngine.FFMPEG, ())),
+                    "remotion": len(split.get(EffectEngine.REMOTION, ())),
+                    "dropped": dropped,
+                },
+            )
+        return split
+
+    @staticmethod
+    def _still_placeable(
+        effect: EffectInstance, enabled_clips: dict[str, Any]
+    ) -> bool:
+        """Whether a stored row still describes something drawable.
+
+        Three ways a row outlives its plan: its clip was disabled or removed
+        (§78 gives the user the last word, and effect rows are independent of
+        clip state); an edit trimmed the clip shorter than the effect's
+        clip-relative position (§127's save_edit keeps effect rows on
+        purpose); or the row predates the planner's content guards and would
+        draw a default -- a centred box around nothing, an "x1" tally, an
+        empty label. The stored plan is replayed on plain re-renders without
+        re-planning, so the reader has to hold the same line the planner does.
+        """
+        if effect.clip_id:
+            clip = enabled_clips.get(effect.clip_id)
+            if clip is None:
+                return False
+            if effect.start_seconds >= clip.duration:
+                return False
+        params = effect.params
+        if effect.effect is EffectType.TEXT_POP and not params.get("text"):
+            return False
+        if params.get("require_detected_region") and not params.get("region"):
+            return False
+        count = params.get("count")
+        return not params.get("require_event_count") or (
+            isinstance(count, (int, float)) and count >= 2
+        )
+
+    @staticmethod
+    def _by_clip(
+        effects: Sequence[EffectInstance], timeline: Timeline
+    ) -> dict[str, list[EffectInstance]]:
+        """Group the FFmpeg half by the clip whose segment bakes it.
+
+        A timeline-anchored effect (``clip_id`` None) is a documented
+        convention this wire cannot serve -- a segment only knows its own
+        clip-relative clock -- so it is dropped loudly rather than silently:
+        the silent version of this drop is the exact stored-but-unrealised
+        defect the wire exists to end. No writer produces such rows today.
+        """
+        del timeline  # placeability was already enforced in _effects
+        grouped: dict[str, list[EffectInstance]] = {}
+        for effect in effects:
+            if not effect.clip_id:
+                logger.warning(
+                    "A timeline-anchored effect cannot be baked into a segment",
+                    extra={"effect": effect.effect.value, "at": effect.start_seconds},
+                )
+                continue
+            grouped.setdefault(effect.clip_id, []).append(effect)
+        return grouped
+
     def _sources(self, context: WorkerContext) -> dict[str, Path]:
         """Recording paths by media id, checked for existence.
 
@@ -219,6 +336,7 @@ class RenderWorker:
         target: EncodeTarget,
         duration_seconds: float,
         work_dir: Path,
+        effects: Sequence[EffectInstance] = (),
     ):
         """Render the caption and graphics layer, or skip it (§66, D-008)."""
         captions = repository.list_captions(context.project_id)
@@ -227,7 +345,7 @@ class RenderWorker:
         composition = build_composition(
             timeline,
             captions=captions,
-            effects=(),
+            effects=effects,
             caption_config=context.config.captions,
             width=target.width,
             height=target.height,
@@ -325,7 +443,16 @@ class RenderWorker:
         A row naming an asset the project does not have is skipped rather than
         substituted -- §73's "local files only" is about consent, and quietly
         playing a different sound is the wrong way to be helpful.
+
+        The switches govern this wire too: ``sound_effect`` is an
+        FFmpeg-engine effect, and "effects off" that still plays planned
+        stingers is a contract nobody can verify by listening.
         """
+        if not (
+            context.config.effects.enabled
+            and context.config.effects.realisation.ffmpeg_filters
+        ):
+            return []
         rows = context.database.fetch_all(
             "SELECT clip_id, start_seconds, parameters FROM timeline_effects "
             "WHERE project_id = ? AND effect_type = 'sound_effect' AND enabled = 1",

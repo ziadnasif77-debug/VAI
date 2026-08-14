@@ -93,6 +93,57 @@ class TestSnappingToPauses:
         assert result.snapped_cuts == 0
 
 
+class TestWhereInsideThePause:
+    """Leake et al. (SIGGRAPH 2017): ~90% of a retained gap belongs before the
+    incoming line. The midpoint left both clips hanging in half a silence each;
+    the split resumes speech almost as soon as the new shot lands.
+    """
+
+    def _index(self, *words: tuple[float, float], **kwargs) -> SpeechIndex:
+        segment = TranscriptSegment(
+            start=words[0][0],
+            end=words[-1][1],
+            text="كلام",
+            words=tuple(_word(start, end) for start, end in words),
+        )
+        return SpeechIndex([segment], 0.35, **kwargs)
+
+    def test_a_long_gap_splits_ninety_ten(self) -> None:
+        # Gap of 3.0s between word runs: the cut belongs 0.3s after the
+        # outgoing words, leaving 2.7s of lead-in for the incoming clip.
+        index = self._index((5.0, 10.0), (13.0, 15.0))
+
+        assert index.pauses[1] == pytest.approx(10.3)
+
+    def test_the_tail_never_shrinks_below_the_consonant_floor(self) -> None:
+        # Gap of 1.0s: ten percent is 0.1s, inside the window Whisper's
+        # word-end timestamps clip trailing S/P sounds -- the floor governs.
+        index = self._index((5.0, 10.0), (11.0, 15.0))
+
+        assert index.pauses[1] == pytest.approx(10.2)
+
+    def test_a_gap_too_short_for_both_clearances_yields_no_candidate(self) -> None:
+        # 0.36s cannot hold the 0.2s clearance on both sides. Any position in
+        # it sits against a word's breath -- the old midpoint fallback put a
+        # candidate 0.11s from a word edge whenever min_pause was tuned below
+        # twice the pad, which inside_speech itself would call mid-speech.
+        index = self._index((5.0, 9.30), (9.66, 15.0))
+
+        assert len(index.pauses) == 2, "only the before-first and after-last edges"
+
+    def test_a_snapped_cut_lands_early_in_the_pause(self) -> None:
+        # End-to-end through refine(): a mid-word out-point moves to the
+        # split position, not the midpoint the old rule chose.
+        speech = _speech((37.2, 52.5), (54.45, 70.0))
+        result = refine([_moment(30.0, 54.6, end=52.0)], ["body"], speech)
+
+        index = SpeechIndex(speech["m"], 0.35)
+        moved = result.moments[0].context_end
+        assert result.snapped_cuts == 1
+        assert not index.inside_speech(moved)
+        assert moved == pytest.approx(52.65), "left words end 52.45; tail is the 0.2 floor"
+
+
 class TestTheFootageIsBounded:
     SPEECH = _speech((0.0, 17.0))
 
@@ -122,7 +173,7 @@ class TestTheFootageIsBounded:
         assert refined_body.context_end <= 15.0 + 0.05
 
     def test_a_start_never_backs_into_the_previous_clip(self) -> None:
-        # A tempting pause at ~9.5 sits *inside the previous clip's span*.
+        # A tempting pause at ~9.15 sits *inside the previous clip's span*.
         # Without the claims floor it is the nearest pause and would be
         # chosen, replaying the previous clip's tail. With it, the boundary
         # stays where it was: no pause exists in the unclaimed footage.

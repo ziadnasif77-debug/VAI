@@ -710,6 +710,17 @@ class RefinementConfig(_Section):
     snap_window_seconds: float = Field(default=2.5, gt=0)
     #: The shortest inter-word gap that counts as a pause worth cutting in.
     min_pause_seconds: float = Field(default=0.35, gt=0)
+    #: Where inside a pause the cut lands, as a fraction of the gap after the
+    #: outgoing words. 0.1 follows Leake et al. (SIGGRAPH 2017): ~90% of a
+    #: retained gap belongs before the incoming line, so speech resumes almost
+    #: as soon as the new shot lands. 0.5 is the old midpoint behaviour.
+    pause_split: float = Field(default=0.1, ge=0.0, le=1.0)
+    #: The tail a cut always keeps after the last word. The floor cannot go
+    #: below ``WORD_PAD_SECONDS + 0.05`` (0.2) -- the pad is what already
+    #: covers Whisper's clipped trailing S/P sounds, and a cut inside it would
+    #: count as mid-speech by the module's own test. Values below 0.2 are
+    #: clamped up to it; the default states the effective floor honestly.
+    min_trailing_seconds: float = Field(default=0.2, ge=0.0)
     #: How far a cut may retreat *into* the core span to reach a pause. §28's
     #: core is content and stays protected in substance -- but its edges come
     #: from event detectors with seconds of slop, and when the optimiser trims
@@ -953,6 +964,23 @@ class EffectStyleProfile(_Section):
         return self
 
 
+class EffectRealisationConfig(_Section):
+    """Which renderer wires are live (§68).
+
+    The planner stored seventeen effects across three real projects before
+    either wire existed, and not one reached the finished video -- the render
+    worker passed an empty tuple to the overlay and nothing read the rows for
+    FFmpeg at all. Each wire has its own switch so a misbehaving realiser can
+    be turned off without silencing the planner or the other engine.
+    """
+
+    #: Bake duration-neutral FFmpeg effects (zoom, punch-in, bars, flash,
+    #: shake) into the clip segments.
+    ffmpeg_filters: bool = True
+    #: Pass Remotion-engine effects to the overlay composition.
+    remotion_overlay: bool = True
+
+
 class EffectsConfig(_Section):
     """The effects engine (§68-§70).
 
@@ -961,6 +989,7 @@ class EffectsConfig(_Section):
     """
 
     enabled: bool = True
+    realisation: EffectRealisationConfig = Field(default_factory=EffectRealisationConfig)
     intensity: float = Field(default=0.6, ge=0.0, le=1.0)
     #: Rank each moment against *this* video's own scores before matching a
     #: trigger's ``min_score``. Absolute thresholds were calibrated on footage

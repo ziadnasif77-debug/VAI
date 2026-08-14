@@ -22,6 +22,17 @@ within a small window. Segment-level snapping cannot do this; word-level can,
 because the pauses between sentences exist inside Whisper's mega-segments even
 when the segmentation does not.
 
+**Cut early in the pause, not in the middle.** Where inside the pause matters
+as much as being in one. Leake et al. (SIGGRAPH 2017) measured dialogue scenes
+and put ~90% of a retained gap *before* the incoming line and ~10% after the
+outgoing one -- speech resumes almost as soon as the new shot lands, instead of
+both clips hanging in half a silence each. One position serves both boundary
+kinds: an out-point keeps a short tail after its last word, an in-point inherits
+the rest of the gap as lead-in, and because the two fractions sum to one, two
+clips cut at the same pause of the same take still reproduce continuous time.
+The tail never shrinks below a floor that covers trailing S/P sounds, which
+Whisper's word-end timestamps habitually clip.
+
 **Never give back the event.** The core span (§28) is protected: a start may
 not move meaningfully past the moment's first event, an end may not retreat
 meaningfully before its last. "Meaningfully" is ``core_give_seconds`` — event
@@ -75,15 +86,32 @@ class SpeechIndex:
     """Word runs and the pauses between them, for one recording.
 
     Built once per media and queried per boundary. ``pauses`` are candidate cut
-    positions: the midpoint of every inter-word gap at least ``min_pause`` long,
+    positions: one inside every inter-word gap at least ``min_pause`` long,
     plus a position just before the first word and just after the last —
     cutting right against a word's edge clips its breath.
+
+    The position inside a gap is ``pause_split`` of the way through it — 0.1
+    puts the cut just after the outgoing words, so an in-point lands with ~90%
+    of the gap as lead-in and speech resumes almost immediately (Leake et al.,
+    SIGGRAPH 2017). ``min_trailing`` floors the tail so the cut clears the
+    trailing consonants word-end timestamps clip; structurally the floor is
+    also held above ``WORD_PAD_SECONDS``, or the chosen position would itself
+    count as inside speech — values below that are clamped up, so the
+    effective minimum tail is ``WORD_PAD_SECONDS + 0.05``. A gap that cannot
+    hold the clearance on both sides yields no candidate at all: any position
+    inside it sits against a word's breath, which is the cut this index exists
+    to prevent, whatever ``min_pause`` was tuned down to.
     """
 
     __slots__ = ("_starts", "_words", "pauses")
 
     def __init__(
-        self, segments: Sequence[TranscriptSegment], min_pause: float
+        self,
+        segments: Sequence[TranscriptSegment],
+        min_pause: float,
+        *,
+        pause_split: float = 0.1,
+        min_trailing: float = 0.2,
     ) -> None:
         words: list[tuple[float, float]] = []
         for segment in segments:
@@ -98,12 +126,16 @@ class SpeechIndex:
         self._words = words
         self._starts = [start for start, _ in words]
 
+        clearance = max(min_trailing, WORD_PAD_SECONDS + 0.05)
         pauses: list[float] = []
         if words:
             pauses.append(words[0][0] - WORD_PAD_SECONDS - 0.05)
             for (_, left_end), (right_start, _) in pairwise(words):
-                if right_start - left_end >= min_pause:
-                    pauses.append((left_end + right_start) / 2.0)
+                gap = right_start - left_end
+                if gap < min_pause or gap < 2 * clearance:
+                    continue
+                tail = min(max(pause_split * gap, clearance), gap - clearance)
+                pauses.append(left_end + tail)
             pauses.append(words[-1][1] + WORD_PAD_SECONDS + 0.05)
         self.pauses = pauses
 
@@ -137,6 +169,8 @@ def refine(
     *,
     snap_window_seconds: float = 2.5,
     min_pause_seconds: float = 0.35,
+    pause_split: float = 0.1,
+    min_trailing_seconds: float = 0.2,
     core_give_seconds: float = 1.0,
     stretch_window_seconds: float = 4.0,
     duration_by_media: Mapping[str, float] | None = None,
@@ -158,7 +192,12 @@ def refine(
         return RefinementResult(tuple(moments), tuple(padded_beats[: len(moments)]), ())
 
     indexes = {
-        media_id: SpeechIndex(segments, min_pause_seconds)
+        media_id: SpeechIndex(
+            segments,
+            min_pause_seconds,
+            pause_split=pause_split,
+            min_trailing=min_trailing_seconds,
+        )
         for media_id, segments in speech_by_media.items()
     }
 

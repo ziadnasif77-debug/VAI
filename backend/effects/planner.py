@@ -210,6 +210,8 @@ class EffectPlanner:
                 multiplier = self._library.priority_multiplier(definition.effect, style)
                 if multiplier <= 0.0:
                     continue
+                if not self._has_required_evidence(definition, moment):
+                    continue
                 start = self._placement(moment, definition)
                 duration = self._duration(definition, moment, intensity, start)
                 if duration <= 0.0:
@@ -231,6 +233,25 @@ class EffectPlanner:
         # Strongest moments claim their effects first, so a budget spent early
         # is spent on the best material.
         return sorted(candidates, key=lambda item: (-item.priority, item.start_seconds))
+
+    @staticmethod
+    def _has_required_evidence(
+        definition: EffectDefinition, moment: PlannedMoment
+    ) -> bool:
+        """Whether the detected data an effect declares it needs actually exists.
+
+        ``require_detected_region`` means "drawn around something a detector
+        found" -- and the renderer's fallback is a centred default box, a
+        marker around nothing. ``require_event_count`` means "the event stream
+        carries a tally worth showing": one countable event is not a streak,
+        and the renderer's default would proudly display "x1". A moment type
+        alone can match the trigger list, so the guard has to live here, not
+        in the trigger match.
+        """
+        params = definition.spec.params
+        if params.get("require_detected_region") and not params.get("region"):
+            return False
+        return not params.get("require_event_count") or _countable(definition, moment) >= 2
 
     def _placement(self, moment: PlannedMoment, definition: EffectDefinition) -> float:
         """Where in the moment an effect belongs.
@@ -315,6 +336,22 @@ class EffectPlanner:
                 )
                 continue
 
+            params = self._library.params_for(candidate.effect, intensity)
+            if candidate.effect is EffectType.TEXT_POP and not params.get("text"):
+                # The renderer draws nothing without text, and the library has
+                # no way to know what happened. A detected event label -- or
+                # failing that the moment's own type -- is detected metadata,
+                # which keeps the config's "never invented" rule intact.
+                params["text"] = _pop_label(candidate, definition, params)
+            if params.get("require_event_count") and not params.get("count"):
+                # The evidence guard admitted this candidate because a tally
+                # exists; the renderer defaults an absent count to 1, so the
+                # tally has to travel or the guard was for nothing.
+                params["count"] = sum(
+                    1
+                    for event in candidate.matched_events
+                    if event.value in definition.spec.triggers.events
+                )
             instance = EffectInstance(
                 effect=candidate.effect,
                 engine=definition.engine,
@@ -323,7 +360,7 @@ class EffectPlanner:
                 duration_seconds=candidate.duration_seconds,
                 clip_id=candidate.clip_id,
                 moment_id=candidate.moment_id,
-                params=self._library.params_for(candidate.effect, intensity),
+                params=params,
                 strength=intensity,
                 reason=candidate.reason,
             )
@@ -381,6 +418,34 @@ class EffectPlanner:
                 return f"follows another {definition.category.value} effect too closely"
 
         return None
+
+
+def _countable(definition: EffectDefinition, moment: PlannedMoment) -> int:
+    """How many of the moment's events this effect's triggers can tally."""
+    listened = set(definition.spec.triggers.events)
+    return sum(1 for event in moment.events if event.value in listened)
+
+
+def _pop_label(
+    candidate: EffectCandidate, definition: EffectDefinition, params: dict[str, object]
+) -> str:
+    """The text a ``text_pop`` shows: a trigger-listed event, else the type.
+
+    Only an event this effect's triggers actually listen for may name it --
+    ``matched_events`` carries *all* of the moment's events, and on real
+    footage that is dominated by ``unexpected_event``, which as an on-screen
+    label would read as the software confessing.
+    """
+    listened = set(definition.spec.triggers.events)
+    named = next(
+        (event for event in candidate.matched_events if event.value in listened), None
+    )
+    label = named.value.replace("_", " ") if named else candidate.moment_type.value
+    limit = params.get("max_characters")
+    # bool is an int; YAML "max_characters: true" must not become a
+    # one-character label.
+    length = int(limit) if isinstance(limit, (int, float)) and not isinstance(limit, bool) else 24
+    return label.upper()[:length]
 
 
 __all__ = ["EffectPlanner", "PlannedMoment"]

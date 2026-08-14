@@ -92,6 +92,14 @@ narrative:
     stretch_window_seconds: 4.0 # further, in the direction that only adds context
     min_pause_seconds: 0.35     # the shortest inter-word gap worth cutting in
     core_give_seconds: 1.0      # slack into the core span; event edges carry detector slop
+    # Where inside the pause. 0.1 = cut just after the outgoing words, so the
+    # incoming clip inherits ~90% of the gap as lead-in and speech resumes
+    # almost immediately (Leake et al., SIGGRAPH 2017). 0.5 is the midpoint.
+    pause_split: 0.1
+    # Tail kept after the last word. Cannot drop below 0.2: the 0.15 word pad
+    # already covers trailing S/P sounds, and a cut inside the pad would read
+    # as mid-speech. Values under 0.2 are clamped up.
+    min_trailing_seconds: 0.2
 
   # Film grammar at the joins (§40). A hard cut says "continuous time", and a
   # chronological gaming edit jumps minutes at nearly every join -- the dip to

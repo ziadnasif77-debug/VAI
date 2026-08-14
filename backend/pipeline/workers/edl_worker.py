@@ -29,6 +29,7 @@ from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import EffectEngine, JobStage
 from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository
+from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.database.repositories.transcript import TranscriptRepository
 from backend.effects.models import EffectPlan
@@ -167,7 +168,21 @@ class EdlWorker:
         The planner works in timeline coordinates because an effect is placed in
         the finished video, not in the source recording -- so it is given the
         clips as they now sit, not the moments they came from.
+
+        The detected event types ride along. Every ``events:`` list in the
+        effects library was dead code while ``PlannedMoment.events`` stayed
+        empty -- event-triggered candidates never matched, ``text_pop`` could
+        only ever name the moment's type, and the evidence guards would reject
+        effects whose evidence genuinely existed one query away.
         """
+        events_by_moment = {
+            str(moment.metadata.get("id") or ""): [
+                event.event_type for event in moment.events
+            ]
+            for moment in MomentRepository(context.database).list_for_project(
+                context.project_id
+            )
+        }
         planned = [
             PlannedMoment(
                 id=clip.moment_id or clip.id,
@@ -175,6 +190,7 @@ class EdlWorker:
                 timeline_start=clip.timeline_start,
                 timeline_end=clip.timeline_end,
                 score=clip.score,
+                events=events_by_moment.get(clip.moment_id or "", []),
                 clip_id=clip.id,
             )
             for clip in timeline.video_clips()

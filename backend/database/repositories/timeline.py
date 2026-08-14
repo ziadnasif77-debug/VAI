@@ -21,12 +21,22 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from backend.core.ids import derived_id
-from backend.core.models.enums import MomentType, TrackKind, TransitionType
+from backend.core.logging import LogChannel, get_logger
+from backend.core.models.enums import (
+    EffectCategory,
+    EffectEngine,
+    EffectType,
+    MomentType,
+    TrackKind,
+    TransitionType,
+)
 from backend.database.connection import Database, dumps, loads
 from backend.effects.models import EffectInstance
 from backend.timeline import operations
 from backend.timeline.captions import Caption
 from backend.timeline.models import Timeline, TimelineClip, Track
+
+logger = get_logger("database.timeline", LogChannel.APPLICATION)
 
 _CLIP_COLUMNS = (
     "id, project_id, media_id, moment_id, track, clip_index, source_in, source_out, "
@@ -318,6 +328,59 @@ class TimelineRepository:
         )
         return int(row["total"]) if row is not None else 0
 
+    def list_effects(self, project_id: str) -> list[EffectInstance]:
+        """The stored effect plan, ready for either renderer.
+
+        The writer existed from Phase 8 and nothing ever read the rows back:
+        seventeen planned effects across three real projects reached the
+        database and not one reached the finished video. This is the reader.
+
+        Times come back exactly as stored -- clip-relative when ``clip_id`` is
+        set -- which is the convention :class:`EffectInstance` documents and
+        both renderers expect. Rows that no longer parse (an effect type or
+        engine removed from the library) are skipped with a warning rather than
+        failing the render: a stale decoration is not worth losing the video.
+        """
+        rows = self._db.fetch_all(
+            f"SELECT {_EFFECT_COLUMNS} FROM timeline_effects "
+            "WHERE project_id = ? AND enabled = 1 "
+            "ORDER BY start_seconds",
+            (project_id,),
+        )
+        effects: list[EffectInstance] = []
+        for row in rows:
+            params = loads(row["parameters"]) or {}
+            try:
+                strength = params.pop("instance_strength", None)
+                if strength is None:
+                    # Rows written before the reserved key existed carried the
+                    # instance strength under "strength" -- clobbering any
+                    # like-named library magnitude, which is why the key moved.
+                    # Popped, not read: leaving it in params would hand the
+                    # instance value to a renderer as if it were the magnitude,
+                    # and make the same effect hash differently before and
+                    # after a re-plan rewrites the row.
+                    strength = params.pop("strength", 1.0)
+                effects.append(
+                    EffectInstance(
+                        effect=EffectType(row["effect_type"]),
+                        engine=EffectEngine(params.pop("engine")),
+                        category=EffectCategory(params.pop("category")),
+                        start_seconds=max(0.0, float(row["start_seconds"])),
+                        duration_seconds=float(row["duration_seconds"]),
+                        clip_id=row["clip_id"],
+                        params=params,
+                        strength=min(1.0, max(0.0, float(strength))),
+                        reason=str(params.pop("reason", "")),
+                    )
+                )
+            except (KeyError, ValueError, TypeError) as error:
+                logger.warning(
+                    "Skipped a stored effect row that no longer parses",
+                    extra={"effect_id": row["id"], "error": str(error)[:120]},
+                )
+        return effects
+
     # -- internals ------------------------------------------------------
 
     def _enabled_states(self, project_id: str) -> dict[str, bool]:
@@ -385,7 +448,10 @@ class TimelineRepository:
                         **effect.params,
                         "engine": effect.engine.value,
                         "category": effect.category.value,
-                        "strength": effect.strength,
+                        # Reserved key: "strength" is also a library magnitude
+                        # (blur, glow), and writing the instance strength over
+                        # it stored 0.6 where the scaled 0.24 belonged.
+                        "instance_strength": effect.strength,
                         "reason": effect.reason,
                     }
                 ),
