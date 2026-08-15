@@ -16,7 +16,16 @@ application:
 
   directories:
     projects: projects
-    models: models
+    # Model weights are **shared between the projects on this machine**, so
+    # this may be — and on this machine is — an absolute path outside the
+    # repository. A 4.4 GB Whisper checkpoint downloaded once serves every
+    # project that transcribes; a project-local copy is the same gigabytes
+    # again. The relative default keeps a fresh clone self-contained.
+    #
+    # Ollama's own store is separate and is not ours to place: it lives
+    # wherever the machine's OLLAMA_MODELS says (F:\Models here). See
+    # docs/SHARED_MODELS.md.
+    models: D:/Models/huggingface
     logs: logs
     cache: .cache
     profiles: profiles

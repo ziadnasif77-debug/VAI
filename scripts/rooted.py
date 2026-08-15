@@ -69,6 +69,62 @@ WRITES_INTO = (
 )
 
 
+def shared_model_root() -> Path:
+    """Where model weights live for **every** project on this machine.
+
+    Model weights are shared infrastructure. One 4.4 GB Whisper checkpoint
+    serves every project that transcribes; a project-local copy is those
+    gigabytes again for nothing, which is why the same mistake with Ollama's
+    store cost 36 GB across two drives.
+
+    The application reads this from ``application.directories.models``, and so
+    does this module — because two sources of truth for one directory is how
+    the launcher and the application end up pointing at different stores. The
+    environment override wins first (the loader honours it too), then the
+    configured value, then ``models/`` inside the repository, which is what a
+    fresh clone on an unknown machine should do.
+
+    This is **not** the Ollama store and the two must never be confused:
+    Ollama's lives wherever ``OLLAMA_MODELS`` says, and is never set here.
+    This is the Hugging Face / faster-whisper side — the weights this
+    application downloads for itself.
+    """
+    override = os.environ.get("VAI__APPLICATION__DIRECTORIES__MODELS", "").strip()
+    for value in (override, _configured_models_dir()):
+        if value:
+            candidate = Path(value).expanduser()
+            if candidate.is_absolute():
+                return candidate
+    return ROOT / "models"
+
+
+def _configured_models_dir() -> str:
+    """``application.directories.models`` from the YAML, read without a parser.
+
+    This module deliberately imports nothing beyond the standard library —
+    the launcher runs it before the virtual environment exists, so PyYAML is
+    not available and cannot be. One key is worth a five-line scan; anything
+    more would be a parser, and a parser belongs in the loader.
+    """
+    path = ROOT / "config" / "application.yaml"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    inside = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("directories:"):
+            inside = True
+            continue
+        if inside:
+            if stripped and not line.startswith((" ", "\t")):
+                break  # left the block
+            if stripped.startswith("models:"):
+                return stripped.split(":", 1)[1].split("#", 1)[0].strip().strip("\"'")
+    return ""
+
+
 def tool_directories() -> list[Path]:
     """Bundled tool directories that exist, in the order they should be found."""
     return [path for path in (TOOLS / "ffmpeg", TOOLS / "node") if path.is_dir()]
@@ -93,8 +149,13 @@ def environment(base: dict[str, str] | None = None) -> dict[str, str]:
     # kept when it already points off the system drive. This machine had
     # HF_HOME on D: before any of this existed; overriding it would have
     # re-downloaded Whisper's weights to say the same thing twice.
-    _keep_or_root(env, "HF_HOME", ROOT / ".cache" / "hf")
-    _keep_or_root(env, "TORCH_HOME", ROOT / ".cache" / "torch")
+    #
+    # The fallback is the *shared* model root rather than a folder inside this
+    # repository. Weights are shared infrastructure: one 4.4 GB Whisper
+    # checkpoint serves every project on the machine that transcribes, and a
+    # project-local copy is those gigabytes again for nothing.
+    _keep_or_root(env, "HF_HOME", shared_model_root())
+    _keep_or_root(env, "TORCH_HOME", shared_model_root() / "torch")
     # Remotion downloads a Chromium; the default is the user profile.
     env.setdefault("REMOTION_BROWSER_DOWNLOAD_DIR", str(ROOT / "remotion" / ".browser"))
     env.setdefault("PUPPETEER_CACHE_DIR", str(ROOT / "remotion" / ".browser"))

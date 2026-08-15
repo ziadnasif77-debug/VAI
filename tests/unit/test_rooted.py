@@ -41,11 +41,17 @@ class TestSharedResourcesAreNotClaimed:
 
         assert env["OLLAMA_MODELS"] == r"F:\Models"
 
-    def test_no_model_path_is_invented_anywhere_in_the_environment(self) -> None:
-        # A default that reappears under another name is the same defect.
+    def test_no_ollama_store_is_invented_under_another_name(self) -> None:
+        # A default that reappears under a different variable is the same
+        # defect. The Hugging Face root is a separate thing this application
+        # does download into and may legitimately name; Ollama's store is not.
         env = rooted.environment({"PATH": ""})
 
-        assert not any("Models" in value for value in env.values())
+        assert "OLLAMA_MODELS" not in env
+        assert not any(
+            "blobs" in value or value.rstrip("\\/").endswith("Models")
+            for value in env.values()
+        )
 
     def test_the_report_says_unset_rather_than_guessing(self, monkeypatch) -> None:
         monkeypatch.delenv("OLLAMA_MODELS", raising=False)
@@ -79,6 +85,26 @@ class TestWhatThisApplicationDoesOwn:
         assert Path(env["PIP_CACHE_DIR"]).is_relative_to(rooted.ROOT)
         assert Path(env["NPM_CONFIG_CACHE"]).is_relative_to(rooted.ROOT)
 
+    def test_the_launcher_and_the_application_read_one_root(self) -> None:
+        # Two sources of truth for one directory is how a launcher and an
+        # application end up pointing at different stores, and this repository
+        # has already paid for that mistake once at 36 GB. rooted.py scans the
+        # single configured key out of the YAML rather than keeping a default
+        # of its own — without a parser, because it runs before the virtual
+        # environment exists.
+        from backend.config.loader import load_config
+        from backend.config.paths import build_paths
+
+        assert rooted.shared_model_root() == build_paths(load_config()).models_dir
+
+    def test_model_caches_fall_back_to_the_shared_root(self) -> None:
+        # Not a folder inside the repository: one 4.4 GB Whisper checkpoint
+        # serves every project on the machine that transcribes.
+        env = rooted.environment({"PATH": ""})
+
+        assert Path(env["HF_HOME"]) == rooted.shared_model_root()
+        assert Path(env["TORCH_HOME"]).is_relative_to(rooted.shared_model_root())
+
     def test_a_cache_already_off_the_system_drive_is_left_alone(self) -> None:
         # Re-rooting a multi-gigabyte cache that is already obeying the rule
         # costs a re-download and buys nothing.
@@ -88,10 +114,15 @@ class TestWhatThisApplicationDoesOwn:
         assert env["HF_HOME"] == existing
 
     def test_a_cache_on_the_system_drive_is_moved(self) -> None:
+        # Off the system drive, which is what the rule is for -- and to the
+        # shared model root rather than into the repository, because weights
+        # are shared infrastructure.
         system = os.environ.get("SYSTEMDRIVE", "C:")
         env = rooted.environment({"PATH": "", "HF_HOME": f"{system}\\Users\\x\\.cache"})
 
-        assert Path(env["HF_HOME"]).is_relative_to(rooted.ROOT)
+        moved = Path(env["HF_HOME"])
+        assert moved == rooted.shared_model_root()
+        assert moved.drive.upper() != system.upper()
 
     def test_the_bundled_tools_come_first_on_the_path(self) -> None:
         env = rooted.environment({"PATH": r"C:\Windows"})

@@ -120,16 +120,36 @@ same five manifests, same twenty-two blobs, same 36.4 GB, with `F:` carrying
 today's timestamp and the machine's own `OLLAMA_MODELS`. **Reclaimed 36.7 GB**
 (D: free 1208.5 → 1245.2 GB); Ollama still serves all five models.
 
-### 5.2 Move Whisper's weights out of the project (small)
+### 5.2 Move Whisper's weights out of the project — **done, 2026-08-15**
 
-`D:\VAI\models` holds 4.4 GB of Hugging Face-format Whisper weights, and
-`HF_HOME` points at a fourth root. §1 forbids project-local copies. Both should
-resolve under the shared repository — `F:\Models\huggingface` or similar — so a
-second project transcribing does not download the same 4.4 GB again.
+`D:\VAI\models` held 4.4 GB of Hugging Face-format Whisper weights inside the
+repository, which §1 forbids: a second project that transcribes would download
+the same checkpoint again.
 
-Note the constraint this must respect: F: has **67 GB free** against D:'s 1.2 TB.
-The shared repository is on the smallest data drive on the machine, and it
-already holds 36 GB. That is worth a decision before more is moved onto it.
+They now live at **`D:\Models\huggingface`**, and the drive is a deliberate
+choice rather than the obvious one. F: is the shared repository, but it has
+**67 GB free** against D:'s 1.2 TB and already holds 36 GB of Ollama models.
+So the shared model store is split across two drives by capacity:
+
+```
+F:\Models              Ollama's store   (36 GB)  — where OLLAMA_MODELS points
+D:\Models\huggingface  HF / Whisper     (4.4 GB) — application.directories.models
+```
+
+Both the application and the launcher read one value:
+`application.directories.models`. `scripts/rooted.py` scans that single key out
+of the YAML without a parser — it runs before the virtual environment exists,
+so PyYAML is not available to it — rather than keeping a second default that
+could drift. `HF_HOME` and `TORCH_HOME` fall back to the same root, so anything
+else Hugging Face downloads lands beside it instead of inside the repository.
+
+Verified: `faster_whisper.utils.download_model(..., local_files_only=True)`
+resolves to `D:\Models\huggingface\models--mobiuslabsgmbh--faster-whisper-
+large-v3-turbo\snapshots\0a363e9…` with `model.bin` at 1618 MB — offline, no
+re-download.
+
+The relative default (`models`) is unchanged, so a fresh clone on an unknown
+machine stays self-contained.
 
 ### 5.3 Ask the runtime instead of assuming (medium)
 
