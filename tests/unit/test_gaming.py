@@ -157,8 +157,19 @@ class TestDetectorsWithoutAProfile:
         ]
 
     def test_an_unmapped_label_claims_nothing(self) -> None:
-        # A label the taxonomy has no event for must not become one.
-        assert detectors.observations_from_vision([_observation(5.0, ("driving",))]) == []
+        # A label the taxonomy has no event for must not become one. It now
+        # travels as context so Phase 0.2 can read it beside a signal -- but
+        # it claims nothing on its own and correlation must never promote it.
+        found = detectors.observations_from_vision([_observation(5.0, ("driving",))])
+
+        assert [item.event_type for item in found] == [GameEventType.UNEXPECTED_EVENT]
+        assert all(item.context_only for item in found)
+        assert correlate(found) == [], "a description of the screen is not an event"
+
+    def test_a_screen_state_label_is_not_even_context(self) -> None:
+        # `menu` and `loading` are frame_state's business. Letting a menu
+        # corroborate an event would be the opposite of what it means.
+        assert detectors.observations_from_vision([_observation(5.0, ("menu",))]) == []
 
     def test_prose_is_never_parsed_for_decisions(self) -> None:
         # §93: pipeline decisions never come from uncontrolled prose.
@@ -430,6 +441,118 @@ class TestCorrelation:
 
     def test_nothing_in_produces_nothing_out(self) -> None:
         assert correlate([]) == []
+
+
+class TestEvidenceFusion:
+    """Phase 0.2: naming an instant no single detector could name.
+
+    Measured before this existed: 61% and 70% of correlated events on two real
+    recordings were ``unexpected_event``, and 63 of one recording's 116 events
+    were ``["audio", "scene"]`` clusters — a waveform transient beside a shot
+    change, neither of which may claim anything on its own, and correctly so.
+    The same transient *while the vision model reports ``combat``* is something
+    a person names without hesitating.
+    """
+
+    @staticmethod
+    def _observation(at, source, confidence=0.7, event_type=None, **detail):
+        return detectors.EventObservation(
+            event_type=event_type or GameEventType.UNEXPECTED_EVENT,
+            start_seconds=at,
+            end_seconds=at + 0.5,
+            source=source,
+            confidence=confidence,
+            detail=detail,
+        )
+
+    def test_combat_seen_and_heard_is_named(self) -> None:
+        events = correlate(
+            [
+                self._observation(100.0, detectors.AUDIO, 0.8),
+                self._observation(100.3, detectors.SCENE, 0.25),
+                self._observation(100.1, detectors.VISION, 0.7, label="combat"),
+            ]
+        )
+
+        assert len(events) == 1
+        assert events[0].event_type is GameEventType.COMBAT
+        assert events[0].metadata["named_by"] == "fusion:combat_seen_and_heard"
+
+    def test_a_spike_beside_a_shot_change_stays_unnamed(self) -> None:
+        # The honest answer, and still a common one. Nothing looked at the
+        # screen, so nothing may say what was on it.
+        events = correlate(
+            [
+                self._observation(200.0, detectors.AUDIO, 0.8),
+                self._observation(200.4, detectors.SCENE, 0.25),
+            ]
+        )
+
+        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
+        assert "named_by" not in events[0].metadata
+
+    def test_a_detector_that_could_see_is_never_overridden(self) -> None:
+        # A victory banner read off the screen outranks an inference from a
+        # label and a spike, however much evidence the inference has.
+        events = correlate(
+            [
+                self._observation(300.0, detectors.OCR, 0.7, event_type=GameEventType.VICTORY),
+                self._observation(300.2, detectors.AUDIO, 0.9),
+                self._observation(300.1, detectors.VISION, 0.9, label="combat"),
+            ]
+        )
+
+        assert events[0].event_type is GameEventType.VICTORY
+        assert "named_by" not in events[0].metadata
+
+    def test_a_rule_records_what_it_read(self) -> None:
+        # §21: an event nobody detected has to explain itself from the row.
+        events = correlate(
+            [
+                self._observation(400.0, detectors.AUDIO, 0.8),
+                self._observation(400.2, detectors.SCENE, 0.3),
+                self._observation(400.1, detectors.VISION, 0.75, label="driving"),
+            ]
+        )
+
+        assert events[0].event_type is GameEventType.COLLISION
+        assert events[0].metadata["fusion_evidence"] == {"driving": 0.75}
+
+    def test_an_uncertain_label_does_not_name_anything(self) -> None:
+        # A label the model reported at 0.2 is the model saying it does not
+        # know; naming a collision from it would be inventing evidence.
+        events = correlate(
+            [
+                self._observation(500.0, detectors.AUDIO, 0.8),
+                self._observation(500.2, detectors.SCENE, 0.3),
+                self._observation(500.1, detectors.VISION, 0.2, label="driving"),
+            ]
+        )
+
+        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
+
+    def test_a_missing_source_does_not_name_anything(self) -> None:
+        # Driving and a shot change with nothing heard is a camera cut in a
+        # car, which happens constantly in an open-world recording.
+        events = correlate(
+            [
+                self._observation(600.2, detectors.SCENE, 0.3),
+                self._observation(600.1, detectors.VISION, 0.8, label="driving"),
+            ]
+        )
+
+        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
+
+    def test_rules_can_be_turned_off_entirely(self) -> None:
+        events = correlate(
+            [
+                self._observation(700.0, detectors.AUDIO, 0.8),
+                self._observation(700.1, detectors.VISION, 0.7, label="combat"),
+            ],
+            fusion_rules=(),
+        )
+
+        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
 
 
 class TestEndToEndDetection:

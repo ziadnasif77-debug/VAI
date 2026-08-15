@@ -15,6 +15,12 @@ moments:
     max_event_gap_seconds: 12.0
     min_moment_seconds: 4.0
     max_moment_seconds: 180.0
+    # A moment whose core is mostly a menu, a loading screen or a cutscene is
+    # not a moment. The vision model labels those frames and nothing read the
+    # labels: the content QA reported 40 such moments in one finished video.
+    # Context may still touch one -- a loading screen either side of a mission
+    # start is honest -- so only the core span is measured. 1.0 disables it.
+    max_non_gameplay_core_overlap: 0.25
 
   # Context expansion (§29). Adaptive, not a fixed +/- 20 seconds.
   context:

@@ -18,9 +18,15 @@ from __future__ import annotations
 import pytest
 
 from ai.providers.base import TranscriptSegment
+from backend.analysis import frame_state
 from backend.analysis.audio_events import GAMEPLAY, MICROPHONE, AudioEvent
 from backend.analysis.scenes import Scene
-from backend.core.models.enums import AudioEventType, GameEventType, MomentType
+from backend.core.models.enums import (
+    AudioEventType,
+    FrameState,
+    GameEventType,
+    MomentType,
+)
 from backend.gaming.correlation import GameEvent
 from backend.moments.context import ROLL_SHAPE, ExpansionSources, expand
 from backend.moments.dead_time import dead_time_ratio, detect_dead_time
@@ -640,3 +646,157 @@ class TestMenuFramesAndTheVisualScore:
         no_menus = self._visual_for([("combat",), ("combat",)], config)
 
         assert some_menus < no_menus
+
+
+class TestFrameStateKeepsMenusOutOfTheEdit:
+    """Phase 0.6: the labels were always there, and nothing read them.
+
+    Lowering a menu clip's *score* was the first half of this fix and was not
+    enough — a menu moment with a loud audio spike still outscored quiet
+    gameplay. The content QA kept reporting them after the render: 40 moments
+    in one real project, 22 in another. The evidence to reject every one was
+    sitting in `vision_observations` when the edit was built.
+    """
+
+    @staticmethod
+    def _observation(timestamp: float, labels: tuple[str, ...], confidence: float = 0.9):
+        from ai.providers.base import VisionObservation
+        from backend.database.repositories.vision import StoredObservation
+
+        return StoredObservation(
+            observation=VisionObservation(
+                timestamp=timestamp,
+                description=" ".join(labels),
+                labels=labels,
+                confidence=confidence,
+            ),
+            region_start=None, region_end=None, sources=(),
+            model_name="m", model_version="1", prompt_id=None, prompt_version=None,
+        )
+
+    def _spans(self, *frames: tuple[float, tuple[str, ...]]):
+        return frame_state.non_gameplay(
+            frame_state.spans(
+                [self._observation(at, labels) for at, labels in frames],
+                duration_seconds=600.0,
+            )
+        )
+
+    def test_a_moment_inside_a_menu_is_not_a_moment(self, config) -> None:
+        spans = self._spans((100.0, ("menu",)), (104.0, ("menu",)), (108.0, ("menu",)))
+
+        formed = form_moments(
+            [_event(GameEventType.UNEXPECTED_EVENT, 102.0)],
+            config.moments.formation,
+            media_id="m",
+            non_gameplay=spans,
+        )
+
+        assert formed == []
+
+    def test_gameplay_beside_a_menu_survives(self, config) -> None:
+        # The menu ends and the mission starts. Rejecting this would cost
+        # exactly the clips a highlight video is made of.
+        spans = self._spans((100.0, ("menu",)), (104.0, ("menu",)))
+
+        formed = form_moments(
+            [_event(GameEventType.KILL, 140.0)],
+            config.moments.formation,
+            media_id="m",
+            non_gameplay=spans,
+        )
+
+        assert len(formed) == 1
+
+    def test_an_unlabelled_stretch_is_not_a_menu(self, config) -> None:
+        # A frame nobody labelled is not evidence of a menu, and treating it
+        # as one would silently drop footage for lack of a label.
+        spans = self._spans((100.0, ()), (104.0, ()))
+
+        formed = form_moments(
+            [_event(GameEventType.UNEXPECTED_EVENT, 102.0)],
+            config.moments.formation,
+            media_id="m",
+            non_gameplay=spans,
+        )
+
+        assert len(formed) == 1
+
+    def test_the_overlap_is_recorded_on_survivors(self, config) -> None:
+        # §80: a moment that is a quarter menu is worth knowing about in
+        # review, and the number is what makes the threshold arguable.
+        spans = self._spans((100.0, ("loading",)))
+
+        formed = form_moments(
+            [_event(GameEventType.KILL, 100.0, duration=30.0)],
+            config.moments.formation,
+            media_id="m",
+            non_gameplay=spans,
+        )
+
+        assert len(formed) == 1
+        assert 0.0 < formed[0].metadata["non_gameplay_ratio"] < 0.25
+
+    def test_a_menu_over_gameplay_is_still_a_menu(self) -> None:
+        # An inventory screen drawn over a firefight is unusable footage; the
+        # gameplay label underneath does not rescue it.
+        assert frame_state.state_for(("combat", "menu")) is FrameState.MENU
+        assert frame_state.state_for(("combat",)) is FrameState.GAMEPLAY
+
+    def test_overlapping_spans_are_counted_once(self) -> None:
+        # Two observations a second apart, each padded either side. Counted
+        # naively that is more menu than the window contains.
+        spans = self._spans((100.0, ("menu",)), (101.0, ("menu",)))
+        covered = spans[0]
+
+        assert frame_state.overlap_ratio(90.0, 120.0, spans) <= 1.0
+        assert frame_state.overlap_ratio(
+            covered.start_seconds, covered.end_seconds, spans
+        ) == pytest.approx(1.0)
+
+    def test_a_lone_reading_is_weaker_than_an_agreeing_run(self) -> None:
+        # One frame is evidence about one instant. Three readings agreeing
+        # across a stretch are evidence the stretch was a menu -- and the
+        # rule must not have it backwards, which it did: a lone `loading`
+        # frame padded four seconds either side rejected the only moment in
+        # a whole project.
+        lone = self._spans((100.0, ("menu",)))
+        run = self._spans((100.0, ("menu",)), (106.0, ("menu",)), (112.0, ("menu",)))
+
+        assert frame_state.longest_overlap_ratio(95.0, 125.0, lone) < 0.15
+        assert frame_state.longest_overlap_ratio(95.0, 125.0, run) > 0.4
+
+    def test_scattered_menu_frames_do_not_reject_a_moment(self, config) -> None:
+        # The measured failure this rule replaced: summing scattered readings
+        # reaches the same fraction as one real block, and rejected every
+        # moment in the test project.
+        spans = self._spans(
+            (6.0, ("loading",)),
+            (12.0, ("menu",)),
+            (22.0, ("loading",)),
+            (28.0, ("menu",)),
+        )
+
+        formed = form_moments(
+            [_event(GameEventType.VICTORY, 4.75, duration=27.0)],
+            config.moments.formation,
+            media_id="m",
+            non_gameplay=spans,
+        )
+
+        assert len(formed) == 1
+
+    def test_the_guard_can_be_disabled(self, config) -> None:
+        formation = config.moments.formation.model_copy(
+            update={"max_non_gameplay_core_overlap": 1.0}
+        )
+        spans = self._spans((100.0, ("menu",)), (104.0, ("menu",)))
+
+        formed = form_moments(
+            [_event(GameEventType.UNEXPECTED_EVENT, 102.0)],
+            formation,
+            media_id="m",
+            non_gameplay=spans,
+        )
+
+        assert len(formed) == 1

@@ -167,7 +167,44 @@ class GameEventType(str, Enum):
     COMEBACK = "comeback"
     FAIL = "fail"
     FUNNY_MOMENT = "funny_moment"
+    # -- open-world vocabulary (Phase 0.2) --------------------------------
+    # The shooter words above (kill, multi_kill, clutch) have never been
+    # detected on this footage and honestly cannot be: an open-world game has
+    # no kill feed to read. What the evidence *can* support is that a fight
+    # was on screen while something was heard, or that a vehicle hit something.
+    COMBAT = "combat"
+    COLLISION = "collision"
     UNEXPECTED_EVENT = "unexpected_event"
+
+
+class FrameState(str, Enum):
+    """What a frame is showing, as opposed to what is happening in it.
+
+    Gameplay is the only state a highlight can be made of, and the vision
+    model has been reporting the others all along -- ``menu``, ``loading`` and
+    ``cutscene`` are three of the ten labels its prompt asks for. Nothing read
+    them, so menus were edited into finished videos and the content QA
+    reported them afterwards: 40 such moments in one real project.
+    """
+
+    GAMEPLAY = "gameplay"
+    MENU = "menu"
+    LOADING = "loading"
+    CUTSCENE = "cutscene"
+    HUD_ONLY = "hud_only"
+    PAUSE = "pause"
+    TRANSITION = "transition"
+    UNKNOWN = "unknown"
+
+    @property
+    def is_gameplay(self) -> bool:
+        """Whether footage in this state can carry a highlight.
+
+        ``UNKNOWN`` counts as gameplay: an unlabelled frame is not evidence of
+        a menu, and excluding it would silently drop footage for lack of a
+        label rather than because of one.
+        """
+        return self in (FrameState.GAMEPLAY, FrameState.HUD_ONLY, FrameState.UNKNOWN)
 
 
 class MomentType(str, Enum):

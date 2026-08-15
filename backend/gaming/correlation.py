@@ -34,6 +34,7 @@ from typing import Any, Final
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import GameEventType
 from backend.gaming.events import EventObservation
+from backend.gaming.fusion import GENERIC_RULES, Fused, FusionRule, classify
 
 logger = get_logger("gaming.correlation", LogChannel.PIPELINE)
 
@@ -110,6 +111,7 @@ def correlate(
     window_seconds: float = DEFAULT_WINDOW_SECONDS,
     game_profile: str | None = None,
     min_confidence: float = 0.0,
+    fusion_rules: Sequence[FusionRule] = GENERIC_RULES,
 ) -> list[GameEvent]:
     """Merge agreeing observations into events (§27).
 
@@ -122,6 +124,9 @@ def correlate(
             claims about the same event (§49).
         min_confidence: events below this are dropped. An event nobody is
             confident about costs the moment detector time and adds noise.
+        fusion_rules: Phase 0.2's evidence table, consulted only when no
+            detector could name a cluster. A profile passes its own rules
+            ahead of the generic ones.
 
     Returns events in chronological order.
     """
@@ -129,21 +134,39 @@ def correlate(
     if not ordered:
         return []
 
-    clusters = _cluster(ordered, window_seconds)
+    # A cluster of nothing but screen descriptions is not an event. The vision
+    # detector reports what it saw at every analysed frame, and a run of "the
+    # player is riding across a field" observations must not become a hundred
+    # events -- it is context for the instants where something was also heard.
+    clusters = [
+        cluster
+        for cluster in _cluster(ordered, window_seconds)
+        if any(not item.context_only for item in cluster)
+    ]
     events = [
         event
         for cluster in clusters
-        if (event := _to_event(cluster, game_profile)).confidence >= min_confidence
+        if (event := _to_event(cluster, game_profile, fusion_rules)).confidence
+        >= min_confidence
     ]
     events.sort(key=lambda event: event.start_seconds)
 
+    named = sum(1 for event in events if event.is_named)
     logger.info(
         "Correlated observations into events",
         extra={
             "observations": len(ordered),
             "clusters": len(clusters),
             "events": len(events),
-            "named": sum(1 for event in events if event.is_named),
+            "named": named,
+            # Phase 0.5's headline metric: what fraction of what happened the
+            # pipeline could put a name to. Measured at 0.30-0.39 before fusion.
+            "named_event_ratio": round(named / len(events), 4) if events else 0.0,
+            "fused": sum(
+                1
+                for event in events
+                if str(event.metadata.get("named_by", "")).startswith("fusion:")
+            ),
             "multi_source": sum(1 for event in events if event.agreement > 1),
         },
     )
@@ -173,11 +196,22 @@ def _cluster(
 
 
 def _to_event(
-    cluster: Sequence[EventObservation], game_profile: str | None
+    cluster: Sequence[EventObservation],
+    game_profile: str | None,
+    rules: Sequence[FusionRule] = GENERIC_RULES,
 ) -> GameEvent:
     """Turn one cluster into a single event."""
     sources = tuple(sorted({item.source for item in cluster}))
     event_type = _resolve_type(cluster)
+
+    # Phase 0.2: no detector could name this instant, but the evidence together
+    # might. Only reached when the resolved type is generic, so a source that
+    # could actually see -- a profile's kill feed, a victory banner -- is never
+    # overridden by an inference.
+    fused = classify(cluster, rules=rules) if event_type in GENERIC_TYPES else None
+    if fused is not None:
+        return _fused_event(cluster, fused, sources, game_profile)
+
     supporting = [item for item in cluster if item.event_type is event_type]
 
     # Two kinds of agreement, worth different amounts. A source that agrees on
@@ -190,15 +224,19 @@ def _to_event(
     corroborating = {
         item.source
         for item in cluster
-        if item.event_type in GENERIC_TYPES and item.source not in agreeing
+        if item.event_type in GENERIC_TYPES
+        and item.source not in agreeing
+        # A screen description corroborates nothing by itself: the vision model
+        # reports one at every analysed frame, so counting them would raise the
+        # confidence of every event that happened to sit near a keyframe.
+        and not item.context_only
     }
     confidence = _combine(
         [item.confidence for item in supporting],
         agreeing_sources=len(agreeing),
         corroborating_sources=len(corroborating),
     )
-    start = min(item.start_seconds for item in cluster)
-    end = max(item.end_seconds for item in cluster)
+    start, end = _span_of(cluster)
 
     return GameEvent(
         event_type=event_type,
@@ -223,6 +261,64 @@ def _to_event(
             "correlated_at": datetime.now(timezone.utc).isoformat(),
         },
     )
+
+
+def _fused_event(
+    cluster: Sequence[EventObservation],
+    fused: Fused,
+    sources: tuple[str, ...],
+    game_profile: str | None,
+) -> GameEvent:
+    """Build the event a fusion rule named.
+
+    Confidence is the rule's own, raised by how many sources were in the
+    bundle -- the same diminishing-returns curve every other event uses, so a
+    fused event and a detected one can be compared without knowing which is
+    which. The rule and what it read are recorded, because an event nobody
+    detected has to be able to explain itself (§21, §80).
+    """
+    start, end = _span_of(cluster)
+    confidence = _combine(
+        [fused.confidence], agreeing_sources=len(sources), corroborating_sources=0
+    )
+    return GameEvent(
+        event_type=fused.event_type,
+        start_seconds=start,
+        end_seconds=max(end, start),
+        confidence=confidence,
+        importance=_importance(fused.event_type, confidence, len(sources)),
+        sources=sources,
+        game_profile=game_profile,
+        metadata={
+            "observations": len(cluster),
+            "named_by": f"fusion:{fused.rule}",
+            "fusion_evidence": fused.evidence,
+            "detail": [
+                {
+                    "source": item.source,
+                    "type": item.event_type.value,
+                    "confidence": round(item.confidence, 3),
+                    **item.detail,
+                }
+                for item in cluster
+            ],
+            "correlated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+def _span_of(cluster: Sequence[EventObservation]) -> tuple[float, float]:
+    """When the event happened, from the observations that claim it happened.
+
+    A screen description explains an event; it does not lengthen one. Letting
+    context set the bounds stretched every event towards the nearest analysed
+    keyframe, which merged neighbouring events into longer groups and cost a
+    third of one recording's candidate clips in a measurement.
+    """
+    claiming = [item for item in cluster if not item.context_only] or list(cluster)
+    start = min(item.start_seconds for item in claiming)
+    end = max(item.end_seconds for item in claiming)
+    return start, max(end, start)
 
 
 def _resolve_type(cluster: Sequence[EventObservation]) -> GameEventType:
@@ -306,6 +402,11 @@ _BASE_IMPORTANCE: Final[dict[GameEventType, float]] = {
     GameEventType.LOW_HEALTH: 0.55,
     GameEventType.BOSS_FIGHT: 0.7,
     GameEventType.RARE_EVENT: 0.6,
+    # Named by fusion rather than by a detector that could see, so weighted
+    # below the read-from-screen types and above the unnamed ones.
+    GameEventType.COMBAT: 0.6,
+    GameEventType.COLLISION: 0.55,
+    GameEventType.CHASE: 0.65,
     GameEventType.UNEXPECTED_EVENT: 0.4,
 }
 

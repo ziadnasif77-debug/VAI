@@ -61,6 +61,25 @@ _LABEL_EVENTS: Final[dict[str, GameEventType]] = {
     "boss_health": GameEventType.BOSS_FIGHT,
 }
 
+#: Labels that describe gameplay without naming an event. They become context
+#: observations: evidence a fusion rule can read, never a claim on their own.
+#: Screen states (``menu``, ``loading``, ``cutscene``) are deliberately absent
+#: — those are handled by :mod:`backend.analysis.frame_state`, and letting a
+#: menu corroborate an event would be the opposite of what it means.
+_CONTEXT_LABELS: Final[frozenset[str]] = frozenset(
+    {
+        "combat",
+        "driving",
+        "exploration",
+        "navigation",
+        "interaction",
+        "resource_gathering",
+        "quest",
+        "dialogue",
+        "gameplay",
+    }
+)
+
 #: Text that means the same thing in most games, for the no-profile path (§23).
 #: English only, and only words whose meaning does not depend on the game.
 _GENERIC_TEXT_EVENTS: Final[tuple[tuple[str, GameEventType, float], ...]] = (
@@ -91,6 +110,12 @@ class EventObservation:
     source: str
     confidence: float
     detail: dict[str, Any] = field(default_factory=dict)
+    #: Evidence *about* an instant rather than a claim that something happened
+    #: there. A frame labelled ``combat`` describes the screen; on its own it
+    #: is not an event, and §27 must not let a stream of them become one. It
+    #: still travels into the cluster, because Phase 0.2's fusion rules name
+    #: instants precisely by reading a description alongside a signal.
+    context_only: bool = False
 
     @property
     def midpoint(self) -> float:
@@ -109,23 +134,33 @@ def observations_from_vision(
     Only labels map to types. The free-text description is evidence a human can
     read and the LLM will use later, but §93 forbids taking a pipeline decision
     from prose, so nothing here parses it.
+
+    Labels that name no event still travel, as **context** observations. The
+    prompt asks the model for ten labels; this map knew three of them, so the
+    other seven were produced, stored and dropped here — ``combat`` 53 times on
+    one recording, the single closest honest signal to a fight that footage
+    without a kill feed can offer. A context observation claims nothing on its
+    own and cannot become an event by itself; it is what lets Phase 0.2 name an
+    instant that a signal and a description describe together.
     """
     found: list[EventObservation] = []
     for item in observations:
         if item.confidence < min_confidence:
             continue
         for label in item.labels:
-            event_type = _LABEL_EVENTS.get(label)
-            if event_type is None:
+            key = str(label).strip().lower()
+            event_type = _LABEL_EVENTS.get(key)
+            if event_type is None and key not in _CONTEXT_LABELS:
                 continue
             found.append(
                 EventObservation(
-                    event_type=event_type,
+                    event_type=event_type or GameEventType.UNEXPECTED_EVENT,
                     start_seconds=item.timestamp,
                     end_seconds=item.timestamp,
                     source=VISION,
                     confidence=item.confidence,
-                    detail={"label": label, "description": item.description[:200]},
+                    detail={"label": key, "description": item.description[:200]},
+                    context_only=event_type is None,
                 )
             )
     return found

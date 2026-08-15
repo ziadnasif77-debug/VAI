@@ -512,6 +512,11 @@ class FormationConfig(_Section):
     max_event_gap_seconds: float = Field(default=12.0, gt=0)
     min_moment_seconds: float = Field(default=4.0, gt=0)
     max_moment_seconds: float = Field(default=180.0, gt=0)
+    #: How much of a moment's core may be menu, loading or cutscene footage
+    #: before it stops being a moment (Phase 0.6). The vision model has always
+    #: labelled those frames; nothing read the labels, and the content QA
+    #: reported 40 menu moments in one finished video. 1.0 disables the guard.
+    max_non_gameplay_core_overlap: float = Field(default=0.25, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _ordered(self) -> FormationConfig:

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.analysis import frame_state
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import JobStage
 from backend.database.repositories.audio_events import AudioEventRepository
@@ -66,7 +67,16 @@ class MomentsWorker:
         vision = VisionRepository(context.database).list_for_media(media.id)
 
         context.report(0.2, "Forming moments")
-        moments = form_moments(events, config.formation, media_id=media.id)
+        # Phase 0.6: the vision model has always said which frames were menus,
+        # loading screens and cutscenes. Reading it here keeps them out of the
+        # edit instead of letting QA report them after the render.
+        screen_states = frame_state.spans(vision, duration_seconds=duration)
+        moments = form_moments(
+            events,
+            config.formation,
+            media_id=media.id,
+            non_gameplay=frame_state.non_gameplay(screen_states),
+        )
         if not moments:
             context.report(1.0, "No moments formed")
             return {"skipped": True, "reason": "no moments formed", "moments": 0}
@@ -152,6 +162,7 @@ class MomentsWorker:
             "protected_dead_time": sum(1 for item in dead_segments if item.protected),
             "repetition_groups": len(repetition.groups),
             "variety": variety,
+            **frame_state.report(screen_states, duration),
         }
 
 

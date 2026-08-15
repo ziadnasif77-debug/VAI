@@ -344,6 +344,8 @@ EVENT_TYPES: Final[dict[str, str]] = {
     "wanted_level": "مستوى المطلوبية",
     "crash": "اصطدام",
     "chase": "مطاردة",
+    "combat": "اشتباك",
+    "collision": "اصطدام",
 }
 
 #: Values that appear in the editing brief (§4): pacing, effects level and the

@@ -29,6 +29,8 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+from backend.analysis import frame_state
+from backend.analysis.frame_state import StateSpan
 from backend.config.schema import FormationConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import GameEventType, MomentType
@@ -60,6 +62,8 @@ EVENT_TO_MOMENT: Final[dict[GameEventType, MomentType]] = {
     GameEventType.OBJECTIVE: MomentType.SKILL,
     GameEventType.OBJECTIVE_FAILURE: MomentType.FAIL,
     GameEventType.HIGH_DAMAGE: MomentType.SKILL,
+    GameEventType.COMBAT: MomentType.CHAOS,
+    GameEventType.COLLISION: MomentType.CHAOS,
     GameEventType.UNEXPECTED_EVENT: MomentType.SURPRISE,
 }
 
@@ -215,7 +219,11 @@ def replace_moment(moment: Moment, **updates: Any) -> Moment:
 
 
 def form_moments(
-    events: Iterable[GameEvent], config: FormationConfig, *, media_id: str
+    events: Iterable[GameEvent],
+    config: FormationConfig,
+    *,
+    media_id: str,
+    non_gameplay: Sequence[StateSpan] = (),
 ) -> list[Moment]:
     """Group correlated events into moments (§28).
 
@@ -229,6 +237,13 @@ def form_moments(
     context pass, not dropped — a half-second kill is a real moment that needs
     surrounding, and dropping it here would lose exactly the clips a highlight
     video is made of.
+
+    ``non_gameplay`` are the stretches the vision model said were menus,
+    loading screens or cutscenes (Phase 0.6). A moment whose **core** is mostly
+    one of those is dropped here: an audio spike inside a pause menu is a real
+    spike and not a moment, and the finished video carried 40 of them before
+    this argument existed. Context may still touch a menu — a loading screen on
+    either side of a mission start is honest — so only the core is measured.
     """
     ordered = sorted(events, key=lambda event: event.start_seconds)
     if not ordered:
@@ -245,17 +260,66 @@ def form_moments(
     for group in groups:
         moments.extend(_build(group, config, media_id))
 
+    kept, rejected = _drop_non_gameplay(moments, non_gameplay, config)
+
     logger.info(
         "Formed moments",
         extra={
             "media_id": media_id,
             "events": len(ordered),
             "groups": len(groups),
-            "moments": len(moments),
-            "by_type": _tally(moments),
+            "moments": len(kept),
+            "rejected_non_gameplay": rejected,
+            "by_type": _tally(kept),
         },
     )
-    return moments
+    return kept
+
+
+def _drop_non_gameplay(
+    moments: Sequence[Moment],
+    spans: Sequence[StateSpan],
+    config: FormationConfig,
+) -> tuple[list[Moment], int]:
+    """Drop moments whose core sits inside a menu, loading or cutscene run.
+
+    Measured as the longest *unbroken* non-gameplay stretch, not the total:
+    scattered single frames reading ``menu`` inside continuous action are a
+    transient overlay or a misread, while an unbroken block is the loading
+    screen this guard exists to keep out.
+
+    The overlap is recorded on every survivor, not only on the rejected: a
+    moment that is a quarter menu is worth knowing about in review (§80), and
+    the number is what makes the threshold arguable rather than magic.
+    """
+    if not spans or config.max_non_gameplay_core_overlap >= 1.0:
+        return list(moments), 0
+
+    kept: list[Moment] = []
+    rejected = 0
+    for moment in moments:
+        ratio = frame_state.longest_overlap_ratio(
+            moment.start_seconds, moment.end_seconds, spans
+        )
+        if ratio > config.max_non_gameplay_core_overlap:
+            rejected += 1
+            logger.debug(
+                "Dropped a moment showing a menu or loading screen",
+                extra={
+                    "start": round(moment.start_seconds, 2),
+                    "end": round(moment.end_seconds, 2),
+                    "non_gameplay_ratio": round(ratio, 3),
+                },
+            )
+            continue
+        kept.append(
+            moment
+            if ratio <= 0
+            else replace_moment(
+                moment, metadata={**moment.metadata, "non_gameplay_ratio": round(ratio, 3)}
+            )
+        )
+    return kept, rejected
 
 
 def _build(group: list[GameEvent], config: FormationConfig, media_id: str) -> list[Moment]:
