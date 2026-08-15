@@ -428,6 +428,15 @@ class GpuConfig(_Section):
     empty_cache_between_stages: bool = True
     preflight_vram_check: bool = True
     fallback_to_cpu: bool = True
+    #: Hand the card back before the render starts. Every stage before it is a
+    #: specialist that has finished, and neither NVENC nor Chromium can use a
+    #: language model's memory. Each provider already unloads in a ``finally``
+    #: -- but only when that instance loaded the model, so one left behind by
+    #: a previous run stays resident until the machine reboots.
+    release_before_render: bool = True
+    #: Hand it back again once a project has nothing left to run, so the
+    #: machine is free after a montage rather than after a restart.
+    release_when_idle: bool = True
 
     @model_validator(mode="after")
     def _reserved_fits(self) -> GpuConfig:
@@ -886,6 +895,17 @@ class RemotionConfig(_Section):
     overlay_format: str = "webm_vp9_alpha"
     overlay_codec_options: dict[str, dict[str, Any]] = Field(default_factory=dict)
     skip_when_no_overlays: bool = True
+    #: Below this much free VRAM, refuse to start Chromium instead of letting
+    #: it time out. Measured on the 3070: with 509 MB free (a 4.7 GB model
+    #: another program had left resident) every browser connection timed out
+    #: after 25 s, failing nineteen render-dependent tests twenty minutes into
+    #: each run. An estimate from one measurement, not a specification --
+    #: which is why it is a knob and why 0 disables the check entirely.
+    min_free_vram_mb: int = Field(default=1200, ge=0)
+    #: Rough VRAM cost of one Chromium page at 1080p, used to cap concurrency
+    #: when the card is tight rather than fail outright. Ten pages ran fine
+    #: with 5.2 GB free, which is where this number comes from.
+    vram_per_page_mb: int = Field(default=250, ge=1)
 
     @model_validator(mode="after")
     def _overlay_format_known(self) -> RemotionConfig:

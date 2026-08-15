@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.core.errors import RenderError
 from backend.core.models.enums import TrackKind
 from backend.rendering.composition import build_composition
 from backend.rendering.remotion import (
@@ -187,6 +188,192 @@ class TestTheRuntimeItStarts:
             pytest.skip("no bundled node in this checkout")
 
         assert Path(_node_executable()) == bundled
+
+
+class TestTheCardIsHandedBack:
+    """A montage leaves the machine as it found it.
+
+    Not a nicety: the suite caught the pipeline failing its own render this
+    way. The narration reader loads ``qwen2.5:7b-instruct`` during
+    GAME_EVENTS, and it was still resident four stages later — *"335 MB of
+    video memory is free; Ollama is holding qwen2.5:7b-instruct (4528 MB)"* —
+    so Chromium had nothing to start in. Every provider unloads in a
+    ``finally``, but only when that instance loaded the model; one left by an
+    earlier run, another worker or a killed process is invisible to it.
+    """
+
+    def test_the_models_this_app_loads_are_released_by_name(self, config, monkeypatch) -> None:
+        from backend.core import gpu
+
+        asked: list[str] = []
+        monkeypatch.setattr(gpu, "release_models", lambda names: asked.extend(names) or list(names))
+        monkeypatch.setattr(gpu, "free_vram_mb", lambda *_, **__: 4000)
+        monkeypatch.setattr(gpu, "release_local_caches", lambda: None)
+
+        gpu.release_everything_we_loaded(config)
+
+        assert config.models.vision.model in asked
+        assert config.models.llm.model in asked
+
+    def test_nothing_else_on_the_machine_is_touched(self, config, monkeypatch) -> None:
+        # A model another program loaded is that program's to release.
+        # Sweeping the card clean would be taking the machine over.
+        from backend.core import gpu
+
+        asked: list[str] = []
+        monkeypatch.setattr(gpu, "release_models", lambda names: asked.extend(names) or [])
+        monkeypatch.setattr(gpu, "free_vram_mb", lambda *_, **__: 4000)
+        monkeypatch.setattr(gpu, "release_local_caches", lambda: None)
+
+        gpu.release_everything_we_loaded(config)
+
+        assert "qwen2.5-coder:7b" not in asked, "another tool's model is not ours to unload"
+
+    def test_releasing_reports_what_it_freed(self, config, monkeypatch) -> None:
+        # A before and an after, so a claim about the card can be checked
+        # rather than believed.
+        from backend.core import gpu
+
+        readings = iter([800, 5400])
+        monkeypatch.setattr(gpu, "release_models", lambda names: ["qwen2.5vl:7b"])
+        monkeypatch.setattr(gpu, "free_vram_mb", lambda *_, **__: next(readings))
+        monkeypatch.setattr(gpu, "release_local_caches", lambda: None)
+
+        freed = gpu.release_everything_we_loaded(config)
+
+        assert freed["freed_mb"] == 4600
+        assert freed["released"] == ["qwen2.5vl:7b"]
+
+    def test_a_machine_without_ollama_is_not_an_error(self, monkeypatch) -> None:
+        # A machine that only transcribes never runs Ollama, and tidying up
+        # must not fail a finished video that is already on disk.
+        import urllib.error
+
+        from backend.core import gpu
+
+        def refuse(*_args, **_kwargs):
+            raise urllib.error.URLError("connection refused")
+
+        monkeypatch.setattr(gpu.urllib.request, "urlopen", refuse)
+
+        assert gpu.release_models(["qwen2.5vl:7b"]) == []
+        assert gpu.resident_models() == []
+
+    def test_an_unreadable_card_reports_nothing_rather_than_zero(
+        self, config, monkeypatch
+    ) -> None:
+        # No NVIDIA card, or a driver query that timed out. "Unknown" must not
+        # be reported as a number somebody could act on.
+        from backend.core import gpu
+
+        monkeypatch.setattr(gpu, "free_vram_mb", lambda *_, **__: None)
+        monkeypatch.setattr(gpu, "release_models", lambda names: [])
+        monkeypatch.setattr(gpu, "release_local_caches", lambda: None)
+
+        freed = gpu.release_everything_we_loaded(config)
+
+        assert freed["freed_mb"] is None
+
+
+class TestItLooksAtTheCardFirst:
+    """The render assumed an empty card for the life of the project.
+
+    §54's "one heavy model at a time" governs this pipeline's own stages and
+    they honour it — every provider unloads, and the Ollama ones send
+    ``keep_alive: 0``. It says nothing about the rest of the machine. On
+    2026-08-15 a model *another program* had left resident held 4.7 GB of 8,
+    with an expiry in the year 2318; Chromium could not connect, timed out
+    after 25 s, and nineteen render-dependent tests failed twenty minutes into
+    each of two full runs.
+    """
+
+    @staticmethod
+    def _fitted(config, free_mb, monkeypatch):
+        from backend.rendering import remotion as module
+
+        monkeypatch.setattr(module, "free_vram_mb", lambda *_, **__: free_mb)
+        monkeypatch.setattr(module, "resident_models", list)
+        monkeypatch.setattr(module, "_VRAM_SETTLE_SECONDS", 0.0)
+        return module._fitted_to_the_card(config)
+
+    def test_a_card_that_frees_itself_is_not_refused(self, config, monkeypatch) -> None:
+        # The render before this one has finished and its Chromium has not
+        # handed the memory back yet. That resolves in seconds; a model
+        # another program holds does not. Refusing the first would fail every
+        # second render on a busy machine.
+        from backend.rendering import remotion as module
+
+        readings = iter([600, 4000])
+        monkeypatch.setattr(module, "free_vram_mb", lambda *_, **__: next(readings))
+        monkeypatch.setattr(module, "resident_models", list)
+        monkeypatch.setattr(module, "_VRAM_SETTLE_SECONDS", 0.0)
+
+        fitted = module._fitted_to_the_card(config.remotion.model_copy(
+            update={"concurrency": 4}
+        ))
+
+        assert fitted.concurrency == 4
+
+    def test_a_full_card_fails_now_rather_than_in_twenty_minutes(
+        self, config, monkeypatch
+    ) -> None:
+        with pytest.raises(RenderError) as raised:
+            self._fitted(config.remotion, 509, monkeypatch)
+
+        assert "video memory" in str(raised.value)
+        assert raised.value.recoverable, "closing something and retrying is the fix"
+
+    def test_the_message_names_what_is_holding_the_memory(self, config, monkeypatch) -> None:
+        # An operator told which model holds four gigabytes acts in seconds.
+        # "Out of memory" sends them hunting.
+        from backend.core.gpu import ResidentModel
+        from backend.rendering import remotion as module
+
+        monkeypatch.setattr(module, "free_vram_mb", lambda *_, **__: 400)
+        monkeypatch.setattr(
+            module,
+            "resident_models",
+            lambda: [ResidentModel(name="qwen2.5-coder:7b", vram_mb=4528)],
+        )
+        monkeypatch.setattr(
+            module, "describe_pressure", lambda free: f"{free} MB free; qwen2.5-coder:7b"
+        )
+
+        with pytest.raises(RenderError) as raised:
+            module._fitted_to_the_card(config.remotion)
+
+        assert "qwen2.5-coder:7b" in str(raised.value)
+        assert "qwen2.5-coder:7b (4528 MB)" in raised.value.details["resident_models"]
+
+    def test_a_tight_card_renders_with_fewer_pages(self, config, monkeypatch) -> None:
+        # Slower is a result. A timeout is not.
+        remotion = config.remotion.model_copy(update={"concurrency": 10})
+
+        fitted = self._fitted(remotion, 1500, monkeypatch)
+
+        assert fitted.concurrency == 6, "1500 MB at 250 MB a page"
+
+    def test_a_roomy_card_is_left_alone(self, config, monkeypatch) -> None:
+        remotion = config.remotion.model_copy(update={"concurrency": 4})
+
+        fitted = self._fitted(remotion, 6000, monkeypatch)
+
+        assert fitted.concurrency == 4
+
+    def test_a_machine_that_cannot_say_is_not_second_guessed(
+        self, config, monkeypatch
+    ) -> None:
+        # No NVIDIA card, no driver tool, a query that timed out. Reading
+        # "unknown" as "empty" is the assumption that caused this defect;
+        # reading it as "full" would break every machine without the card.
+        fitted = self._fitted(config.remotion, None, monkeypatch)
+
+        assert fitted is config.remotion
+
+    def test_the_check_can_be_turned_off(self, config, monkeypatch) -> None:
+        remotion = config.remotion.model_copy(update={"min_free_vram_mb": 0})
+
+        assert self._fitted(remotion, 10, monkeypatch) is remotion
 
 
 class TestTheDescription:

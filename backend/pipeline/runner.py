@@ -33,6 +33,7 @@ from typing import Any, Final
 from backend.config.paths import Paths
 from backend.config.schema import AppConfig
 from backend.core.errors import ErrorCode, GamingEditorError
+from backend.core.gpu import release_everything_we_loaded
 from backend.core.logging import LogChannel, get_logger, log_context
 from backend.core.models.enums import JobStage, JobStatus, MediaState
 from backend.core.models.jobs import Job
@@ -183,7 +184,33 @@ class PipelineRunner:
             outcomes.append(outcome)
             if not outcome.succeeded:
                 break
+        if outcomes:
+            self.release_the_card()
         return outcomes
+
+    def release_the_card(self) -> dict[str, Any]:
+        """Hand the graphics card back now that there is nothing left to run.
+
+        A montage should leave the machine as it found it. Ollama's default is
+        to hold a model for minutes after the last call, and a model whose
+        keep-alive was set by something else can hold it indefinitely — one on
+        this machine was resident with an expiry in the year 2318. Waiting for
+        a timeout that may never come is not releasing anything.
+
+        Failure here is logged and swallowed on purpose: the video is already
+        made, and refusing to return a finished project because a tidy-up call
+        did not answer would be the tail wagging the dog.
+        """
+        if not self._config.gpu.release_when_idle:
+            return {}
+        try:
+            freed = release_everything_we_loaded(self._config)
+        except Exception as error:  # pragma: no cover - defensive tidy-up
+            logger.warning("Could not release the card", extra={"error": str(error)[:160]})
+            return {}
+        if freed.get("released") or freed.get("freed_mb"):
+            logger.info("Released the card; the machine is free", extra=freed)
+        return freed
 
     def run_job(self, job_id: str) -> RunOutcome:
         """Run one job by id, whatever its position in the graph.

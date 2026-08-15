@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.core.errors import ErrorCode, GamingEditorError, RenderError
+from backend.core.gpu import release_everything_we_loaded
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import EffectEngine, EffectType, JobStage
 from backend.database.repositories.media import MediaRepository
@@ -59,6 +60,18 @@ class RenderWorker:
             # already explained why, and producing an empty file would hide it.
             context.report(1.0, "No timeline to render")
             return {"skipped": True, "reason": "the timeline has no enabled clips"}
+
+        # The card, to itself. Every stage before this one is a specialist
+        # that has finished -- Whisper, then a vision model, then a reasoning
+        # model -- and none of their memory is of any use to NVENC or to
+        # Chromium. Each provider already unloads in a `finally`, but only
+        # when *that instance* loaded the model: one left by a previous run or
+        # a killed process is invisible to it and stays on the card. Asking by
+        # name costs milliseconds and works whoever loaded it.
+        if context.config.gpu.release_before_render:
+            freed = release_everything_we_loaded(context.config)
+            if freed["released"] or freed["freed_mb"]:
+                logger.info("Freed the card before rendering", extra=freed)
 
         target, width, height = self._target(context)
         runner = context.ffmpeg

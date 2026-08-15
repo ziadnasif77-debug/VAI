@@ -43,6 +43,7 @@ from typing import Any, Final
 
 from backend.config.schema import RemotionConfig
 from backend.core.errors import ErrorCode, RenderError
+from backend.core.gpu import describe_pressure, free_vram_mb, resident_models
 from backend.core.logging import LogChannel, get_logger, log_duration
 from backend.media.ffmpeg import CancelledError
 from backend.rendering.composition import Composition
@@ -169,6 +170,8 @@ def render_overlay(
         logger.warning("Remotion is unavailable; continuing without an overlay",
                        extra={"reason": why})
         return OverlayResult(path=None, skipped=True, reason=why)
+
+    config = _fitted_to_the_card(config)
 
     directory = project_dir(config, repo_root)
     composition_path = write_composition(
@@ -423,6 +426,11 @@ _ANSI: Final = re.compile(r"\[[0-9;]*m")
 #: exits 1; the cause is almost always memory, so the remedy is fewer pages.
 PAGE_CRASH: Final[str] = "Page crashed"
 
+#: How long to let a briefly-full card settle before believing it. The render
+#: before this one may have finished with its Chromium still handing memory
+#: back; a model another program is holding will still be there afterwards.
+_VRAM_SETTLE_SECONDS: Final[float] = 4.0
+
 #: Lines that are progress, not diagnosis.
 _NOISE: Final[tuple[str, ...]] = ("Rendered ", "Bundling", "Compiled", "webpack")
 
@@ -435,6 +443,73 @@ def _reason_from(tail: Sequence[str]) -> str:
             continue
         return text[:200]
     return ""
+
+
+def _fitted_to_the_card(config: RemotionConfig) -> RemotionConfig:
+    """Check the card has room for Chromium before spending twenty minutes.
+
+    §54's "one heavy model at a time" governs this pipeline's own stages, and
+    they honour it. It says nothing about the rest of the machine — and on
+    2026-08-15 a model another program had left resident held 4.7 GB of 8,
+    with an expiry in the year 2318. Chromium could not connect, timed out
+    after 25 s, and the failure arrived at the end of a twenty-minute render
+    rather than at the start of it.
+
+    Two outcomes, and neither is a guess:
+
+    * **Not enough to start at all** — say so immediately, and name what is
+      holding the memory so it can be closed.
+    * **Enough, but tight** — render with fewer pages. Slower is a result; a
+      timeout is not.
+
+    A machine that cannot report its VRAM is left completely alone. "Unknown"
+    reading as "empty" is the assumption that caused this in the first place,
+    and reading it as "full" would break every machine without an NVIDIA card.
+    """
+    if config.min_free_vram_mb <= 0:
+        return config
+
+    free_mb = free_vram_mb()
+    if free_mb is None:
+        return config
+
+    if free_mb < config.min_free_vram_mb:
+        # A card can be briefly full for an honest reason: the render before
+        # this one has finished and its Chromium has not yet handed the memory
+        # back. That resolves in seconds. A model another program is holding
+        # does not resolve at all, and telling them apart costs one short
+        # wait, taken only on a card that is already tight.
+        time.sleep(_VRAM_SETTLE_SECONDS)
+        free_mb = free_vram_mb() or free_mb
+
+    if free_mb < config.min_free_vram_mb:
+        raise RenderError(
+            "There is not enough free video memory to start Chromium for the "
+            f"overlay: {describe_pressure(free_mb)}. Close what is holding it "
+            "and render again.",
+            code=ErrorCode.REMOTION_FAILED,
+            details={
+                "free_vram_mb": free_mb,
+                "required_vram_mb": config.min_free_vram_mb,
+                "resident_models": [str(model) for model in resident_models()],
+            },
+            recoverable=True,
+        )
+
+    requested = resolved_concurrency(config)
+    affordable = max(1, free_mb // config.vram_per_page_mb)
+    if affordable >= requested:
+        return config
+
+    logger.warning(
+        "Rendering the overlay with fewer pages: the card is tight",
+        extra={
+            "free_vram_mb": free_mb,
+            "requested_concurrency": requested,
+            "concurrency": affordable,
+        },
+    )
+    return config.model_copy(update={"concurrency": affordable})
 
 
 def _fewer_pages(config: RemotionConfig, error: RenderError) -> int | None:
