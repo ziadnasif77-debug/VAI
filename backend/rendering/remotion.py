@@ -262,7 +262,22 @@ def _render_command(
 
 
 def _node_executable() -> str:
-    """The node binary, resolved rather than assumed to be on the child's PATH."""
+    """The node binary, resolved rather than assumed to be on the child's PATH.
+
+    The bundled ``tools/node`` wins over whatever PATH offers. This machine
+    has a system install under ``C:\\Program Files``, and PATH found it: the
+    render was starting a runtime from the drive the application is required
+    never to depend on, and which had 5.7 GB free when that rule was written.
+    ``scripts/rooted.py`` puts the bundled directory first, but a process that
+    did not go through the launcher -- a test, a script, an editor's terminal
+    -- inherits the machine's PATH and silently uses the other one.
+    """
+    from backend.config.paths import find_repository_root
+
+    bundled = find_repository_root() / "tools" / "node" / "node.exe"
+    if bundled.is_file():
+        return str(bundled)
+
     found = shutil.which("node")
     if found is None:
         raise RenderError(

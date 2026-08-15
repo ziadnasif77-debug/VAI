@@ -39,8 +39,15 @@ from backend.database.repositories.transcript import TranscriptRepository
 from backend.database.repositories.vision import VisionRepository
 from backend.gaming import events as detectors
 from backend.gaming.correlation import correlate
-from backend.gaming.ocr import CROP_DIRNAME, read_frames
-from backend.gaming.profiles import GameProfile, ProfileResolution, load_profile
+from backend.gaming.detection import detect_game
+from backend.gaming.fusion import GENERIC_RULES
+from backend.gaming.ocr import CROP_DIRNAME, FrameText, read_frames
+from backend.gaming.profiles import (
+    UNSPECIFIED_GAMES,
+    GameProfile,
+    ProfileResolution,
+    load_profile,
+)
 from backend.pipeline.reuse import record_success, try_reuse
 from backend.pipeline.workers.base import WorkerContext
 from backend.pipeline.workers.vision_workers import CANDIDATE_LEVEL
@@ -170,12 +177,12 @@ class GameEventsWorker:
     def run(self, context: WorkerContext) -> dict[str, Any]:
         media = context.require_media()
         analysis = context.config.analysis
-        resolution = _profile_for(context)
+        ocr_frames = _ocr_frames(context, media.id)
+        resolution = _profile_for(context, ocr_frames)
 
         vision = VisionRepository(context.database).list_for_media(media.id)
         audio = AudioEventRepository(context.database).list_for_media(media.id)
         scenes = SceneRepository(context.database).list_for_media(media.id)
-        ocr_frames = _ocr_frames(context, media.id)
         reactions = _reactions_from(audio)
         narration = _narration_observations(context, media.id, self._llm)
 
@@ -196,6 +203,9 @@ class GameEventsWorker:
             window_seconds=analysis.reactions.correlation_window_seconds,
             game_profile=resolution.id,
             min_confidence=analysis.hud.min_confidence,
+            # A profile that knows the game names instants the generic table
+            # cannot, and is consulted first for exactly that reason (§22).
+            fusion_rules=(*resolution.profile.fusion(), *GENERIC_RULES),
         )
 
         repository = GameEventRepository(context.database)
@@ -299,13 +309,52 @@ def _stored_hud_readings(context: WorkerContext, media_id: str) -> list[Any]:
     ]
 
 
-def _profile_for(context: WorkerContext) -> ProfileResolution:
-    """Resolve the project's game profile, falling back to generic (§23)."""
+def _profile_for(
+    context: WorkerContext, ocr_frames: Sequence[FrameText] = ()
+) -> ProfileResolution:
+    """Resolve the project's game profile, falling back to generic (§23).
+
+    When the project says ``auto`` — which every real project has said — the
+    game is looked for in what OCR already read (Phase 0.3). A recognised game
+    is written to ``projects.detected_game``, a column that has existed since
+    the schema was written with nothing to fill it, and the profile is used
+    for this run. Nothing recognised means the generic path, unchanged.
+
+    A game the user named is never overruled: recognition only fills a gap.
+    """
     row = context.database.fetch_one(
-        "SELECT game FROM projects WHERE id = ?", (context.project_id,)
+        "SELECT game, detected_game FROM projects WHERE id = ?", (context.project_id,)
     )
     game = str(row["game"]) if row is not None and row["game"] else "auto"
-    return load_profile(game, context.profiles_dir)
+    if game.strip().lower() not in UNSPECIFIED_GAMES:
+        return load_profile(game, context.profiles_dir)
+
+    known = str(row["detected_game"]) if row is not None and row["detected_game"] else ""
+    if not known and ocr_frames:
+        guess = detect_game(
+            (
+                detection.text
+                for frame in ocr_frames
+                for detection in frame.detections
+            ),
+            context.profiles_dir,
+        )
+        if guess.recognised:
+            known = str(guess.game)
+            context.database.execute(
+                "UPDATE projects SET detected_game = ? WHERE id = ?",
+                (known, context.project_id),
+            )
+            logger.info(
+                "Recognised the game from the screen",
+                extra={"project_id": context.project_id, **guess.summary()},
+            )
+
+    resolved = load_profile(known or game, context.profiles_dir)
+    # Detected, not declared: the resolution is exact for the profile it
+    # loaded, and §49 wants "detected with the generic profile" and "detected
+    # with the Grounded profile" to stay different claims about the same event.
+    return resolved
 
 
 def _candidate_frames(context: WorkerContext, media: Media) -> list[tuple[float, Path]]:

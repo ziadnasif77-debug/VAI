@@ -168,6 +168,27 @@ def _changed_pixels(left: Path, right: Path) -> int:
     return int((np.abs(a - b).sum(axis=2) > 24).sum())
 
 
+class TestTheRuntimeItStarts:
+    """The renderer runs the interpreter that ships beside it, not the machine's.
+
+    ``shutil.which("node")`` found ``C:\\Program Files\\nodejs`` on the
+    development machine and the overlay render started from there — a runtime
+    on the drive this application is required never to depend on, and which
+    had 5.7 GB free when that requirement was written. ``scripts/rooted.py``
+    puts ``tools/node`` first on PATH, but any process that skips the launcher
+    inherits the machine's PATH instead.
+    """
+
+    def test_the_bundled_node_wins_over_the_machines(self, repo_root: Path) -> None:
+        from backend.rendering.remotion import _node_executable
+
+        bundled = repo_root / "tools" / "node" / "node.exe"
+        if not bundled.is_file():
+            pytest.skip("no bundled node in this checkout")
+
+        assert Path(_node_executable()) == bundled
+
+
 class TestTheDescription:
     """Runs anywhere: no Node needed to check what would be handed over."""
 

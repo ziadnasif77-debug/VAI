@@ -443,6 +443,163 @@ class TestCorrelation:
         assert correlate([]) == []
 
 
+class TestQuestTrackersAreNotEvents:
+    """A quest tracker is an instruction, not a result.
+
+    ``\\bdefeat\\b`` read *"Defeat the O.R.C. guards at the Milk Molar stash"*
+    as a defeat nineteen times in one recording — the most common named event
+    in the whole project, and every one of them the objective list sitting on
+    screen. Both words are imperative verbs a quest tracker uses constantly;
+    only a banner says them alone.
+    """
+
+    def test_an_objective_is_not_a_defeat(self) -> None:
+        found = detectors.observations_from_ocr(
+            [_text(10.0, "Defeat the O.RC guards at the Milk Molar stash")],
+            GENERIC_PROFILE,
+        )
+
+        assert found == []
+
+    def test_a_banner_still_reads_as_one(self) -> None:
+        found = detectors.observations_from_ocr([_text(10.0, "DEFEAT")], GENERIC_PROFILE)
+
+        assert [item.event_type for item in found] == [GameEventType.DEFEAT]
+
+    def test_a_sentence_about_dying_still_reads(self) -> None:
+        # Anchoring the bare word must not lose the phrasings that are
+        # unambiguous however much text surrounds them.
+        found = detectors.observations_from_ocr(
+            [_text(10.0, "You died. Respawn at the nearest outpost.")], GENERIC_PROFILE
+        )
+
+        assert [item.event_type for item in found] == [GameEventType.DEFEAT]
+
+    def test_victory_conditions_are_not_victories(self) -> None:
+        found = detectors.observations_from_ocr(
+            [_text(10.0, "Victory requires defeating all three bosses")], GENERIC_PROFILE
+        )
+
+        assert found == []
+
+
+class TestRecognisingTheGame:
+    """Phase 0.3: ``detected_game`` was a column nothing ever wrote.
+
+    Every real project carries ``game: auto``, so the profile on disk — with
+    its death-screen wording and its HUD indicator — had never once been
+    loaded. A profile nobody selects is a profile that does not exist.
+    """
+
+    @staticmethod
+    def _profile(root: Path, game: str, signatures: list[str]) -> None:
+        directory = root / game
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "profile.json").write_text(
+            json.dumps({"id": game, "signature_patterns": signatures}), encoding="utf-8"
+        )
+
+    def test_a_game_is_recognised_from_what_the_screen_says(self, tmp_path) -> None:
+        from backend.gaming.detection import detect_game
+
+        clear_profile_cache()
+        self._profile(tmp_path, "grounded", [r"\bMilk Molar\b", r"\bLean-To\b", r"\bMUTATIONS\b"])
+
+        guess = detect_game(
+            ["Set your respawn point at your Lean-To", "MUTATIONS", "Milk Molar stash"],
+            tmp_path,
+        )
+
+        assert guess.game == "grounded"
+        assert guess.recognised
+
+    def test_one_shared_word_recognises_nothing(self, tmp_path) -> None:
+        # "Craft" and "Analyze" are vocabulary half the genre uses. Claiming a
+        # game from one of them would read another game's screen with this
+        # game's rules.
+        from backend.gaming.detection import detect_game
+
+        clear_profile_cache()
+        self._profile(tmp_path, "grounded", [r"\bMilk Molar\b", r"\bLean-To\b", r"\bMUTATIONS\b"])
+
+        guess = detect_game(["Craft", "Analyze", "Milk Molar"], tmp_path)
+
+        assert guess.game is None
+        assert guess.hits == 1
+
+    def test_two_close_profiles_recognise_nothing(self, tmp_path) -> None:
+        # Games that share wording is exactly when a guess does damage.
+        from backend.gaming.detection import detect_game
+
+        clear_profile_cache()
+        self._profile(tmp_path, "one", [r"\balpha\b", r"\bbeta\b", r"\bgamma\b"])
+        self._profile(tmp_path, "two", [r"\balpha\b", r"\bbeta\b", r"\bdelta\b"])
+
+        guess = detect_game(["alpha", "beta", "gamma", "delta"], tmp_path)
+
+        assert guess.game is None
+
+    def test_no_text_recognises_nothing(self, tmp_path) -> None:
+        from backend.gaming.detection import detect_game
+
+        clear_profile_cache()
+        self._profile(tmp_path, "grounded", [r"\bMilk Molar\b"])
+
+        assert detect_game([], tmp_path).game is None
+
+    def test_a_signature_held_on_screen_counts_once(self, tmp_path) -> None:
+        # A quest tracker holds one recognisable word for four minutes. That
+        # is one piece of evidence about which game this is, not two hundred.
+        from backend.gaming.detection import detect_game
+
+        clear_profile_cache()
+        self._profile(tmp_path, "grounded", [r"\bMilk Molar\b", r"\bLean-To\b", r"\bMUTATIONS\b"])
+
+        guess = detect_game(["Milk Molar"] * 200, tmp_path)
+
+        assert guess.hits == 1
+        assert guess.game is None
+
+
+class TestTheShippedGroundedProfile:
+    """§111: a profile is written from footage, not from documentation.
+
+    Every pattern in it appeared in the OCR of two real recordings this
+    project analysed.
+    """
+
+    @staticmethod
+    def _profile():
+        from backend.config.paths import find_repository_root
+
+        clear_profile_cache()
+        return load_profile("grounded", find_repository_root() / "profiles").profile
+
+    def test_it_loads_and_is_not_generic(self) -> None:
+        profile = self._profile()
+
+        assert not profile.is_generic or profile.event_rules
+        assert profile.signature_patterns
+
+    def test_the_death_screen_is_a_death(self) -> None:
+        found = detectors.observations_from_ocr([_text(10.0, "DEATH")], self._profile())
+
+        assert GameEventType.DEATH in {item.event_type for item in found}
+
+    def test_the_objective_list_is_ignored_outright(self) -> None:
+        profile = self._profile()
+
+        assert profile.should_ignore("Defeat the O.RC guards at the Milk Molar stash")
+        assert profile.should_ignore("Set your respawn point at your Lean-To:")
+        assert not profile.should_ignore("DEATH")
+
+    def test_its_fusion_rules_convert(self) -> None:
+        rules = self._profile().fusion()
+
+        assert rules
+        assert all(rule.name.startswith("grounded:") for rule in rules)
+
+
 class TestEvidenceFusion:
     """Phase 0.2: naming an instant no single detector could name.
 

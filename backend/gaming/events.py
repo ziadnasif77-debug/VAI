@@ -82,9 +82,18 @@ _CONTEXT_LABELS: Final[frozenset[str]] = frozenset(
 
 #: Text that means the same thing in most games, for the no-profile path (§23).
 #: English only, and only words whose meaning does not depend on the game.
+#:
+#: ``victory`` and ``defeat`` are **anchored to the whole reading**, and that
+#: is the load-bearing detail. Both are also imperative verbs that quest
+#: trackers use constantly, and a quest tracker is on screen for minutes at a
+#: time: unanchored, ``\bdefeat\b`` read *"Defeat the O.R.C. guards at the Milk
+#: Molar stash"* as a defeat nineteen times in one recording, which was the
+#: most common named event in the whole project and every one of them wrong. A
+#: banner says DEFEAT and nothing else; an objective says defeat *something*.
 _GENERIC_TEXT_EVENTS: Final[tuple[tuple[str, GameEventType, float], ...]] = (
-    (r"\bvictory\b|\byou\s+win\b|\bwinner\b", GameEventType.VICTORY, 0.7),
-    (r"\bdefeat\b|\byou\s+(?:lose|died)\b|\bgame\s+over\b", GameEventType.DEFEAT, 0.7),
+    (r"^\W*(?:victory|you\s+win|winner)\W*$", GameEventType.VICTORY, 0.7),
+    (r"^\W*(?:defeat|game\s+over)\W*$", GameEventType.DEFEAT, 0.7),
+    (r"\byou\s+(?:lose|died)\b|\byou\s+were\s+defeated\b", GameEventType.DEFEAT, 0.7),
     (r"\beliminated\b|\bknocked\s+out\b", GameEventType.KILL, 0.55),
     (r"\bmission\s+(?:complete|accomplished)\b", GameEventType.OBJECTIVE, 0.6),
     (r"\bmission\s+failed\b", GameEventType.OBJECTIVE_FAILURE, 0.6),

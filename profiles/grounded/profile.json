@@ -1,0 +1,67 @@
+{
+  "id": "grounded",
+  "name": "Grounded",
+  "description": "Obsidian's backyard survival game. Written from on-screen text read out of two real 40-77 minute recordings, not from documentation: every pattern below appeared in the OCR of footage this project has analysed.",
+
+  "signature_patterns": [
+    "\\bMilk\\s+Molar\\b",
+    "\\bO\\.?R\\.?C\\.?\\s+guards?\\b",
+    "\\bLean-?To\\b",
+    "\\bResource\\s+Analyz",
+    "\\bGrass\\s+Plank\\b",
+    "\\bClover\\s+Hood\\b",
+    "\\bDandelion\\s+Tuft\\b",
+    "\\bSurvival\\s+Guide\\b",
+    "\\bSoldier\\s+Ant\\s+Egg\\b",
+    "\\bMUTATIONS?\\b",
+    "\\bChill\\s+buildup\\b",
+    "\\bFreeze\\s+Resistance\\b"
+  ],
+
+  "event_rules": [
+    {
+      "event_type": "death",
+      "patterns": ["^\\W*DEATH\\W*$", "\\bdied\\s+by\\s+misadventure\\b"],
+      "confidence": 0.85,
+      "duration_seconds": 4.0
+    },
+    {
+      "event_type": "death",
+      "patterns": [
+        "\\bRespawn\\s+at\\s+Nearest\\s+Outpost\\b",
+        "\\bdropped\\s+backpack\\s+where\\s+you\\s+died\\b"
+      ],
+      "confidence": 0.7,
+      "duration_seconds": 4.0
+    }
+  ],
+
+  "ignore_patterns": [
+    "\\bDefeat\\s+the\\b",
+    "\\bSet\\s+(?:your\\s+)?respawn\\s+point\\b",
+    "\\bCraft:",
+    "\\bCook:",
+    "\\bHarvest:",
+    "\\bHatch\\s+an\\s+egg\\b",
+    "\\bPlace\\s+an\\s+egg\\b",
+    "^\\W*(?:Close|Analyze|Sort|Retrieve|Available|Take\\s+All|My\\s+Backpack|Actions|Load|Quit|Superquit|Explore|Chop|Stash)\\W*$"
+  ],
+
+  "fusion_rules": [
+    {
+      "event_type": "combat",
+      "name": "creature_fight",
+      "labels": ["combat"],
+      "sources": ["audio"],
+      "confidence": 0.7
+    },
+    {
+      "event_type": "near_death",
+      "name": "hurt_and_heard",
+      "labels": ["low_health"],
+      "sources": ["audio"],
+      "types": ["low_health"],
+      "confidence": 0.72
+    }
+  ]
+}

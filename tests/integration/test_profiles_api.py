@@ -159,17 +159,25 @@ class TestValidation:
 
 
 class TestTheShippedGtaProfile:
-    """§111: one game, real, before any others are written."""
+    """§111: every shipped profile is written from footage, never speculation.
 
-    def test_it_is_the_only_game_profile_that_ships(self, shipped_profiles: Path) -> None:
-        # "Do not create 10 profiles before validating the architecture."
+    The rule §111 states is "do not create 10 profiles before validating the
+    architecture", and what makes a profile speculative is having no recording
+    behind it. Two ship, and each was read off frames this project analysed:
+    ``gta_v`` from the first real run, ``grounded`` from the OCR of two 40-77
+    minute recordings whose game the pipeline had been calling generic.
+    """
+
+    def test_only_profiles_written_from_real_footage_ship(
+        self, shipped_profiles: Path
+    ) -> None:
         games = sorted(
             entry.name
             for entry in shipped_profiles.iterdir()
             if (entry / "profile.json").is_file()
         )
 
-        assert games == ["gta_v"]
+        assert games == ["grounded", "gta_v"]
 
     def test_it_loads_and_declares_something(self, shipped_profiles: Path) -> None:
         document = json.loads((shipped_profiles / "gta_v" / "profile.json").read_text("utf-8"))
@@ -196,6 +204,37 @@ class TestTheShippedGtaProfile:
         for text in ("WASTED", "BUSTED", "MISSION PASSED"):
             assert not profile.should_ignore(text), text
             assert profile.rules_for(text, region="centre_banner"), text
+
+    def test_grounded_reads_its_death_screen_and_ignores_its_quest_tracker(
+        self, shipped_profiles: Path
+    ) -> None:
+        # Both halves were measured. The death screen never produced an event
+        # because no profile was ever loaded; the quest tracker produced
+        # nineteen false defeats in one recording because the generic pattern
+        # read its imperative verb as a result.
+        document = json.loads(
+            (shipped_profiles / "grounded" / "profile.json").read_text("utf-8")
+        )
+        profile = GameProfile.model_validate(document)
+
+        assert profile.rules_for("DEATH")
+        assert profile.rules_for("Hoops died by misadventure")
+        assert profile.should_ignore("Defeat the O.RC guards at the Milk Molar stash")
+        assert profile.should_ignore("Set your respawn point at your Lean-To:")
+
+    def test_grounded_signatures_are_words_only_this_game_writes(
+        self, shipped_profiles: Path
+    ) -> None:
+        # A signature another survival game would also write recognises the
+        # wrong game, and a wrong profile reads one game's screen with
+        # another's rules.
+        document = json.loads(
+            (shipped_profiles / "grounded" / "profile.json").read_text("utf-8")
+        )
+        profile = GameProfile.model_validate(document)
+
+        assert profile.signature_hits(["Milk Molar stash", "Lean-To", "MUTATIONS"]) >= 3
+        assert profile.signature_hits(["Craft", "Analyze", "Close", "Inventory"]) == 0
 
     def test_the_hud_window_is_wider_than_the_glyph_row_it_looks_for(
         self, shipped_profiles: Path

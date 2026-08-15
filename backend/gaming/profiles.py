@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
@@ -44,7 +45,10 @@ logger = get_logger("gaming.profiles", LogChannel.PIPELINE)
 GENERIC_PROFILE_ID: Final[str] = "generic"
 
 #: Values that mean "no specific game".
-_UNSPECIFIED: Final[frozenset[str]] = frozenset({"", "auto", "unknown", "generic"})
+UNSPECIFIED_GAMES: Final[frozenset[str]] = frozenset({"", "auto", "unknown", "generic"})
+
+#: Kept for readers inside this module; the public name is the exported one.
+_UNSPECIFIED: Final[frozenset[str]] = UNSPECIFIED_GAMES
 
 PROFILE_FILENAME: Final[str] = "profile.json"
 
@@ -197,6 +201,32 @@ class HudIndicator(_Model):
         return None
 
 
+class ProfileFusionRule(_Model):
+    """A profile's own rule for naming an instant from combined evidence.
+
+    The JSON form of :class:`backend.gaming.fusion.FusionRule`. Profiles are
+    configuration and validate through pydantic; the fusion module stays a
+    plain domain dataclass that knows nothing about files.
+    """
+
+    event_type: GameEventType
+    name: str = Field(min_length=1)
+    labels: tuple[str, ...] = ()
+    sources: tuple[str, ...] = ()
+    types: tuple[GameEventType, ...] = ()
+    min_label_confidence: float = Field(default=0.45, ge=0.0, le=1.0)
+    confidence: float = Field(default=0.65, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _asks_for_something(self) -> ProfileFusionRule:
+        if not (self.labels or self.sources or self.types):
+            raise ValueError(
+                f"Fusion rule {self.name!r} requires no evidence at all, so it "
+                "would name every unnamed instant in the recording."
+            )
+        return self
+
+
 class GameProfile(_Model):
     """What is known about one game's interface (§22).
 
@@ -207,6 +237,17 @@ class GameProfile(_Model):
     id: str = Field(min_length=1)
     name: str = ""
     description: str = ""
+
+    #: On-screen text that identifies this game, for the ``auto`` path. Item
+    #: names, system labels, place names -- anything another game would not
+    #: write. Matched against OCR, and a match is only ever a vote (§23): the
+    #: detector needs a clear margin over every other profile before it claims
+    #: to have recognised anything.
+    signature_patterns: tuple[str, ...] = ()
+
+    #: Rules that name an instant from evidence no single detector could name,
+    #: consulted ahead of the generic table (Phase 0.2, 0.3).
+    fusion_rules: tuple[ProfileFusionRule, ...] = ()
 
     #: Named HUD regions: ``kill_feed``, ``health``, ``score``, ``timer``...
     #: The names are free-form so a profile can declare what its game has.
@@ -259,6 +300,39 @@ class GameProfile(_Model):
     def is_generic(self) -> bool:
         """Whether this profile declares nothing game-specific."""
         return not self.regions and not self.event_rules and not self.hud
+
+    def signature_hits(self, texts: Iterable[str]) -> int:
+        """How many of this profile's signatures appear in ``texts``.
+
+        Counted once per pattern rather than once per reading: a quest tracker
+        holding one recognisable word on screen for four minutes is one piece
+        of evidence about which game this is, not two hundred.
+        """
+        if not self.signature_patterns:
+            return 0
+        joined = "\n".join(texts)
+        return sum(
+            1
+            for pattern in self.signature_patterns
+            if re.search(pattern, joined, re.IGNORECASE)
+        )
+
+    def fusion(self) -> tuple[Any, ...]:
+        """This profile's fusion rules, in the form the fusion module uses."""
+        from backend.gaming.fusion import FusionRule
+
+        return tuple(
+            FusionRule(
+                event_type=rule.event_type,
+                name=f"{self.id}:{rule.name}",
+                labels=rule.labels,
+                sources=rule.sources,
+                types=rule.types,
+                min_label_confidence=rule.min_label_confidence,
+                confidence=rule.confidence,
+            )
+            for rule in self.fusion_rules
+        )
 
     @property
     def has_ocr_regions(self) -> bool:
@@ -399,11 +473,13 @@ __all__ = [
     "GENERIC_PROFILE",
     "GENERIC_PROFILE_ID",
     "PROFILE_FILENAME",
+    "UNSPECIFIED_GAMES",
     "EventRule",
     "GameProfile",
     "HudChangeRule",
     "HudIndicator",
     "HudKind",
+    "ProfileFusionRule",
     "ProfileResolution",
     "Region",
     "available_profiles",
