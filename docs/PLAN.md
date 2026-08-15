@@ -52,8 +52,10 @@ defaults to the repository root, and `pyproject.toml` pins
 audio, frame dumps -- land here too rather than in the system temp directory.
 On the development machine `C:` has under 20 GB free against recordings that
 run to gigabytes each, so this is a hard constraint, not a preference. Model
-weights follow the same rule: faster-whisper downloads into `models/`, and
-Ollama is pointed at `D:\Models` by `OLLAMA_MODELS`.
+weights follow the same rule, with one exception that is not ours to make:
+faster-whisper downloads into `models/`, while Ollama's store is wherever the
+machine's `OLLAMA_MODELS` says — read and reported here, never written. See
+[`SHARED_MODELS.md`](SHARED_MODELS.md).
 
 The overlay renderer needs Node (already present) and its own install:
 

@@ -100,8 +100,10 @@ applies it to every process it starts:
 | `.cache/pip`, `.cache/npm` | package caches |
 | `remotion/.browser` | Remotion's Chromium |
 
-Ollama's `OLLAMA_MODELS` is only set if the machine has not chosen one: it is a
-service this application talks to rather than owns.
+`OLLAMA_MODELS` is read and reported, never written. Ollama is a shared runtime
+several projects on this machine use, and one 6 GB vision model loaded once
+serves all of them — where its files live is the machine's decision, not a
+consumer's. Setting it here once cost 36 GB in duplicate downloads.
 
 Then open **http://127.0.0.1:8765**.
 

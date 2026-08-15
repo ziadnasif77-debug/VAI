@@ -30,9 +30,17 @@ What that covers, and why each one is here rather than assumed:
     stops the work.
 
 ``OLLAMA_MODELS``
-    Only set if the machine has not already chosen; Ollama is a service this
-    application talks to rather than owns, and overriding someone else's model
-    directory would move models out from under another program.
+    **Read, reported, never written.** Ollama is a shared runtime this
+    application talks to rather than owns, and several projects on this
+    machine use the same models — a 6 GB vision model held once serves all of
+    them. Choosing its storage is not a consumer's decision to make.
+
+    This module used to fill the variable in when it was empty, defaulting to
+    ``D:/Models``. That default cost **36.4 GB**: the machine's own setting is
+    ``F:\\Models``, a launch that did not inherit it wrote ``D:/Models``
+    instead, and Ollama duly downloaded every model a second time. Both stores
+    still held the same five models months later. An empty variable is the
+    machine's business, and Ollama's own default is the right answer to it.
 
 This module deliberately has no imports beyond the standard library and no
 knowledge of the application: the launcher runs it before anything else exists.
@@ -90,8 +98,8 @@ def environment(base: dict[str, str] | None = None) -> dict[str, str]:
     # Remotion downloads a Chromium; the default is the user profile.
     env.setdefault("REMOTION_BROWSER_DOWNLOAD_DIR", str(ROOT / "remotion" / ".browser"))
     env.setdefault("PUPPETEER_CACHE_DIR", str(ROOT / "remotion" / ".browser"))
-    # Someone else's models. Only fill the gap, never take it over.
-    env.setdefault("OLLAMA_MODELS", str(Path("D:/Models")))
+    # Shared models, on a runtime this application does not own. Not even the
+    # gap is ours to fill: see the note on OLLAMA_MODELS above.
     return env
 
 
@@ -155,7 +163,12 @@ def report() -> list[str]:
         lines.append("tools    none bundled; PATH decides")
     lines.append(f"temp     {ROOT / '.tmp'}")
     lines.append(f"caches   {ROOT / '.cache'}")
-    lines.append(f"models   {os.environ.get('OLLAMA_MODELS', 'D:/Models')}")
+    # Reported so a reader can see which shared store this machine is using,
+    # and reported as unset when it is — an invented default here is what
+    # duplicated 36 GB of models onto a second drive.
+    lines.append(
+        f"models   {os.environ.get('OLLAMA_MODELS') or 'unset (Ollama decides)'}  [shared]"
+    )
     return lines
 
 
