@@ -709,6 +709,16 @@ class DurationOptimizerConfig(_Section):
     max_iterations: int = Field(default=500, ge=1)
     allow_context_trim: bool = True
     max_context_trim_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: Slack cuts both ways. When every moment is already in the edit and it
+    #: is still short of the target, the only honest seconds left are the ones
+    #: either side of the clips already chosen -- footage that leads into or
+    #: out of a moment, never another clip's span and never past the
+    #: recording. Measured: a 7.6-minute source asked for ten minutes gave
+    #: 4:17, and the answer to that is more run-up on real moments, not filler.
+    allow_context_growth: bool = True
+    #: How much a clip may grow, as a fraction of its own length. A moment
+    #: that doubles is not a moment with more context; it is a different clip.
+    max_context_growth_ratio: float = Field(default=0.4, ge=0.0, le=1.0)
 
 
 class RefinementConfig(_Section):

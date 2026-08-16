@@ -36,7 +36,7 @@ of pre-roll is still the moment, while a clip removed is not.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
@@ -111,6 +111,7 @@ def optimise(
     target_seconds: float,
     config: DurationOptimizerConfig,
     policy: DurationPolicy,
+    media_durations: Mapping[str, float] | None = None,
 ) -> OptimisationResult:
     """Choose the subset of moments that best fills ``target_seconds`` (§39).
 
@@ -120,6 +121,9 @@ def optimise(
             the §6 band.
         config: ``narrative.optimizer`` -- objective weights and penalties.
         policy: supplies the tolerance the result is judged against.
+        media_durations: source length per recording, so context can only grow
+            into footage that exists. Without it, growth stops at the last
+            moment's own edges rather than guessing where a recording ends.
 
     Returns the selection in chronological order, because a video is watched in
     time order even when it was chosen by value.
@@ -161,6 +165,28 @@ def optimise(
         total = sum(moment.context_duration for moment in selected)
         if trimmed > 0:
             notes.append(f"trimmed {format_duration(trimmed)} of clip context")
+
+    if config.allow_context_growth and total < target_seconds - tolerance:
+        # Every moment is already in and the edit is still short: the only
+        # honest seconds left are the ones either side of the clips already
+        # chosen. Slack cuts both ways -- the trim above gives context back to
+        # absorb an overshoot, and this borrows it to close a shortfall.
+        #
+        # It is bounded and it is not filler. A moment grows into footage that
+        # leads into or out of itself, never into another clip's span and
+        # never past the recording. When that is still not enough, the answer
+        # is the honest note below: a ten-minute video cannot be made from a
+        # seven-minute recording, and padding it with dead air would be a
+        # worse answer than a short one.
+        selected, grown = _grow_context(
+            selected,
+            target_seconds - total,
+            config.max_context_growth_ratio,
+            media_durations or {},
+        )
+        total = sum(moment.context_duration for moment in selected)
+        if grown > 0:
+            notes.append(f"extended clip context by {format_duration(grown)}")
 
     within = policy.within_tolerance(total, target_seconds)
     if not within:
@@ -363,6 +389,79 @@ def _fill_up(
         total += moment.context_duration
         added += 1
     return chosen, total, added
+
+
+def _grow_context(
+    moments: Sequence[Moment],
+    shortfall: float,
+    max_ratio: float,
+    media_durations: Mapping[str, float],
+) -> tuple[list[Moment], float]:
+    """Give every clip more run-up when the edit is short (§29, §39).
+
+    The mirror of :func:`_trim_context`, and bounded the same way. Each clip
+    takes an equal share of the shortfall, half before and half after, and
+    every share is clipped by three things it must not cross:
+
+    * **the recording** -- footage that does not exist cannot be shown;
+    * **the neighbouring clip's span** -- the EDL enforces exclusivity, and a
+      clip grown into the next one's footage would be silently trimmed there
+      (§40), leaving the plan and the timeline disagreeing;
+    * **``max_context_growth_ratio``** -- a moment that doubles in length is
+      not a moment with more context, it is a different clip.
+
+    Growth stops when the shortfall is met, so a small gap costs a small
+    amount of footage from each clip rather than the maximum from the first.
+    """
+    from backend.moments.formation import replace_moment
+
+    if shortfall <= 0 or not moments or max_ratio <= 0:
+        return list(moments), 0.0
+
+    ordered = sorted(moments, key=lambda moment: (moment.media_id, moment.context_start))
+    share = shortfall / len(ordered)
+    grown: list[Moment] = []
+    total_gain = 0.0
+
+    for index, moment in enumerate(ordered):
+        room = moment.context_duration * max_ratio
+        want = min(share, room)
+
+        # The unclaimed footage either side, on this recording only.
+        previous = ordered[index - 1] if index else None
+        floor = (
+            previous.context_end
+            if previous is not None and previous.media_id == moment.media_id
+            else 0.0
+        )
+        following = ordered[index + 1] if index + 1 < len(ordered) else None
+        ceiling = (
+            following.context_start
+            if following is not None and following.media_id == moment.media_id
+            else media_durations.get(moment.media_id, moment.context_end)
+        )
+
+        before = min(want / 2.0, max(moment.context_start - floor, 0.0))
+        after = min(want / 2.0, max(ceiling - moment.context_end, 0.0))
+        # What one side could not take, the other may -- a clip against the
+        # start of a recording still has room after it.
+        before = min(before + max(want / 2.0 - after, 0.0), max(moment.context_start - floor, 0.0))
+        after = min(after + max(want / 2.0 - before, 0.0), max(ceiling - moment.context_end, 0.0))
+
+        gain = before + after
+        if gain <= 0:
+            grown.append(moment)
+            continue
+        total_gain += gain
+        grown.append(
+            replace_moment(
+                moment,
+                context_start=moment.context_start - before,
+                context_end=moment.context_end + after,
+            )
+        )
+
+    return grown, round(total_gain, 3)
 
 
 def _trim_context(

@@ -136,7 +136,14 @@ def build_plan(
         return _empty(mode, target_seconds, policy)
 
     selection = optimise(
-        moments, target_seconds=target_seconds, config=config.optimizer, policy=policy
+        moments,
+        target_seconds=target_seconds,
+        config=config.optimizer,
+        policy=policy,
+        # So a clip that grows to close a shortfall grows into footage that
+        # exists: the recording's own end is the only ceiling the optimiser
+        # cannot infer from the moments themselves.
+        media_durations=media_durations,
     )
     if selection.is_empty:
         return _empty(mode, target_seconds, policy, notes=selection.notes)

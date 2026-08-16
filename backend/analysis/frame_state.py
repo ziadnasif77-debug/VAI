@@ -83,11 +83,19 @@ _LABEL_STATES: Final[tuple[tuple[str, FrameState], ...]] = (
 HALF_LIFE_SECONDS: Final[float] = 1.0
 
 #: How far apart two observations of the same state may be and still describe
-#: one stretch. Agreement across consecutive samples is what justifies claiming
-#: the time between them: three ``menu`` readings a few seconds apart are one
-#: menu section, while a single reading is a single frame. Generous, because
-#: the cascade's sampling is uneven.
-BRIDGE_SECONDS: Final[float] = 12.0
+#: one stretch. Agreement across *consecutive* samples is what justifies
+#: claiming the time between them: three ``menu`` readings a few seconds apart
+#: are one menu section, while a single reading is a single frame.
+#:
+#: Deliberately short, and shortened once already. At twelve seconds it
+#: bridged readings that had a *gameplay* frame between them — the sampler
+#: aims frames at detector triggers, so a region's looks can cluster and leave
+#: long unwatched stretches, and bridging across those declared footage nobody
+#: had seen to be a menu. On the test fixture that turned two scattered menu
+#: frames into a 51% menu moment and rejected the only moment in the project.
+#: A bridge may now only close a gap **no other observation falls inside**,
+#: which is checked in :func:`spans` rather than by this number alone.
+BRIDGE_SECONDS: Final[float] = 6.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +151,7 @@ def spans(
     ordered = sorted(observations, key=lambda item: item.timestamp)
     cap = max(half_life_seconds, 0.0)
     built: list[StateSpan] = []
+    previous_index = -2  # never adjacent to index 0
 
     for index, item in enumerate(ordered):
         state = state_for(item.observation.labels)
@@ -166,9 +175,16 @@ def spans(
             previous is not None
             and previous.state is state
             # Bridged from the *observations*, not from their padded edges:
-            # two agreeing readings twelve seconds apart describe one stretch,
+            # two agreeing readings a few seconds apart describe one stretch,
             # and the seconds between them are what the agreement buys.
             and item.timestamp - previous.end_seconds <= bridge_seconds
+            # ...but only across time nobody looked at. `built` holds one span
+            # per contiguous run, so a different state in between has already
+            # closed the previous run -- meaning `built[-1]` is this state only
+            # when nothing disagreed. Comparing indices catches the case the
+            # state check cannot: an observation of the *same* state that was
+            # skipped for being too brief.
+            and index == previous_index + 1
         ):
             built[-1] = StateSpan(
                 state=state,
@@ -176,8 +192,10 @@ def spans(
                 end_seconds=max(previous.end_seconds, end),
                 observations=previous.observations + 1,
             )
+            previous_index = index
             continue
         built.append(StateSpan(state=state, start_seconds=start, end_seconds=end))
+        previous_index = index
 
     return built
 

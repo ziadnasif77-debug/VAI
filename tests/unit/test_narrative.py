@@ -252,6 +252,134 @@ class TestOptimiser:
         assert summary["within_tolerance"] is result.within_tolerance
 
 
+class TestAShortSourceIsStretchedHonestly:
+    """§39's slack cuts both ways.
+
+    Trimming context to absorb an overshoot has always been there. The other
+    direction was missing: with every moment already in the edit and the total
+    still short, nothing reached for the footage either side of the clips
+    already chosen. Measured on a real project — six moments totalling 4:17
+    against a ten-minute request, from a recording only 7.6 minutes long.
+    """
+
+    @staticmethod
+    def _sparse() -> list[Moment]:
+        # Six moments, 43 s of context each, spread through a 456 s recording.
+        return [_moment(start, duration=33.0) for start in (10, 80, 150, 220, 290, 360)]
+
+    def test_the_clips_take_more_run_up_when_the_edit_is_short(self, config) -> None:
+        moments = self._sparse()
+        before = sum(moment.context_duration for moment in moments)
+
+        result = optimise(
+            moments,
+            target_seconds=600.0,
+            config=config.narrative.optimizer,
+            policy=config.duration_policy,
+            media_durations={"m": 456.0},
+        )
+
+        assert result.total_seconds > before
+        assert any("extended" in note for note in result.notes)
+
+    def test_growth_never_crosses_into_the_next_clip(self, config) -> None:
+        # The EDL enforces source exclusivity (§40). A clip grown into its
+        # neighbour's footage would be trimmed there instead, leaving the plan
+        # and the timeline disagreeing about the same seconds.
+        result = optimise(
+            self._sparse(),
+            target_seconds=600.0,
+            config=config.narrative.optimizer,
+            policy=config.duration_policy,
+            media_durations={"m": 456.0},
+        )
+
+        spans = sorted(
+            (moment.context_start, moment.context_end) for moment in result.moments
+        )
+        assert all(
+            earlier[1] <= later[0] + 1e-6 for earlier, later in pairwise(spans)
+        )
+
+    def test_growth_never_leaves_the_recording(self, config) -> None:
+        result = optimise(
+            self._sparse(),
+            target_seconds=600.0,
+            config=config.narrative.optimizer,
+            policy=config.duration_policy,
+            media_durations={"m": 456.0},
+        )
+
+        assert all(moment.context_start >= 0.0 for moment in result.moments)
+        assert all(moment.context_end <= 456.0 + 1e-6 for moment in result.moments)
+
+    def test_a_clip_does_not_become_a_different_clip(self, config) -> None:
+        # A moment that doubles in length is not a moment with more context.
+        moments = self._sparse()
+        original = {
+            (moment.media_id, moment.start_seconds): moment.context_duration
+            for moment in moments
+        }
+
+        result = optimise(
+            moments,
+            target_seconds=600.0,
+            config=config.narrative.optimizer,
+            policy=config.duration_policy,
+            media_durations={"m": 456.0},
+        )
+
+        limit = 1.0 + config.narrative.optimizer.max_context_growth_ratio
+        for moment in result.moments:
+            was = original[(moment.media_id, moment.start_seconds)]
+            assert moment.context_duration <= was * limit + 1e-6
+
+    def test_an_impossible_target_is_still_reported_as_impossible(self, config) -> None:
+        # Growth closes a gap; it does not invent a recording. Ten minutes
+        # cannot come out of seven, and a padded answer would be worse than a
+        # short one honestly labelled.
+        result = optimise(
+            self._sparse(),
+            target_seconds=600.0,
+            config=config.narrative.optimizer,
+            policy=config.duration_policy,
+            media_durations={"m": 456.0},
+        )
+
+        assert not result.within_tolerance
+        assert any("closest achievable" in note for note in result.notes)
+
+    def test_growth_can_be_turned_off(self, config) -> None:
+        optimizer = config.narrative.optimizer.model_copy(
+            update={"allow_context_growth": False}
+        )
+        moments = self._sparse()
+
+        result = optimise(
+            moments,
+            target_seconds=600.0,
+            config=optimizer,
+            policy=config.duration_policy,
+            media_durations={"m": 456.0},
+        )
+
+        assert result.total_seconds == pytest.approx(
+            sum(moment.context_duration for moment in moments)
+        )
+
+    def test_an_edit_that_already_fits_is_not_stretched(self, config) -> None:
+        result = optimise(
+            _pool(200),
+            target_seconds=TARGET,
+            config=config.narrative.optimizer,
+            policy=config.duration_policy,
+            media_durations={"m": 100_000.0},
+        )
+
+        assert result.within_tolerance
+        assert not any("extended" in note for note in result.notes)
+
+
 class TestHook:
     """§37: selects an existing moment, invents nothing."""
 

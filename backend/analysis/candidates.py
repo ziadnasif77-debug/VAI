@@ -36,6 +36,7 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, Final
 
@@ -519,18 +520,84 @@ def _score(
 def _keyframes(region: CandidateRegion, count: int) -> tuple[float, ...]:
     """Choose the instants inside a region that the model will see.
 
-    Spread evenly across the interior rather than at the edges: the first and
-    last instants of a widened region are pre-roll and post-roll, which is
-    context, not the thing that was nominated.
+    **Where the detectors pointed**, strongest first. A region is a *widened
+    and merged* span — the median one measured 57 seconds — and the triggers
+    inside it are the whole reason it exists: an audio spike at second 3 and a
+    shot change at second 4 are the events, and the fifty seconds around them
+    are context that was added to hold them.
+
+    Spreading the frames evenly across that span was the original rule, and it
+    threw the nomination away. Measured on a real region: four frames landed
+    at 11.4, 22.8, 34.2 and 45.6 seconds while the triggers sat at 3, 4 and
+    31 — **8.4 seconds** between the loudest thing in the recording and the
+    nearest frame anybody looked at. Across two real projects the events the
+    pipeline could not name sat a median of 12-13 seconds from the nearest
+    analysed frame, against 2-3 seconds for the ones it could.
+
+    Falls back to the even spread when a region has no triggers to aim at,
+    which is the shape the old rule was right about.
     """
     if count <= 0 or region.duration <= 0:
         return ()
+
+    aimed = _aimed_at_triggers(region, count)
+    if aimed:
+        return aimed
+
     if count == 1:
         return (round(region.midpoint, 3),)
     step = region.duration / (count + 1)
     return tuple(
         round(region.start_seconds + step * (index + 1), 3) for index in range(count)
     )
+
+
+#: Two frames closer together than this look at the same instant twice. A
+#: burst of triggers a few hundred milliseconds apart is one event, and
+#: spending the whole region's budget on it would blind the rest of the span.
+_KEYFRAME_SPACING_SECONDS: Final[float] = 2.0
+
+
+def _aimed_at_triggers(region: CandidateRegion, count: int) -> tuple[float, ...]:
+    """Instants on the region's own triggers, strongest first.
+
+    Ordered by confidence and then by agreement in time: when two detectors
+    fired within a couple of seconds of each other they are describing one
+    moment, and one frame answers for both. Whatever budget survives that is
+    spread across the parts of the region no trigger claimed, so a long region
+    is not left with four frames bunched at one end.
+    """
+    if not region.triggers:
+        return ()
+
+    chosen: list[float] = []
+    for trigger in sorted(region.triggers, key=lambda item: -item.confidence):
+        at = min(max(trigger.midpoint, region.start_seconds), region.end_seconds)
+        if any(abs(at - taken) < _KEYFRAME_SPACING_SECONDS for taken in chosen):
+            continue
+        chosen.append(at)
+        if len(chosen) >= count:
+            break
+
+    chosen.extend(_fill_the_gaps(region, chosen, count - len(chosen)))
+    return tuple(round(value, 3) for value in sorted(chosen))
+
+
+def _fill_the_gaps(
+    region: CandidateRegion, taken: Sequence[float], spare: int
+) -> list[float]:
+    """Spend leftover frames on the widest unwatched stretches of a region."""
+    if spare <= 0:
+        return []
+    added: list[float] = []
+    for _ in range(spare):
+        edges = sorted([region.start_seconds, *taken, *added, region.end_seconds])
+        widest = max(pairwise(edges), key=lambda pair: pair[1] - pair[0])
+        middle = (widest[0] + widest[1]) / 2.0
+        if widest[1] - widest[0] < _KEYFRAME_SPACING_SECONDS:
+            break
+        added.append(middle)
+    return added
 
 
 __all__ = [

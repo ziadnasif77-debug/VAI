@@ -11,6 +11,8 @@ exactly what was nominated and can assert exactly what the cascade did with it.
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from backend.analysis.audio_events import AudioEvent
@@ -221,6 +223,69 @@ class TestRegionShape:
             region.start_seconds < timestamp < region.end_seconds
             for timestamp in region.keyframes
         )
+
+    def test_the_frames_land_on_what_the_detectors_pointed_at(self, config) -> None:
+        # The defect this replaced, measured on a real region: a 57-second
+        # span with triggers at 3, 4 and 31 seconds got frames at 11.4, 22.8,
+        # 34.2 and 45.6 -- 8.4 seconds between the loudest thing in the
+        # recording and the nearest frame anybody looked at. Across two real
+        # projects, events the pipeline could not name sat a median of 12-13
+        # seconds from the nearest analysed frame; the ones it could name sat
+        # at 2-3. The cheap detectors were nominating correctly and the
+        # nomination was being thrown away.
+        triggers = [
+            _trigger(AUDIO_SPIKE, 103.0),
+            _trigger(SCENE_CHANGE, 104.0),
+            _trigger(AUDIO_SPIKE, 131.0),
+        ]
+        plan = build_candidates(triggers, config.analysis, duration_seconds=HOUR)
+
+        frames = [value for region in plan.regions for value in region.keyframes]
+        assert frames
+        for trigger in (103.0, 131.0):
+            nearest = min(abs(frame - trigger) for frame in frames)
+            assert nearest <= 2.0, f"nothing looked within 2s of {trigger}"
+
+    def test_two_triggers_a_moment_apart_do_not_cost_two_frames(self, config) -> None:
+        # A burst of detectors firing within a second is one event. Spending
+        # the region's whole budget on it would blind the rest of the span.
+        triggers = [_trigger(AUDIO_SPIKE, 100.0 + offset / 10) for offset in range(6)]
+        plan = build_candidates(triggers, config.analysis, duration_seconds=HOUR)
+
+        frames = sorted(plan.regions[0].keyframes)
+        assert all(later - earlier >= 1.5 for earlier, later in pairwise(frames))
+
+    def test_a_region_nobody_pointed_inside_still_gets_looked_at(self, config) -> None:
+        # The even spread was right about one shape: with nothing to aim at,
+        # spreading is the only honest choice.
+        from backend.analysis.candidates import CandidateRegion, _keyframes
+
+        region = CandidateRegion(
+            start_seconds=0.0, end_seconds=20.0, sources=frozenset(), priority=0.1
+        )
+
+        assert _keyframes(region, 4) == (4.0, 8.0, 12.0, 16.0)
+
+    def test_spare_frames_watch_the_unwatched_stretches(self, config) -> None:
+        # One trigger in a long region leaves budget over; it belongs in the
+        # parts of the span nothing has claimed, not bunched at the trigger.
+        from backend.analysis.candidates import CandidateRegion, Trigger, _keyframes
+
+        region = CandidateRegion(
+            start_seconds=100.0,
+            end_seconds=157.0,
+            sources=frozenset({AUDIO_SPIKE}),
+            priority=0.8,
+            triggers=(
+                Trigger(source=AUDIO_SPIKE, start_seconds=103.0, end_seconds=103.4),
+            ),
+        )
+
+        frames = _keyframes(region, 4)
+
+        assert len(frames) == 4
+        assert min(abs(frame - 103.2) for frame in frames) <= 0.5
+        assert max(frames) > 140.0, "the far end of the region is not left unwatched"
 
     def test_regions_are_returned_in_chronological_order(self, config) -> None:
         triggers = triggers_from_audio(

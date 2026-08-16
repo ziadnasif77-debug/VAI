@@ -25,6 +25,7 @@ from typing import Any
 
 from ai.ocr import create_ocr_provider
 from ai.providers.base import OcrProvider, TextDetection
+from backend.analysis import perception
 from backend.analysis.narration import observations_from_narration, read_incidents
 from backend.analysis.reactions import ReactionCandidate
 from backend.core.logging import LogChannel, get_logger
@@ -219,6 +220,17 @@ class GameEventsWorker:
             "by_type": repository.counts_by_type(media.id),
             "named_events": sum(1 for event in events if event.is_named),
             "multi_source_events": sum(1 for event in events if event.agreement > 1),
+            # Phase 0.5: the numbers that say whether perception improved or
+            # the output merely changed. A ratio on its own misleads -- when
+            # nineteen false defeats were removed the unknown ratio *rose*,
+            # which was the pipeline getting more honest, not worse.
+            **perception.report(
+                events,
+                observations,
+                duration_seconds=media.metadata.duration_seconds or 0.0,
+                vision_observations=len(vision),
+                candidate_frames=len(ocr_frames),
+            ),
             # §23's claim, made checkable: this ran with or without a profile,
             # and the result says which.
             "game_profile": resolution.id,

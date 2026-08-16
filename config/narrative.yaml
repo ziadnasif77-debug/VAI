@@ -78,6 +78,12 @@ narrative:
     # When the best subset still misses the band, trimming context is tried
     # before dropping a moment entirely.
     allow_context_trim: true
+    # And the other direction: every moment already in, still short of the
+    # target, so the clips take more of the footage that leads into and out of
+    # them. Never into another clip and never past the recording -- when that
+    # is not enough, a short honest video beats a padded one.
+    allow_context_growth: true
+    max_context_growth_ratio: 0.4
     max_context_trim_ratio: 0.5
 
   # The last pass over the final cut points (backend/narrative/refinement.py).
