@@ -98,7 +98,7 @@ def config_dir(repo_root: Path) -> Path:
 
 @pytest.fixture
 def config(config_dir: Path) -> Iterator[AppConfig]:
-    """The real shipped configuration, loaded fresh -- with narration off.
+    """The real shipped configuration, loaded fresh -- with the lazy models off.
 
     Every other model in the pipeline is injected as a fake by the fixture that
     needs it. The narration reader builds its own provider lazily, so a machine
@@ -107,18 +107,27 @@ def config(config_dir: Path) -> Iterator[AppConfig]:
     on a machine without Ollama they would have passed. A test whose result
     depends on what is installed is not a test.
 
-    `tests/unit/test_narration.py` injects a fake and exercises the reader
-    properly; anything wanting it inside a pipeline run should do the same.
+    The Director (§95, Phase C) builds its provider the same way and chooses
+    which clips are in the video, so it is off here for exactly the same
+    reason -- with it on, the clip list of a pipeline test would depend on what
+    a 7B model felt like saying.
+
+    `tests/unit/test_narration.py` and `tests/unit/test_director.py` inject
+    fakes and exercise both properly; anything wanting one inside a pipeline
+    run should do the same.
     """
     reset_config_cache()
     loaded = load_config(config_dir)
     yield loaded.model_copy(
         update={
             "analysis": loaded.analysis.model_copy(
-                update={"narration": loaded.analysis.narration.model_copy(
-                    update={"enabled": False}
-                )}
-            )
+                update={
+                    "narration": loaded.analysis.narration.model_copy(update={"enabled": False})
+                }
+            ),
+            "narrative": loaded.narrative.model_copy(
+                update={"director": loaded.narrative.director.model_copy(update={"enabled": False})}
+            ),
         }
     )
     reset_config_cache()
@@ -257,15 +266,20 @@ def make_test_clip(
         stream += 1
 
     command = [
-        "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+        "ffmpeg",
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-y",
         *inputs,
-        "-t", f"{seconds:.3f}",
+        "-t",
+        f"{seconds:.3f}",
         *maps,
     ]
     if video:
         # ultrafast + a high CRF: these clips are read, never watched.
-        command += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-                    "-pix_fmt", "yuv420p"]
+        command += ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30", "-pix_fmt", "yuv420p"]
     if audio_tracks:
         command += ["-c:a", "aac", "-b:a", "64k"]
     command.append(str(path))
@@ -389,17 +403,40 @@ def reaction_clip(media_fixtures_dir: Path) -> Path:
 
     subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
-            "-i", str(game_wav),
-            "-i", str(mic_wav),
-            "-map", "0:v", "-map", "1:a", "-map", "2:a",
-            "-t", "40",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-            "-pix_fmt", "yuv420p",
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x240:rate=15",
+            "-i",
+            str(game_wav),
+            "-i",
+            str(mic_wav),
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-map",
+            "2:a",
+            "-t",
+            "40",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "30",
+            "-pix_fmt",
+            "yuv420p",
             # PCM through to the analysis stage: an AAC pass at 64 kbit would
             # smear the transients this fixture exists to carry.
-            "-c:a", "pcm_s16le",
+            "-c:a",
+            "pcm_s16le",
             str(target),
         ],
         check=True,
@@ -424,14 +461,38 @@ def duplicated_track_clip(media_fixtures_dir: Path) -> Path:
 
     subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
-            "-map", "0:v", "-map", "1:a", "-map", "1:a",
-            "-t", "8",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "pcm_s16le",
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x240:rate=15",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-map",
+            "1:a",
+            "-t",
+            "8",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "30",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "pcm_s16le",
             str(target),
         ],
         check=True,
@@ -456,15 +517,42 @@ def silent_mic_clip(media_fixtures_dir: Path) -> Path:
 
     subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=15",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
-            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
-            "-map", "0:v", "-map", "1:a", "-map", "2:a",
-            "-t", "8",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-            "-pix_fmt", "yuv420p",
-            "-c:a", "pcm_s16le",
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x240:rate=15",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=48000:cl=mono",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-map",
+            "2:a",
+            "-t",
+            "8",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "30",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "pcm_s16le",
             str(target),
         ],
         check=True,
@@ -485,15 +573,46 @@ def scene_clip(media_fixtures_dir: Path) -> Path:
     target = media_fixtures_dir / "scenes.mp4"
     subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc=size=320x240:rate=30:duration=3",
-            "-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:duration=3",
-            "-f", "lavfi", "-i", "color=c=blue:size=320x240:rate=30:duration=3",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=9",
-            "-filter_complex", "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
-            "-map", "[v]", "-map", "3:a",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k",
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=320x240:rate=30:duration=3",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:size=320x240:rate=30:duration=3",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:size=320x240:rate=30:duration=3",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:sample_rate=48000:duration=9",
+            "-filter_complex",
+            "[0:v][1:v][2:v]concat=n=3:v=1:a=0[v]",
+            "-map",
+            "[v]",
+            "-map",
+            "3:a",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "30",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "64k",
             str(target),
         ],
         check=True,
@@ -577,9 +696,7 @@ def assert_frontier_waits(runner, project_id: str) -> None:
     failed = [job for job in jobs if job.status is JobStatus.FAILED]
     assert not failed, [f"{job.stage.value}: {job.error_message}" for job in failed]
 
-    frontier = next(
-        (job for job in jobs if job.stage not in runner.supported_stages), None
-    )
+    frontier = next((job for job in jobs if job.stage not in runner.supported_stages), None)
     if frontier is not None:
         assert frontier.status is JobStatus.QUEUED
         assert frontier.error_code is None

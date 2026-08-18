@@ -24,15 +24,16 @@ higher-scoring kill that would make the arc nonsense.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 
 from ai.providers.base import TranscriptSegment
 from backend.config.schema import NarrativeConfig
-from backend.core.duration import DurationPolicy
+from backend.core.duration import DurationPolicy, format_duration
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import MomentType, VideoMode
+from backend.director.models import Blueprint
 from backend.moments.formation import Moment, replace_moment
 from backend.narrative import pacing, refinement
 from backend.narrative.hook import HookSelection, choose_hook
@@ -44,20 +45,42 @@ logger = get_logger("narrative.story", LogChannel.PIPELINE)
 #: simply absent -- a session with no defeat has no "reaction to defeat" beat,
 #: and inventing one would mean inventing footage.
 BEAT_TYPES: Final[dict[str, frozenset[MomentType]]] = {
-    "hook": frozenset({MomentType.EPIC, MomentType.CLUTCH, MomentType.FUNNY,
-                       MomentType.SURPRISE}),
+    "hook": frozenset({MomentType.EPIC, MomentType.CLUTCH, MomentType.FUNNY, MomentType.SURPRISE}),
     "context": frozenset({MomentType.DISCOVERY, MomentType.TENSION, MomentType.SKILL}),
-    "build_up": frozenset({MomentType.TENSION, MomentType.SKILL, MomentType.DISCOVERY,
-                           MomentType.RARE}),
-    "event": frozenset({MomentType.SKILL, MomentType.OUTPLAY, MomentType.FUNNY,
-                        MomentType.FAIL, MomentType.SURPRISE}),
-    "escalation": frozenset({MomentType.CHAOS, MomentType.CLUTCH, MomentType.RAGE,
-                             MomentType.COMEBACK, MomentType.TENSION}),
-    "climax": frozenset({MomentType.EPIC, MomentType.CLUTCH, MomentType.BOSS,
-                         MomentType.COMEBACK, MomentType.OUTPLAY}),
+    "build_up": frozenset(
+        {MomentType.TENSION, MomentType.SKILL, MomentType.DISCOVERY, MomentType.RARE}
+    ),
+    "event": frozenset(
+        {
+            MomentType.SKILL,
+            MomentType.OUTPLAY,
+            MomentType.FUNNY,
+            MomentType.FAIL,
+            MomentType.SURPRISE,
+        }
+    ),
+    "escalation": frozenset(
+        {
+            MomentType.CHAOS,
+            MomentType.CLUTCH,
+            MomentType.RAGE,
+            MomentType.COMEBACK,
+            MomentType.TENSION,
+        }
+    ),
+    "climax": frozenset(
+        {
+            MomentType.EPIC,
+            MomentType.CLUTCH,
+            MomentType.BOSS,
+            MomentType.COMEBACK,
+            MomentType.OUTPLAY,
+        }
+    ),
     "reaction": frozenset({MomentType.REACTION, MomentType.FUNNY, MomentType.RAGE}),
-    "ending": frozenset({MomentType.VICTORY, MomentType.DEFEAT, MomentType.BOSS,
-                         MomentType.COMEBACK}),
+    "ending": frozenset(
+        {MomentType.VICTORY, MomentType.DEFEAT, MomentType.BOSS, MomentType.COMEBACK}
+    ),
 }
 
 
@@ -115,6 +138,7 @@ def build_plan(
     chronological: bool = False,
     speech: Mapping[str, Sequence[TranscriptSegment]] | None = None,
     media_durations: Mapping[str, float] | None = None,
+    director: Callable[[Sequence[Moment]], Blueprint | None] | None = None,
 ) -> NarrativePlan:
     """Turn ranked moments into an ordered edit of the requested length (§35-§39).
 
@@ -149,7 +173,25 @@ def build_plan(
         return _empty(mode, target_seconds, policy, notes=selection.notes)
 
     if mode is VideoMode.STORY:
-        ordered, beats, notes = _story_order(selection.moments, config)
+        if director is None:
+            ordered, beats, notes = _story_order(selection.moments, config)
+        else:
+            # The Director is shown `selection.moments` and its beats index
+            # into exactly that list -- which is why it is called from here
+            # rather than by the caller. An index resolved against a list the
+            # model never saw is a silent mis-assignment: the first version of
+            # this gave the climax role to the wrong clip and dropped two
+            # others, and nothing in the output said so.
+            selection, ordered, beats, notes = _directed(
+                moments,
+                selection,
+                director(selection.moments),
+                config=config,
+                policy=policy,
+                target_seconds=target_seconds,
+                media_durations=media_durations,
+                chronological=chronological,
+            )
     elif mode is VideoMode.COMPILATION:
         ordered, notes = _compilation_order(selection.moments, config)
         beats = ()
@@ -256,8 +298,7 @@ def _story_order(
         best = max(
             candidates,
             key=lambda moment: (
-                story.coherence_weight * _beat_fit(moment, beat)
-                + story.score_weight * moment.score
+                story.coherence_weight * _beat_fit(moment, beat) + story.score_weight * moment.score
             ),
         )
         remaining.remove(best)
@@ -270,6 +311,148 @@ def _story_order(
     ordered = sorted(moments, key=lambda m: (m.media_id, m.context_start))
     beats = [role_of.get((m.media_id, m.start_seconds), "body") for m in ordered]
     return ordered, beats, notes
+
+
+def _directed(
+    pool: Sequence[Moment],
+    selection: OptimisationResult,
+    blueprint: Blueprint | None,
+    *,
+    config: NarrativeConfig,
+    policy: DurationPolicy,
+    target_seconds: float,
+    media_durations: Mapping[str, float] | None,
+    chronological: bool,
+) -> tuple[OptimisationResult, list[Moment], list[str], list[str]]:
+    """Let the Director choose and name; let §39 keep the length and time keep the order.
+
+    Three things come back from a blueprint, and each is treated differently.
+
+    * **What each moment is.** Taken always. The role becomes the beat, so
+      pacing, captions and the effects planner read the Director's reading
+      rather than the type table's guess.
+    * **What to leave out.** Taken, but not for free. Dropping a clip that
+      fits and does not belong is the judgement no score makes -- and the
+      optimiser sized the edit around that clip, so the drop is handed back to
+      it (§39) rather than allowed to make the video shorter. If the remaining
+      footage cannot refill the request, the drop is refused and said so.
+    * **The order.** Taken only when the edit was not asked to run
+      chronologically -- and it is asked to by default. A viewer watching a
+      session they played themselves reads any jump as the whole edit being
+      shuffled; that verdict came from a real viewer on a real video, and a
+      model proposing a better arc does not overturn it.
+    """
+    shown = list(selection.moments)
+    ordered, beats, notes = _story_order(shown, config)
+    if blueprint is None or blueprint.is_empty:
+        return selection, ordered, beats, notes
+
+    roles: dict[int, str] = {}
+    for beat in blueprint.beats:
+        if beat.moment < len(shown):
+            roles[id(shown[beat.moment])] = beat.role
+    if not roles:
+        # Nothing usable survived the mapping, which is the same outcome as no
+        # Director at all.
+        return selection, ordered, beats, [*notes, "the Director's plan named nothing usable"]
+
+    notes = list(notes)
+    if blueprint.theme:
+        notes.append(f"theme: {blueprint.theme}")
+
+    dropped = [moment for moment in shown if id(moment) not in roles]
+    if dropped:
+        selection, notes = _refilled(
+            pool,
+            selection,
+            dropped,
+            notes,
+            config=config,
+            policy=policy,
+            target_seconds=target_seconds,
+            media_durations=media_durations,
+        )
+
+    # Beats for the selection as it now stands -- which may hold moments the
+    # Director never saw, if the optimiser refilled. Those keep the
+    # deterministic beat; the ones it did see keep its word.
+    based, base_beats, _ = _story_order(list(selection.moments), config)
+    beat_by_id = {
+        id(moment): beat for moment, beat in zip(based, base_beats, strict=False)
+    }
+    beat_by_id.update(roles)
+
+    final = list(selection.moments)
+    if chronological:
+        final.sort(key=lambda moment: (moment.media_id, moment.context_start))
+        notes.append("the Director chose the clips; time chose the order")
+    else:
+        rank = {
+            id(shown[beat.moment]): index
+            for index, beat in enumerate(blueprint.beats)
+            if beat.moment < len(shown)
+        }
+        # Refilled moments have no beat to sit in, so they follow the arc the
+        # Director wrote, in time order.
+        final.sort(
+            key=lambda moment: (
+                rank.get(id(moment), len(rank)),
+                moment.media_id,
+                moment.context_start,
+            )
+        )
+        notes.append("the Director chose the clips and their order")
+
+    return (
+        selection,
+        final,
+        [beat_by_id.get(id(moment), "event") for moment in final],
+        notes,
+    )
+
+
+def _refilled(
+    pool: Sequence[Moment],
+    selection: OptimisationResult,
+    dropped: Sequence[Moment],
+    notes: list[str],
+    *,
+    config: NarrativeConfig,
+    policy: DurationPolicy,
+    target_seconds: float,
+    media_durations: Mapping[str, float] | None,
+) -> tuple[OptimisationResult, list[str]]:
+    """Re-solve the duration without the moments the Director left out.
+
+    The alternative -- deleting the clips and shipping what is left -- makes a
+    video shorter than the one that was asked for, which §39 calls the only
+    hard constraint in this stage. So the drop becomes a smaller pool and the
+    optimiser runs again over it. When even that cannot reach the request, the
+    drop is refused: a Director's opinion is worth a re-solve, not a video of
+    the wrong length.
+    """
+    rejected = {id(moment) for moment in dropped}
+    remaining = [moment for moment in pool if id(moment) not in rejected]
+    reselected = optimise(
+        remaining,
+        target_seconds=target_seconds,
+        config=config.optimizer,
+        policy=policy,
+        media_durations=media_durations,
+    )
+    if reselected.is_empty or not reselected.within_tolerance:
+        return selection, [
+            *notes,
+            f"the Director's {len(dropped)} drop(s) left too little footage for a "
+            f"{format_duration(target_seconds)} video, so they were not taken",
+        ]
+
+    seen = {id(moment) for moment in selection.moments}
+    refills = sum(1 for moment in reselected.moments if id(moment) not in seen)
+    note = f"the Director left out {len(dropped)} clip(s)"
+    if refills:
+        note += f"; the optimiser refilled with {refills}"
+    return reselected, [*notes, note]
 
 
 def _beat_fit(moment: Moment, beat: str) -> float:
@@ -362,15 +545,11 @@ def _apply_hook(
         remainder = _without_hooked_span(moment, hook.moment, config)
         if remainder is not None:
             body.append(remainder)
-    opening = replace_moment(
-        hook.moment, metadata={**hook.moment.metadata, "role": "hook"}
-    )
+    opening = replace_moment(hook.moment, metadata={**hook.moment.metadata, "role": "hook"})
     return [opening, *body]
 
 
-def _without_hooked_span(
-    moment: Moment, hook: Moment, config: NarrativeConfig
-) -> Moment | None:
+def _without_hooked_span(moment: Moment, hook: Moment, config: NarrativeConfig) -> Moment | None:
     """The body copy with the hook's seconds removed, or ``None`` if nothing
     watchable remains.
 
@@ -392,9 +571,7 @@ def _without_hooked_span(
         end_seconds=max(min(moment.end_seconds, end), start),
         metadata={
             **moment.metadata,
-            "hook_span_removed_seconds": round(
-                moment.context_duration - (end - start), 2
-            ),
+            "hook_span_removed_seconds": round(moment.context_duration - (end - start), 2),
         },
     )
 
@@ -402,10 +579,7 @@ def _without_hooked_span(
 def _same_moment(left: Moment, right: Moment | None) -> bool:
     if right is None:
         return False
-    return (
-        left.media_id == right.media_id
-        and abs(left.start_seconds - right.start_seconds) < 1e-6
-    )
+    return left.media_id == right.media_id and abs(left.start_seconds - right.start_seconds) < 1e-6
 
 
 def _empty(

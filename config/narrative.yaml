@@ -115,3 +115,17 @@ narrative:
     enabled: true
     time_jump_seconds: 45    # a same-recording jump this long reads as "later", not "next"
     dip_seconds: 0.3         # each side of the join
+
+  # The Director (Phase C). Everything above decides which moments and in what
+  # order by rule; this asks a model to look at the whole set first and say
+  # what the video is about, which of them tell it, and what each one is doing
+  # there. Code still cuts, still enforces the band, and still owns the clock:
+  # when chronological order is on -- and it is, always, by default -- the
+  # Director's choices and roles are kept and its ordering is discarded.
+  #
+  # Off is a complete product. No model, no server, or an answer that names a
+  # moment nobody found: the deterministic order runs and the plan notes say
+  # why. The model is unloaded the moment it answers, because the render needs
+  # the card next (§54).
+  director:
+    enabled: true

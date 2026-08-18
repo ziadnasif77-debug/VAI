@@ -775,6 +775,19 @@ class TransitionsConfig(_Section):
     dip_seconds: float = Field(default=0.3, gt=0, le=0.45)
 
 
+class DirectorConfig(_Section):
+    """The Director (Phase C): a model proposes the shape, code executes it.
+
+    Off is a complete product. The deterministic order has made every video
+    this project has shipped, and the Director is an improvement on it when it
+    earns one -- never a dependency. A missing model, an unreachable server or
+    an answer that names a moment nobody found all end in the same place: the
+    order that was already there, and a note saying why.
+    """
+
+    enabled: bool = True
+
+
 class NarrativeConfig(_Section):
     story: StoryConfig
     best_moments: BestMomentsConfig = Field(default_factory=BestMomentsConfig)
@@ -784,6 +797,7 @@ class NarrativeConfig(_Section):
     optimizer: DurationOptimizerConfig
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
     transitions: TransitionsConfig = Field(default_factory=TransitionsConfig)
+    director: DirectorConfig = Field(default_factory=DirectorConfig)
 
 
 # ---------------------------------------------------------------------------

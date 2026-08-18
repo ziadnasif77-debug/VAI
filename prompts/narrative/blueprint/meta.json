@@ -1,0 +1,38 @@
+{
+  "id": "narrative.blueprint",
+  "version": 1,
+  "purpose": "Propose the shape of one edit -- theme, beat order and roles -- from moments the pipeline already found (Phase C). The model decides structure; deterministic code selects, orders and cuts. It may never name a moment that is not in the list it was shown.",
+  "input_schema": {
+    "type": "object",
+    "required": ["moments", "intent", "target", "style"],
+    "properties": {
+      "moments": {"type": "string", "description": "Numbered lines: index, time, type, score, named events."},
+      "intent": {"type": "string"},
+      "target": {"type": "string"},
+      "style": {"type": "string"}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["theme", "beats"],
+    "properties": {
+      "theme": {"type": "string"},
+      "beats": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["moment", "role"],
+          "properties": {
+            "moment": {"type": "integer", "minimum": 0},
+            "role": {
+              "type": "string",
+              "enum": ["hook", "setup", "escalation", "climax", "cooldown", "payoff", "outro"]
+            },
+            "reason": {"type": "string"}
+          }
+        }
+      },
+      "avoid": {"type": "array", "items": {"type": "string"}}
+    }
+  }
+}

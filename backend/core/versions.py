@@ -53,6 +53,12 @@ PROMPT_VERSIONS: Final[dict[str, int]] = {
     # and the chat could not ask for any of them.
     "interaction.command": 3,
     "interaction.question": 1,
+    # The Director (Phase C): structure, never content. It is shown the
+    # moments the pipeline found and answers with an order and a role for
+    # each -- by index, so a name it invented cannot be matched back to
+    # footage by guessing. A blueprint naming a moment that does not exist is
+    # rejected rather than repaired.
+    "narrative.blueprint": 1,
 }
 
 

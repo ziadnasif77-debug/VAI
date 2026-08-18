@@ -20,14 +20,17 @@ from pathlib import Path
 
 import pytest
 
+from ai.llm.fake_provider import FakeLLMProvider
 from ai.ocr.fake_provider import FakeOcrProvider
 from backend.core.models.enums import JobStage, VideoMode
 from backend.core.models.media import MediaImport
 from backend.core.models.project import ProjectCreate
 from backend.database.repositories.moments import MomentRepository
+from backend.interaction.service import InteractionService
 from backend.pipeline.runner import PipelineRunner
 from backend.pipeline.workers.gaming_workers import OcrWorker
 from backend.pipeline.workers.speech_workers import TranscriptWorker
+from backend.pipeline.workers.story_worker import StoryWorker
 from backend.pipeline.workers.vision_workers import VisionWorker
 from tests.conftest import workers_through
 
@@ -151,9 +154,7 @@ class TestStoryStage:
         project, _ = _project_with(media_service, project_manager, reaction_clip)
         runner.run_project(project.id)
 
-        job = next(
-            j for j in runner.jobs.list_jobs(project.id) if j.stage is JobStage.STORY
-        )
+        job = next(j for j in runner.jobs.list_jobs(project.id) if j.stage is JobStage.STORY)
         first = job.result
         runner.jobs.requeue(job.id)
         outcome = runner.run_job(job.id)
@@ -167,3 +168,97 @@ class TestStoryStage:
         project, _ = _project_with(media_service, project_manager, reaction_clip)
         runner.run_project(project.id)
         frontier_check(runner, project.id)
+
+
+class TestTheDirector:
+    """Phase C, in the pipeline: the model chooses, the code executes.
+
+    The unit tests own the rules. What only a pipeline run can show is that the
+    stage builds the provider, hands it the person's own words, unloads it
+    before the render stages want the card, and produces a plan the EDL stage
+    can act on either way.
+    """
+
+    @pytest.fixture
+    def directed(self, database, paths, config, speech_provider, vision_provider, ocr_provider):
+        """The same pipeline, with the Director switched on and a fake model."""
+
+        def build(provider: FakeLLMProvider):
+            directed_config = config.model_copy(
+                update={
+                    "narrative": config.narrative.model_copy(
+                        update={
+                            "director": config.narrative.director.model_copy(
+                                update={"enabled": True}
+                            )
+                        }
+                    )
+                }
+            )
+            workers = workers_through("story")
+            workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
+            workers[JobStage.VISION] = VisionWorker(vision_provider)
+            workers[JobStage.OCR] = OcrWorker(ocr_provider)
+            workers[JobStage.STORY] = StoryWorker(provider)
+            return PipelineRunner(database, paths, config=directed_config, workers=workers)
+
+        return build
+
+    def test_the_stage_consults_the_director_and_releases_the_card(
+        self, media_service, project_manager, directed, reaction_clip: Path
+    ) -> None:
+        provider = FakeLLMProvider(
+            responses={
+                "narrative.blueprint": {
+                    "theme": "one long fall",
+                    "beats": [{"moment": 0, "role": "hook", "reason": "it opens here"}],
+                }
+            }
+        )
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+        outcomes = {o.job.stage: o for o in directed(provider).run_project(project.id)}
+
+        assert outcomes[JobStage.STORY].succeeded
+        assert [call[0] for call in provider.calls] == ["narrative.blueprint"]
+        # §54: the render stages want the card, and this is the last model
+        # before them.
+        assert provider.unload_count == 1
+        assert outcomes[JobStage.STORY].job.result["clips"]
+
+    def test_the_director_is_shown_what_the_person_actually_typed(
+        self, media_service, project_manager, directed, database, config, reaction_clip: Path
+    ) -> None:
+        provider = FakeLLMProvider(responses={"narrative.blueprint": {"theme": "t", "beats": []}})
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+        service = InteractionService(database, config)
+        service.apply_instruction(project.id, "more funny moments and fewer effects")
+        # And one the rule parser cannot read at all, which is exactly the kind
+        # of sentence the Director exists to act on: it changes no setting, so
+        # the intent log never sees it -- the conversation does.
+        service.handle(project.id, "keep the part where the base falls over")
+
+        directed(provider).run_project(project.id)
+
+        # The resolved intent is a set of enum values; what the person wrote is
+        # what says which video they wanted (§4, kept verbatim).
+        _, prompt = provider.calls[-1]
+        assert "more funny moments and fewer effects" in prompt
+        assert "the base falls over" in prompt
+
+    def test_a_model_that_will_not_answer_still_produces_the_same_video(
+        self, media_service, project_manager, directed, runner, reaction_clip: Path
+    ) -> None:
+        # §95: the Director is an improvement on a working default, never a
+        # dependency of it.
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+        undirected = {o.job.stage: o.job for o in runner.run_project(project.id)}
+
+        broken = FakeLLMProvider(fail_times=99)
+        other, _ = _project_with(media_service, project_manager, reaction_clip)
+        outcomes = {o.job.stage: o for o in directed(broken).run_project(other.id)}
+
+        assert outcomes[JobStage.STORY].succeeded
+        assert broken.unload_count == 1
+        assert [clip["source_start"] for clip in outcomes[JobStage.STORY].job.result["clips"]] == [
+            clip["source_start"] for clip in undirected[JobStage.STORY].result["clips"]
+        ]

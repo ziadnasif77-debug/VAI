@@ -16,27 +16,48 @@ every other stage reads its input.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from typing import Any
 
-from backend.core.errors import ErrorCode, NarrativeError
+from ai.llm import create_llm_provider
+from backend.core.errors import ErrorCode, GamingEditorError, NarrativeError
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import JobStage, VideoMode
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.projects import ProjectRepository
 from backend.database.repositories.transcript import TranscriptRepository
+from backend.director import build_blueprint
+from backend.director.models import Blueprint
+from backend.interaction.models import EditingIntent, MessageRole
 from backend.interaction.service import InteractionService
+from backend.interaction.store import ConversationStore, IntentStore
 from backend.moments.formation import Moment
 from backend.narrative.story import NarrativePlan, build_plan
 from backend.pipeline.workers.base import WorkerContext
 
 logger = get_logger("pipeline.workers.story", LogChannel.PIPELINE)
 
+#: How much of the project conversation the Director is shown. Enough for a
+#: session's worth of instructions, short of pasting a chat log into a prompt.
+_BRIEF_MESSAGES: int = 20
+_BRIEF_CHARACTERS: int = 800
+
 
 class StoryWorker:
     """STORY -- choose and order the clips that make the video (§35-§39)."""
 
     stage = JobStage.STORY
+
+    def __init__(self, llm_provider: Any = None) -> None:
+        """
+        Args:
+            llm_provider: the Director's model, injected the way every other
+                model in this pipeline is, so a test proves the wiring without
+                depending on what happens to be installed. Built lazily when
+                absent, and unloaded as soon as it has answered.
+        """
+        self._llm = llm_provider
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
         project = ProjectRepository(context.database).require(context.project_id)
@@ -90,6 +111,7 @@ class StoryWorker:
             chronological=intent.chronological,
             speech=speech,
             media_durations=durations,
+            director=self._director(context, intent, target),
         )
 
         if plan.is_empty:
@@ -115,6 +137,111 @@ class StoryWorker:
 
         context.report(1.0, f"{len(plan.moments)} clips selected")
         return {**_serialise(plan), "moments_considered": len(moments)}
+
+    def _director(
+        self, context: WorkerContext, intent: EditingIntent, target: float
+    ) -> Callable[[Sequence[Moment]], Blueprint | None] | None:
+        """The Director, or nothing, as a callable ``build_plan`` can hand a list.
+
+        A callable rather than a finished blueprint, because the beats index
+        into the optimiser's selection and only ``build_plan`` knows what that
+        selection is. Handing over a blueprint built from a different list is
+        how the first version of this put the climax role on the wrong clip.
+
+        Returns ``None`` when the Director is off, and otherwise a callable
+        that may itself return ``None`` -- no model, no server, an answer that
+        names a moment nobody found. Every one of those paths ends in the
+        deterministic order this stage has used since Phase 7 (§95).
+        """
+        if not context.config.narrative.director.enabled:
+            return None
+
+        brief = self._brief(context, intent)
+
+        def propose(shown: Sequence[Moment]) -> Blueprint | None:
+            provider = self._llm
+            try:
+                if provider is None:
+                    provider = create_llm_provider(context.config)
+            except GamingEditorError as error:
+                # Not having a reasoning model available is a smaller edit,
+                # not a failed one.
+                logger.info(
+                    "No Director for this edit; using the deterministic order",
+                    extra={"project_id": context.project_id, "reason": str(error)},
+                )
+                return None
+
+            try:
+                outcome = build_blueprint(
+                    shown,
+                    provider=provider,
+                    intent_text=brief,
+                    target_seconds=target,
+                    style=intent.style,
+                )
+            finally:
+                # §54: this is the last model to run before the render, and
+                # NVENC and Chromium both want the card next. Unload whether
+                # the answer was usable or not.
+                provider.unload()
+
+            if isinstance(outcome, Blueprint):
+                logger.info(
+                    "The Director proposed a shape",
+                    extra={
+                        "project_id": context.project_id,
+                        "theme": outcome.theme,
+                        "beats": len(outcome.beats),
+                    },
+                )
+                return outcome
+            logger.info(
+                "Keeping the deterministic order",
+                extra={
+                    "project_id": context.project_id,
+                    "reason": outcome.reason,
+                    **outcome.detail,
+                },
+            )
+            return None
+
+        return propose
+
+    def _brief(self, context: WorkerContext, intent: EditingIntent) -> str:
+        """What the person asked for, in their own words where there are any.
+
+        The resolved :class:`EditingIntent` is a set of enum values -- enough
+        for the optimiser, thin for a model being asked what the video is
+        about. Two stores hold the sentences behind those values:
+
+        * the intent log, which keeps the words that changed a setting (§4,
+          "kept verbatim for auditability"), and
+        * the conversation, which keeps every word typed at the project.
+
+        Both, because the second contains the first and more. "keep the part
+        where the base falls over" changes no setting, so the intent log never
+        sees it -- and it is exactly the sentence this stage exists to act on.
+        """
+        said: list[str] = [
+            message.text.strip()
+            for message in ConversationStore(context.database).history(
+                context.project_id, limit=_BRIEF_MESSAGES
+            )
+            if message.role is MessageRole.USER and message.text.strip()
+        ]
+        said += [
+            update.raw_text.strip()
+            for update in IntentStore(context.database).updates(context.project_id)
+            if update.raw_text and update.raw_text.strip()
+        ]
+        # Oldest first, deduplicated: a later instruction refines an earlier
+        # one, and the model should read them the way the resolver applied them.
+        unique = list(dict.fromkeys(said))
+        if not unique:
+            return f"a {intent.style} edit of this session"
+        brief = " ".join(unique)
+        return brief if len(brief) <= _BRIEF_CHARACTERS else brief[-_BRIEF_CHARACTERS:]
 
     def _moments(self, context: WorkerContext) -> list[Moment]:
         """Every scored moment in the project, across all its recordings."""
