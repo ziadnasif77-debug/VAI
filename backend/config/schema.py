@@ -931,6 +931,20 @@ class RemotionConfig(_Section):
     #: with 5.2 GB free, which is where this number comes from.
     vram_per_page_mb: int = Field(default=250, ge=1)
 
+    #: Render only the stretches that have something drawn on them, and put
+    #: them back in the composite. Measured on a real ten-minute edit: 18,287
+    #: frames rasterised to draw 98 of them. 0 disables the split and renders
+    #: the whole layer, which is what this did before the plan existed.
+    max_overlay_segments: int = Field(default=24, ge=0)
+    #: Gaps this short are rendered rather than split at: a segment costs a
+    #: branch in the composite's filter graph, and a two-second hole is not
+    #: worth one.
+    overlay_merge_gap_seconds: float = Field(default=2.0, ge=0)
+    #: Below this much saving, render the whole layer anyway. A plan that
+    #: trims a twentieth of the frames has bought a more complex filter graph
+    #: for nothing.
+    min_overlay_saving: float = Field(default=0.15, ge=0.0, le=1.0)
+
     @model_validator(mode="after")
     def _overlay_format_known(self) -> RemotionConfig:
         if self.overlay_codec_options and self.overlay_format not in self.overlay_codec_options:

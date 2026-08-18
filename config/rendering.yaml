@@ -128,4 +128,19 @@ remotion:
   # so a caption-free video never pays the Chromium cost.
   skip_when_no_overlays: true
 
+  # And the same idea one level finer: when the timeline *does* have overlay
+  # elements, only the stretches carrying them go through Chromium. The
+  # composite puts each stretch back where it belongs. Measured on a real
+  # ten-minute edit with three graphics: 18,287 frames rasterised to draw 98.
+  #
+  # Each stretch is a branch in the composite's filter graph, so gaps shorter
+  # than merge_gap are paid for instead of split at, and the narrowest gaps are
+  # bought back until the count fits max_overlay_segments. 0 renders the whole
+  # layer, which is what this did before.
+  max_overlay_segments: 24
+  overlay_merge_gap_seconds: 2.0
+  # A plan that saves less than this renders whole: a more complex filter graph
+  # for a twentieth of the frames is a bad trade.
+  min_overlay_saving: 0.15
+
 # Effects live in config/effects.yaml -- the effects engine is its own module.

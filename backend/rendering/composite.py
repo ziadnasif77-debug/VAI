@@ -37,6 +37,7 @@ from backend.rendering.encoder import (
     container_arguments,
     video_arguments,
 )
+from backend.rendering.overlay_plan import OverlayPlan
 from backend.rendering.remotion import overlay_input_arguments
 
 logger = get_logger("rendering.composite", LogChannel.RENDERING)
@@ -78,6 +79,7 @@ def composite(
     programme: Path,
     *,
     overlay: Path | None,
+    overlay_plan: OverlayPlan | None = None,
     mix: MixPlan | None,
     destination: Path,
     runner: FFmpegRunner,
@@ -93,6 +95,9 @@ def composite(
     Args:
         programme: the concatenated gameplay video, without audio.
         overlay: the alpha layer, or ``None`` when there was nothing to draw.
+        overlay_plan: where the overlay's stretches belong, when Remotion was
+            asked for only the frames that carry something. ``None`` means the
+            file runs the length of the video.
         mix: the audio graph, or ``None`` for a silent render.
         duration_seconds: the expected length, used for progress and to bound
             the output. FFmpeg is told to stop there so a looping music input
@@ -118,6 +123,7 @@ def composite(
     argv, notes = _build_command(
         programme,
         overlay=overlay,
+        overlay_plan=overlay_plan,
         mix=mix,
         destination=partial,
         runner=runner,
@@ -133,9 +139,7 @@ def composite(
         runner.run_with_progress(
             argv,
             total_seconds=duration_seconds,
-            on_progress=(
-                (lambda report: _relay(report, on_progress)) if on_progress else None
-            ),
+            on_progress=((lambda report: _relay(report, on_progress)) if on_progress else None),
             should_cancel=should_cancel,
             timeout_seconds=config.ffmpeg.timeout_seconds,
             error_code=ErrorCode.ENCODING_FAILED,
@@ -168,6 +172,7 @@ def _build_command(
     programme: Path,
     *,
     overlay: Path | None,
+    overlay_plan: OverlayPlan | None,
     mix: MixPlan | None,
     destination: Path,
     runner: FFmpegRunner,
@@ -193,12 +198,21 @@ def _build_command(
 
     if overlay is not None:
         argv += overlay_input_arguments(overlay, config.remotion.overlay_format)
-        filters.append(
-            # shortest=0: the overlay may be a frame shorter than the picture
-            # after rounding, and stopping the video there would truncate it.
-            "[0:v][1:v]overlay=format=auto:shortest=0[composited]"
-        )
-        video_label = "composited"
+        if overlay_plan is None:
+            filters.append(
+                # shortest=0: the overlay may be a frame shorter than the
+                # picture after rounding, and stopping the video there would
+                # truncate it.
+                "[0:v][1:v]overlay=format=auto:shortest=0[composited]"
+            )
+            video_label = "composited"
+        else:
+            placed, video_label = _placed_segments(overlay_plan)
+            filters.extend(placed)
+            notes.append(
+                f"the overlay was rendered as {len(overlay_plan.segments)} stretch(es) "
+                f"covering {overlay_plan.render_frames} of {overlay_plan.total_frames} frames"
+            )
     else:
         notes.append("no overlay layer: the video carries no captions or graphics")
 
@@ -231,6 +245,49 @@ def _build_command(
     # this the audio would keep going long after the last frame.
     argv += ["-t", f"{duration_seconds:.3f}", str(destination)]
     return argv, tuple(notes)
+
+
+def _placed_segments(plan: OverlayPlan) -> tuple[list[str], str]:
+    """Cut the rendered overlay back into its stretches and lay each one down.
+
+    The overlay file holds the drawn stretches end to end with the transparent
+    gaps removed, so putting it back is: split the stream once per stretch,
+    trim each to its own frames, shift its timestamps to where it belongs, and
+    overlay them in order.
+
+    ``eof_action=pass`` and ``repeatlast=0`` are what make the gaps gaps. The
+    default overlay behaviour freezes the last overlay frame for the rest of
+    the video and stops the whole graph when the overlay ends -- either one
+    would paint a caption across the footage that follows it.
+    """
+    fps = plan.fps
+    if fps <= 0:
+        raise ValueError("an overlay plan needs its own fps to be placed in time")
+
+    segments = plan.segments
+    filters: list[str] = []
+    labels = [f"seg{index}" for index in range(len(segments))]
+    if len(segments) > 1:
+        filters.append(
+            "[1:v]split=" + str(len(segments)) + "".join(f"[{label}]" for label in labels)
+        )
+    else:
+        labels = ["1:v"]
+
+    label = "0:v"
+    for index, (segment, source) in enumerate(zip(segments, labels, strict=True)):
+        shifted = f"place{index}"
+        filters.append(
+            f"[{source}]trim=start_frame={segment.render_start}:"
+            f"end_frame={segment.render_end},"
+            f"setpts=PTS-STARTPTS+{segment.source_start / fps:.6f}/TB[{shifted}]"
+        )
+        output = f"over{index}"
+        filters.append(
+            f"[{label}][{shifted}]overlay=format=auto:eof_action=pass:repeatlast=0[{output}]"
+        )
+        label = output
+    return filters, label
 
 
 def _reindexed(filter_complex: str, offset: int) -> str:

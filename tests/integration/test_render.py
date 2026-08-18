@@ -44,6 +44,8 @@ from backend.pipeline.workers import default_workers
 from backend.pipeline.workers.gaming_workers import OcrWorker
 from backend.pipeline.workers.speech_workers import TranscriptWorker
 from backend.pipeline.workers.vision_workers import VisionWorker
+from backend.rendering.composite import _placed_segments
+from backend.rendering.overlay_plan import OverlayPlan, Segment
 from backend.services.media_ingestion import MediaIngestionService
 from backend.services.project_manager import ProjectManager
 
@@ -112,9 +114,7 @@ def rendered(render_runner, render_database, render_paths, render_config, module
         ProjectCreate(name="Render", target_duration_seconds=600, mode=VideoMode.STORY)
     )
     media.import_media(project.id, MediaImport(path=str(module_clip)))
-    outcomes = {
-        outcome.job.stage: outcome for outcome in render_runner.run_project(project.id)
-    }
+    outcomes = {outcome.job.stage: outcome for outcome in render_runner.run_project(project.id)}
     return project, outcomes
 
 
@@ -132,8 +132,16 @@ def _decode_fully(path: Path) -> subprocess.CompletedProcess[str]:
     """
     return subprocess.run(
         [
-            "ffmpeg", "-hide_banner", "-nostdin", "-v", "error",
-            "-i", str(path), "-f", "null", "-",
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-v",
+            "error",
+            "-i",
+            str(path),
+            "-f",
+            "null",
+            "-",
         ],
         capture_output=True,
         text=True,
@@ -202,9 +210,20 @@ class TestAcceptance:
         path = Path(result["output_path"])
         probe_seconds = float(
             subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                 "-of", "csv=p=0", str(path)],
-                check=True, capture_output=True, text=True, timeout=120,
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "csv=p=0",
+                    str(path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
             ).stdout.strip()
         )
 
@@ -310,7 +329,9 @@ class TestStagePipeline:
 
         assert order.index(JobStage.EDL) < order.index(JobStage.RENDER)
 
-    def test_the_runner_stops_at_the_frontier(self, rendered, render_runner, frontier_check) -> None:
+    def test_the_runner_stops_at_the_frontier(
+        self, rendered, render_runner, frontier_check
+    ) -> None:
         # The same project the rest of the file rendered: the first stage with
         # no worker waits rather than failing.
         project, _ = rendered
@@ -382,3 +403,146 @@ class TestQaStage:
         order = list(outcomes)
 
         assert order.index(JobStage.RENDER) < order.index(JobStage.QA)
+
+
+class TestTheSegmentedOverlay:
+    """§66's shortcut, proved against a real decoder.
+
+    The unit tests own the arithmetic. What only FFmpeg can settle is whether
+    a filter graph built from a plan actually puts the overlay on the frames
+    the plan named -- and, just as importantly, leaves every other frame alone.
+    A `repeatlast` default in the wrong place paints the last caption across
+    the rest of the video, and nothing about that is visible in a filter
+    string.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def placed(cls, tmp_path_factory, render_config):
+        """A green ten-second video with two one-second red stretches put back."""
+        work = tmp_path_factory.mktemp("segments")
+        runner = FFmpegRunner(render_config.ffmpeg)
+        programme = work / "programme.mp4"
+        overlay = work / "overlay.webm"
+        output = work / "composited.mp4"
+
+        # Two seconds of opaque red: the *compacted* overlay, exactly as
+        # Remotion would return it -- both stretches back to back, no gap.
+        _ffmpeg(
+            runner,
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=green:s=320x180:r=30:d=10",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                str(programme),
+            ],
+        )
+        _ffmpeg(
+            runner,
+            [
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=320x180:r=30:d=2",
+                "-vf",
+                "format=yuva420p",
+                "-c:v",
+                "libvpx-vp9",
+                "-pix_fmt",
+                "yuva420p",
+                str(overlay),
+            ],
+        )
+
+        plan = OverlayPlan(
+            segments=(
+                Segment(source_start=60, source_end=90, render_start=0),
+                Segment(source_start=210, source_end=240, render_start=30),
+            ),
+            total_frames=300,
+            fps=30,
+        )
+        filters, label = _placed_segments(plan)
+        _ffmpeg(
+            runner,
+            [
+                "-i",
+                str(programme),
+                "-c:v",
+                "libvpx-vp9",
+                "-i",
+                str(overlay),
+                "-filter_complex",
+                ";".join(filters),
+                "-map",
+                f"[{label}]",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                str(output),
+            ],
+        )
+        return output, runner
+
+    @pytest.mark.parametrize(
+        ("second", "red"),
+        [
+            (0.5, False),  # before the first stretch
+            (2.5, True),  # inside it: frames 60-90 at 30 fps
+            (3.5, False),  # the gap -- the overlay must not have frozen
+            (5.0, False),
+            (7.5, True),  # the second stretch: frames 210-240
+            (8.5, False),  # after it, and still not frozen
+            (9.5, False),
+        ],
+    )
+    def test_the_overlay_lands_only_where_the_plan_put_it(
+        self, placed, second: float, red: bool
+    ) -> None:
+        output, runner = placed
+        pixel = _pixel_at(runner, output, second)
+        assert (pixel[0] > 200 and pixel[1] < 60) is red, f"at {second}s the pixel was {pixel}"
+
+    def test_the_video_keeps_its_full_length(self, placed) -> None:
+        # Two seconds of overlay must not truncate a ten-second video, which is
+        # what `shortest` and the default eof_action would do.
+        output, runner = placed
+        assert probe_media(output, runner).duration_seconds == pytest.approx(10.0, abs=0.1)
+
+
+def _ffmpeg(runner: FFmpegRunner, arguments: list[str]) -> None:
+    subprocess.run(
+        [*runner.base_arguments(), *arguments],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _pixel_at(runner: FFmpegRunner, path: Path, second: float) -> tuple[int, int, int]:
+    """The top-left pixel of the frame at ``second``, as RGB."""
+    completed = subprocess.run(
+        [
+            *runner.base_arguments(),
+            "-ss",
+            f"{second}",
+            "-i",
+            str(path),
+            "-frames:v",
+            "1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    raw = completed.stdout[:3]
+    return (raw[0], raw[1], raw[2])

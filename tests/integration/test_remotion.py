@@ -28,7 +28,9 @@ import pytest
 
 from backend.core.errors import RenderError
 from backend.core.models.enums import TrackKind
+from backend.rendering.composite import _placed_segments
 from backend.rendering.composition import build_composition
+from backend.rendering.overlay_plan import OverlayPlan
 from backend.rendering.remotion import (
     is_available,
     overlay_input_arguments,
@@ -118,7 +120,15 @@ def gameplay(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def overlay(composition, config, repo_root: Path, tmp_path: Path) -> Path:
+def rendered_overlay(composition, config, repo_root: Path, tmp_path: Path):
+    """The overlay Remotion produced, with the plan that says where it goes.
+
+    The plan matters to every assertion below. Since §66 gained the shortcut,
+    a caption in the second half of a two-second clip produces an overlay file
+    that is *shorter than the video* and starts at the caption -- so "the
+    overlay at 1.4 s" and "the video at 1.4 s" are no longer the same frame,
+    and only the plan knows the difference.
+    """
     result = render_overlay(
         composition,
         output_path=tmp_path / "overlay.webm",
@@ -126,7 +136,12 @@ def overlay(composition, config, repo_root: Path, tmp_path: Path) -> Path:
         repo_root=repo_root,
     )
     assert result.exists, f"no overlay was produced: {result.reason}"
-    return result.path
+    return result
+
+
+@pytest.fixture
+def overlay(rendered_overlay) -> Path:
+    return rendered_overlay.path
 
 
 def _frame(video: Path, seconds: float, destination: Path, *, decoder: str | None = None) -> Path:
@@ -138,15 +153,34 @@ def _frame(video: Path, seconds: float, destination: Path, *, decoder: str | Non
     return destination
 
 
-def _composite(gameplay: Path, overlay: Path, destination: Path, *, decoder: str | None) -> Path:
+def _composite(
+    gameplay: Path,
+    overlay: Path,
+    destination: Path,
+    *,
+    decoder: str | None,
+    plan: OverlayPlan | None = None,
+) -> Path:
+    """Lay the overlay over the footage the way the render stage does.
+
+    The filter comes from the production builder rather than being written out
+    here, because "does the alpha survive the composite" is a question about
+    the graph the pipeline actually runs.
+    """
     argv = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", str(gameplay)]
     if decoder:
         argv += ["-c:v", decoder]
+    if plan is None:
+        filters, label = ["[0:v][1:v]overlay=format=auto[out]"], "out"
+    else:
+        filters, label = _placed_segments(plan)
     argv += [
         "-i",
         str(overlay),
         "-filter_complex",
-        "[0:v][1:v]overlay=format=auto",
+        ";".join(filters),
+        "-map",
+        f"[{label}]",
         "-c:v",
         "libx264",
         "-preset",
@@ -157,6 +191,15 @@ def _composite(gameplay: Path, overlay: Path, destination: Path, *, decoder: str
     ]
     subprocess.run(argv, check=True, capture_output=True, timeout=600)
     return destination
+
+
+def _inside_the_overlay(result, second: float) -> float:
+    """Where a moment of the finished video sits inside the overlay file."""
+    if result.plan is None:
+        return second
+    frame = round(second * result.plan.fps)
+    segment = next(one for one in result.plan.segments if one.contains(frame))
+    return (frame - segment.shift) / result.plan.fps
 
 
 def _changed_pixels(left: Path, right: Path) -> int:
@@ -259,9 +302,7 @@ class TestTheCardIsHandedBack:
         assert gpu.release_models(["qwen2.5vl:7b"]) == []
         assert gpu.resident_models() == []
 
-    def test_an_unreadable_card_reports_nothing_rather_than_zero(
-        self, config, monkeypatch
-    ) -> None:
+    def test_an_unreadable_card_reports_nothing_rather_than_zero(self, config, monkeypatch) -> None:
         # No NVIDIA card, or a driver query that timed out. "Unknown" must not
         # be reported as a number somebody could act on.
         from backend.core import gpu
@@ -308,15 +349,11 @@ class TestItLooksAtTheCardFirst:
         monkeypatch.setattr(module, "resident_models", list)
         monkeypatch.setattr(module, "_VRAM_SETTLE_SECONDS", 0.0)
 
-        fitted = module._fitted_to_the_card(config.remotion.model_copy(
-            update={"concurrency": 4}
-        ))
+        fitted = module._fitted_to_the_card(config.remotion.model_copy(update={"concurrency": 4}))
 
         assert fitted.concurrency == 4
 
-    def test_a_full_card_fails_now_rather_than_in_twenty_minutes(
-        self, config, monkeypatch
-    ) -> None:
+    def test_a_full_card_fails_now_rather_than_in_twenty_minutes(self, config, monkeypatch) -> None:
         with pytest.raises(RenderError) as raised:
             self._fitted(config.remotion, 509, monkeypatch)
 
@@ -360,9 +397,7 @@ class TestItLooksAtTheCardFirst:
 
         assert fitted.concurrency == 4
 
-    def test_a_machine_that_cannot_say_is_not_second_guessed(
-        self, config, monkeypatch
-    ) -> None:
+    def test_a_machine_that_cannot_say_is_not_second_guessed(self, config, monkeypatch) -> None:
         # No NVIDIA card, no driver tool, a query that timed out. Reading
         # "unknown" as "empty" is the assumption that caused this defect;
         # reading it as "full" would break every machine without the card.
@@ -585,7 +620,7 @@ class TestAcceptance:
         assert alpha.max() == 0, "the overlay is opaque before it draws anything"
 
     def test_the_alpha_channel_is_opaque_where_the_caption_is(
-        self, overlay: Path, tmp_path: Path
+        self, rendered_overlay, overlay: Path, tmp_path: Path
     ) -> None:
         import numpy as np
         from PIL import Image
@@ -604,7 +639,10 @@ class TestAcceptance:
                 "-i",
                 str(overlay),
                 "-ss",
-                "1.4",
+                # 1.4 s of the *video*. The overlay file holds only the
+                # stretches that draw something, so where that lands inside it
+                # is the plan's answer, not the same number.
+                f"{_inside_the_overlay(rendered_overlay, 1.4)}",
                 "-vf",
                 "alphaextract,format=gray",
                 "-frames:v",
@@ -622,11 +660,17 @@ class TestAcceptance:
         assert (alpha < 20).mean() > 0.5
 
     def test_compositing_changes_nothing_before_the_caption(
-        self, gameplay: Path, overlay: Path, tmp_path: Path
+        self, gameplay: Path, rendered_overlay, overlay: Path, tmp_path: Path
     ) -> None:
         # The acceptance, stated as a measurement. A broken alpha channel shows
         # up here as thousands of changed pixels.
-        composited = _composite(gameplay, overlay, tmp_path / "out.mp4", decoder="libvpx-vp9")
+        composited = _composite(
+            gameplay,
+            overlay,
+            tmp_path / "out.mp4",
+            decoder="libvpx-vp9",
+            plan=rendered_overlay.plan,
+        )
 
         before = _frame(gameplay, 0.05, tmp_path / "g.png")
         after = _frame(composited, 0.05, tmp_path / "c.png")
@@ -634,9 +678,15 @@ class TestAcceptance:
         assert _changed_pixels(before, after) == 0
 
     def test_compositing_changes_only_the_caption_region(
-        self, gameplay: Path, overlay: Path, tmp_path: Path
+        self, gameplay: Path, rendered_overlay, overlay: Path, tmp_path: Path
     ) -> None:
-        composited = _composite(gameplay, overlay, tmp_path / "out2.mp4", decoder="libvpx-vp9")
+        composited = _composite(
+            gameplay,
+            overlay,
+            tmp_path / "out2.mp4",
+            decoder="libvpx-vp9",
+            plan=rendered_overlay.plan,
+        )
 
         before = _frame(gameplay, 1.4, tmp_path / "g2.png")
         after = _frame(composited, 1.4, tmp_path / "c2.png")
@@ -647,20 +697,30 @@ class TestAcceptance:
         assert changed < WIDTH * HEIGHT * 0.5
 
     def test_the_native_decoder_loses_the_alpha(
-        self, gameplay: Path, overlay: Path, tmp_path: Path
+        self, gameplay: Path, rendered_overlay, overlay: Path, tmp_path: Path
     ) -> None:
         """Why `overlay_input_arguments` names a decoder at all.
 
         FFmpeg's native VP9 decoder discards the side-channel alpha without a
         word, and the overlay composites as an opaque rectangle. This asserts
         the failure exists, so the fix is not mistaken for superstition.
+
+        Measured at the caption, against the same frame the working decoder
+        changes by a strip: the failure is the size of the change, not its
+        presence.
         """
-        composited = _composite(gameplay, overlay, tmp_path / "out3.mp4", decoder=None)
+        composited = _composite(
+            gameplay,
+            overlay,
+            tmp_path / "out3.mp4",
+            decoder=None,
+            plan=rendered_overlay.plan,
+        )
 
-        before = _frame(gameplay, 0.05, tmp_path / "g3.png")
-        after = _frame(composited, 0.05, tmp_path / "c3.png")
+        before = _frame(gameplay, 1.4, tmp_path / "g3.png")
+        after = _frame(composited, 1.4, tmp_path / "c3.png")
 
-        assert _changed_pixels(before, after) > 0, (
+        assert _changed_pixels(before, after) > WIDTH * HEIGHT * 0.5, (
             "the native decoder now preserves alpha; the explicit decoder may be "
             "unnecessary and this test should be revisited"
         )

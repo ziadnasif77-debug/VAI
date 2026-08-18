@@ -175,6 +175,9 @@ class RenderWorker:
         final = composite(
             programme.path,
             overlay=overlay.path if overlay is not None else None,
+            # Where the rendered stretches go back, when only the frames that
+            # carry something were sent through Chromium.
+            overlay_plan=overlay.plan if overlay is not None else None,
             mix=mix,
             destination=destination,
             runner=context.ffmpeg,

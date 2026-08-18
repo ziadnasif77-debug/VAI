@@ -47,6 +47,7 @@ from backend.core.gpu import describe_pressure, free_vram_mb, resident_models
 from backend.core.logging import LogChannel, get_logger, log_duration
 from backend.media.ffmpeg import CancelledError
 from backend.rendering.composition import Composition
+from backend.rendering.overlay_plan import OverlayPlan, compact, plan_overlay, whole
 
 logger = get_logger("rendering.remotion", LogChannel.RENDERING)
 
@@ -69,6 +70,10 @@ class OverlayResult:
     reason: str = ""
     frames: int = 0
     duration_seconds: float = 0.0
+    #: Where the rendered stretches belong in the finished video. The composite
+    #: needs this to put them back; ``None`` means the file covers the whole
+    #: video, which is what it meant before segments existed.
+    plan: OverlayPlan | None = None
 
     @property
     def exists(self) -> bool:
@@ -81,6 +86,7 @@ class OverlayResult:
             "reason": self.reason,
             "frames": self.frames,
             "render_seconds": round(self.duration_seconds, 2),
+            **({"plan": self.plan.summary()} if self.plan is not None else {}),
         }
 
 
@@ -167,16 +173,35 @@ def render_overlay(
     if not available:
         # §95: a missing renderer degrades to a video without captions. It does
         # not fail a render FFmpeg could still complete.
-        logger.warning("Remotion is unavailable; continuing without an overlay",
-                       extra={"reason": why})
+        logger.warning(
+            "Remotion is unavailable; continuing without an overlay", extra={"reason": why}
+        )
         return OverlayResult(path=None, skipped=True, reason=why)
 
     config = _fitted_to_the_card(config)
 
-    directory = project_dir(config, repo_root)
-    composition_path = write_composition(
-        composition, directory / "public" / config.input_filename
+    plan = plan_overlay(
+        composition,
+        merge_gap_frames=max(0, round(config.overlay_merge_gap_seconds * composition.fps)),
+        max_segments=config.max_overlay_segments,
+        min_saved_ratio=config.min_overlay_saving,
     )
+    rendered = compact(composition, plan)
+    if rendered is composition and not plan.is_whole:
+        # compact() refused the plan, so the file will cover everything.
+        plan = whole(
+            composition.duration_in_frames,
+            fps=composition.fps,
+            reason="the plan did not map cleanly",
+        )
+    if not plan.is_whole:
+        logger.info(
+            "Rendering only the stretches that carry an overlay",
+            extra=plan.summary(),
+        )
+
+    directory = project_dir(config, repo_root)
+    composition_path = write_composition(rendered, directory / "public" / config.input_filename)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.unlink(missing_ok=True)
 
@@ -185,7 +210,7 @@ def render_overlay(
     with log_duration(
         logger,
         "Rendered the overlay",
-        frames=composition.duration_in_frames,
+        frames=rendered.duration_in_frames,
         output=str(output_path),
     ) as fields:
         try:
@@ -221,8 +246,10 @@ def render_overlay(
         )
     return OverlayResult(
         path=output_path,
-        frames=composition.duration_in_frames,
+        frames=rendered.duration_in_frames,
         duration_seconds=time.perf_counter() - started,
+        plan=None if plan.is_whole else plan,
+        reason=plan.reason if not plan.is_whole else "",
     )
 
 
