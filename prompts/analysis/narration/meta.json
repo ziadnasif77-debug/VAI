@@ -1,7 +1,7 @@
 {
   "id": "analysis.narration",
-  "version": 2,
-  "purpose": "Segment a window of narrated gameplay speech into complete incidents -- cause, climax and reaction -- so the editor can cut whole situations rather than the instants a signal detector spikes on (SPEC 19, 21, 26, 93). The model reads; correlation decides whether an incident is an event. Version 2 bounds every string and the list: unbounded, the model filled the output budget and the JSON was truncated, which cost a whole six-minute window of speech per failure and said so in one log line.",
+  "version": 3,
+  "purpose": "Segment a window of narrated gameplay speech into complete incidents -- cause, climax and reaction -- so the editor can cut whole situations rather than the instants a signal detector spikes on (SPEC 19, 21, 26, 93). The model reads; correlation decides whether an incident is an event. Version 2 bounds every string and the list: unbounded, the model filled the output budget and the JSON was truncated, which cost a whole six-minute window of speech per failure and said so in one log line. Version 3 drops the quote field. Measured against the real model on a 77-minute Arabic transcript: three windows in fifteen died inside it, the model looping on repeated characters until the string never closed, and maxLength did not stop it because Ollama grammar-constrains shape rather than length. Removing the field took those three windows from truncated to parsed. The words themselves are not lost: the incident carries the span they were said in.",
   "input_schema": {
     "type": "object",
     "required": [
@@ -92,10 +92,6 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1
-            },
-            "quote": {
-              "type": "string",
-              "maxLength": 200
             }
           }
         },

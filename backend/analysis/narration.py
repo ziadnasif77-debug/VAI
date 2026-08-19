@@ -344,6 +344,15 @@ def _overlaps(left: Incident, right: Incident) -> bool:
 #: 77-minute re-analysis before anybody read the line.
 MAX_INCIDENTS_PER_WINDOW: Final[int] = 20
 MAX_TITLE_CHARACTERS: Final[int] = 120
+
+#: `Incident.quote` is no longer asked of the model, and the field stays for
+#: the callers that read it. Measured against the real model on a 77-minute
+#: Arabic transcript: three windows in fifteen died inside that field, the
+#: model looping on repeated characters until the string never closed, and a
+#: `maxLength` did not stop it -- Ollama grammar-constrains the *shape* of the
+#: answer, not the length of its strings. Removing the field took those three
+#: windows from truncated to parsed, and the words are not lost: every incident
+#: carries the span they were said in, and the transcript is stored.
 MAX_QUOTE_CHARACTERS: Final[int] = 200
 
 

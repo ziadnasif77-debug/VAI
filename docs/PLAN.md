@@ -155,6 +155,41 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### `maxLength` is not enforced, and the narration fix was the wrong one (2026-08-20)
+
+Verified against the real model rather than assumed, and the assumption was
+wrong. Same 77-minute Arabic transcript, fifteen windows, both schemas back to
+back:
+
+| | windows read | lost |
+| --- | --- | --- |
+| unbounded (before the fix) | 12/15 | 3 |
+| every string bounded | 12/15 | **3** |
+
+Identical. Bounding the strings changed nothing, because **Ollama's structured
+output constrains the *shape* of an answer — types, required keys, enums — and
+not the length of its strings.** `enum` and `maxItems` are real constraints;
+`maxLength` is documentation.
+
+What the three failures actually were, read off the raw responses: all three
+end mid-string inside `quote`, with the model looping on repeated characters
+in Arabic and never closing it. `done_reason: null`, `eval_count: 0`, while
+every window that succeeded reported `stop` and a real count.
+
+So the field was removed from what the model is asked for. Measured on exactly
+those three windows: truncated → parsed, 3/3. Then end to end on the whole
+transcript: **0 windows lost, down from 3 of 15**, in 80 seconds, with the
+model unloaded afterwards by itself.
+
+Nothing is lost with it. `Incident.quote` stays on the type for its readers,
+and the player's words are recoverable where they always were — every incident
+carries the span they were said in, and the transcript is stored.
+
+The bounds added across the other five prompts stay. They cost nothing, they
+document the intent, and `maxItems` and `enum` among them are enforced. But the
+Critic's 1-in-3 → 4-in-4 improvement should be credited to dropping `keep` from
+its action enum and to asking for fewer notes, not to `maxLength`.
+
 ### Six prompts were letting the model write without a limit (2026-08-19)
 
 Chasing one logged line — *"Could not read a transcript window"*, repeated

@@ -21,7 +21,6 @@ from ai.providers.base import TranscriptSegment
 from backend.analysis import narration
 from backend.analysis.narration import (
     MAX_INCIDENTS_PER_WINDOW,
-    MAX_QUOTE_CHARACTERS,
     MAX_TITLE_CHARACTERS,
     SOURCE,
     Incident,
@@ -134,7 +133,25 @@ class TestTheGrammarItIsGiven:
 
         assert incidents["maxItems"] == MAX_INCIDENTS_PER_WINDOW
         assert properties["title"]["maxLength"] == MAX_TITLE_CHARACTERS
-        assert properties["quote"]["maxLength"] == MAX_QUOTE_CHARACTERS
+
+    def test_the_model_is_not_asked_to_copy_the_players_words_back(self) -> None:
+        """The field three windows in fifteen died inside.
+
+        Measured against the real model on a 77-minute Arabic transcript: the
+        model looped on repeated characters inside `quote` until the string
+        never closed, and a `maxLength` did not stop it -- Ollama
+        grammar-constrains the shape of an answer, not the length of its
+        strings. Removing the field took those three windows from truncated to
+        parsed, and nothing is lost: the incident carries the span the words
+        were said in, and the transcript is stored.
+        """
+        properties = load_prompt("analysis.narration").output_schema["properties"]["incidents"][
+            "items"
+        ]["properties"]
+
+        assert "quote" not in properties
+        # The field stays on the type for the callers that read it.
+        assert Incident("t", GameEventType.KILL, 0.0, 1.0, 2.0, 0.5).quote == ""
 
     def test_the_schema_that_runs_is_the_one_in_the_prompt_file(self) -> None:
         # There were two copies of this contract and they had drifted: the file
