@@ -155,6 +155,40 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### All three real recordings re-analysed — the gate is a profile problem (2026-08-19)
+
+4.2 hours of VLM across the two remaining projects. Coverage is now solved
+everywhere: the median gap from an unnamed event to the nearest analysed frame
+is **0.0–0.2 s**, and **94–96%** of unnamed events have a look within two
+seconds. Nothing is unwatched any more.
+
+| project | game | profile | before | **after** | gate ≤0.35 |
+| --- | --- | --- | --- | --- | --- |
+| سبي | Grounded | `grounded` | 0.447 | **0.227** | ✅ |
+| Ziad 2 | Grounded | `grounded` | 0.609 | **0.358** | ✗ by 0.008 |
+| تجريب 4 | GTA V | **`generic`** | 0.503 | **0.430** | ✗ |
+
+**The remaining spread is the profile, not the footage and not the looking.**
+The two Grounded projects use a profile with 12 signature patterns and 2 fusion
+rules, and its `creature_fight` rule alone named 52 events on سبي. تجريب 4 fell
+back to `generic` — and of its 74 unnamed-but-observed events, **62 show
+`driving`**, which no generic rule can name.
+
+It fell back because `profiles/gta_v/profile.json` has **zero signature
+patterns** and **zero fusion rules**. Game detection matches on signatures, so
+it can never identify GTA, and even when told it would add nothing to
+correlation. The recording is unmistakable: the most-read on-screen text is
+`DIRECTOR MODE` (161), `STUNT RAMPS`, `INVINCIBILITY`, `ACTING UP`.
+
+Phase 0's own gate anticipated this — criteria 3 and 4 ask for `death` from
+`WASTED`/`BUSTED` and for `chase`/`escape` from the wanted-level HUD, both of
+which are GTA profile rules that do not exist. Building that profile is the
+next concrete step, and §23's bargain is intact either way: a profile improves
+accuracy and is never required.
+
+Criterion 5 (≥20% of named events carrying ≥3 sources) passes on all three at
+0.74–0.92.
+
 ### The gate, re-measured at the new density (2026-08-19)
 
 *Ziad 2* re-analysed at 720 frames per source hour. 38.6 minutes of VLM for a
