@@ -1,51 +1,102 @@
 {
   "id": "gta_v",
   "name": "Grand Theft Auto V",
-  "description": "Written against real 1920x1080 capture. Regions were measured from frames, not guessed: the wanted-star row and the ammo counter share a corner, and the star row is right-anchored, so its search window is deliberately wider than the glyphs.",
-
+  "description": "Written against real 1920x1080 capture. Regions were measured from frames, not guessed: the wanted-star row and the ammo counter share a corner, and the star row is right-anchored, so its search window is deliberately wider than the glyphs. Signature patterns and fusion rules added 2026-08-19 from on-screen text read out of a real 96-minute recording: with none, game detection could never identify GTA and every recording of it fell back to the generic profile. The OCR-tolerant spellings are not decoration -- DIRECTOR MODE came back as DIFIECTOR, DINECTOH, DIPECTOR and DRECTOR across 161 readings of the same two words.",
   "regions": {
-    "wanted_stars": { "x": 0.9130, "y": 0.0120, "width": 0.0740, "height": 0.0350 },
-    "ammo": { "x": 0.9000, "y": 0.0400, "width": 0.0900, "height": 0.0400 },
-    "minimap": { "x": 0.0100, "y": 0.8200, "width": 0.1600, "height": 0.1700 },
-    "health_bar": { "x": 0.0170, "y": 0.9720, "width": 0.0900, "height": 0.0060 },
-    "centre_banner": { "x": 0.2000, "y": 0.3600, "width": 0.6000, "height": 0.2000 },
-    "notification": { "x": 0.0100, "y": 0.0400, "width": 0.3000, "height": 0.2000 },
-    "location": { "x": 0.7000, "y": 0.9200, "width": 0.2900, "height": 0.0600 }
+    "wanted_stars": {
+      "x": 0.913,
+      "y": 0.012,
+      "width": 0.074,
+      "height": 0.035
+    },
+    "ammo": {
+      "x": 0.9,
+      "y": 0.04,
+      "width": 0.09,
+      "height": 0.04
+    },
+    "minimap": {
+      "x": 0.01,
+      "y": 0.82,
+      "width": 0.16,
+      "height": 0.17
+    },
+    "health_bar": {
+      "x": 0.017,
+      "y": 0.972,
+      "width": 0.09,
+      "height": 0.006
+    },
+    "centre_banner": {
+      "x": 0.2,
+      "y": 0.36,
+      "width": 0.6,
+      "height": 0.2
+    },
+    "notification": {
+      "x": 0.01,
+      "y": 0.04,
+      "width": 0.3,
+      "height": 0.2
+    },
+    "location": {
+      "x": 0.7,
+      "y": 0.92,
+      "width": 0.29,
+      "height": 0.06
+    }
   },
-
-  "ocr_regions": ["centre_banner", "notification"],
-
+  "ocr_regions": [
+    "centre_banner",
+    "notification"
+  ],
   "event_rules": [
     {
       "event_type": "death",
-      "patterns": ["\\bWASTED\\b"],
-      "regions": ["centre_banner"],
+      "patterns": [
+        "\\bWASTED\\b"
+      ],
+      "regions": [
+        "centre_banner"
+      ],
       "confidence": 0.95,
       "duration_seconds": 4.0
     },
     {
       "event_type": "death",
-      "patterns": ["\\bBUSTED\\b"],
-      "regions": ["centre_banner"],
+      "patterns": [
+        "\\bBUSTED\\b"
+      ],
+      "regions": [
+        "centre_banner"
+      ],
       "confidence": 0.9,
       "duration_seconds": 4.0
     },
     {
       "event_type": "objective",
-      "patterns": ["MISSION\\s+PASSED", "MISSION\\s+COMPLETE"],
-      "regions": ["centre_banner"],
+      "patterns": [
+        "MISSION\\s+PASSED",
+        "MISSION\\s+COMPLETE"
+      ],
+      "regions": [
+        "centre_banner"
+      ],
       "confidence": 0.9,
       "duration_seconds": 5.0
     },
     {
       "event_type": "objective_failure",
-      "patterns": ["MISSION\\s+FAILED"],
-      "regions": ["centre_banner"],
+      "patterns": [
+        "MISSION\\s+FAILED"
+      ],
+      "regions": [
+        "centre_banner"
+      ],
       "confidence": 0.9,
       "duration_seconds": 5.0
     }
   ],
-
   "ignore_patterns": [
     "DIRECTOR\\s+MODE",
     "INVINCIBILITY",
@@ -54,14 +105,26 @@
     "^\\s*PROPS\\s+PLACED",
     "Cheat\\s+activated",
     "^\\s*Scene\\s+\\d+\\s*$",
-    "^\\s*(Move|Rotate|Place|Back|Lower)\\b"
+    "^\\s*(Move|Rotate|Place|Back|Lower)\\b",
+    "\\bDI\\w{0,2}ECTO\\w?\\s+MODE\\b",
+    "\\bINVINC\\w*BILITY\\b",
+    "^\\W*(?:SCENE|CATEGORY|TYPE|ACTORS|ANIMALS|COSTUMES|GANGS|MILITARY|STATS|BRIEF)\\W*$",
+    "^\\W*\\d{1,3}\\s*/\\s*\\d{1,3}\\W*$",
+    "\\bCLEAR\\s+SCENE\\b",
+    "\\bSELECT\\s+AN\\s+AVAILABLE\\s+PROP\\b",
+    "\\bENSURE\\s+YOU\\s+SAVE\\s+YOUR\\s+SCENE\\b",
+    "\\b(?:SCRIPTHOOKV|HEAPADJUSTER|GAMECONFIG)\\b"
   ],
-
   "hud": [
     {
       "name": "wanted_level",
       "kind": "glyph_row",
-      "region": { "x": 0.9080, "y": 0.0080, "width": 0.0850, "height": 0.0400 },
+      "region": {
+        "x": 0.908,
+        "y": 0.008,
+        "width": 0.085,
+        "height": 0.04
+      },
       "count": 5,
       "confidence": 0.6,
       "absent_value": 0.0,
@@ -92,6 +155,58 @@
           "duration_seconds": 5.0
         }
       ]
+    }
+  ],
+  "signature_patterns": [
+    "\\bDI\\w{0,2}ECTO\\w?\\s+MODE\\b",
+    "\\bSCENE\\s+CREATOR\\b",
+    "\\bPROPS\\s+PLACED\\b",
+    "\\bSTUNT\\s+RAMPS?\\b",
+    "\\bINVINC\\w*BILITY\\b",
+    "\\bLEGION\\s+SQUA\\w{2}E\\b",
+    "\\bVINEWOOD\\b",
+    "\\bLOS\\s+SANTOS\\b",
+    "\\bBLAINE\\s+COUNTY\\b",
+    "\\bAMMU-?NATION\\b"
+  ],
+  "fusion_rules": [
+    {
+      "event_type": "collision",
+      "name": "vehicle_impact",
+      "labels": [
+        "driving",
+        "vehicle"
+      ],
+      "sources": [
+        "audio",
+        "scene"
+      ],
+      "confidence": 0.68
+    },
+    {
+      "event_type": "combat",
+      "name": "shootout",
+      "labels": [
+        "combat"
+      ],
+      "sources": [
+        "audio"
+      ],
+      "confidence": 0.7
+    },
+    {
+      "event_type": "near_death",
+      "name": "hurt_and_heard",
+      "labels": [
+        "low_health"
+      ],
+      "sources": [
+        "audio"
+      ],
+      "types": [
+        "low_health"
+      ],
+      "confidence": 0.72
     }
   ]
 }

@@ -155,6 +155,41 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### The GTA profile, and what it could not fix (2026-08-19)
+
+`profiles/gta_v/profile.json` had everything except a way to be found. Seven
+measured HUD regions, a wanted-star glyph row with `chase`/`escape` change
+rules, region-scoped `WASTED`/`BUSTED` — and **zero signature patterns**, so
+game detection, which matches on signatures, could never identify it. Added:
+ten signatures, three fusion rules, and the Director Mode chrome the recording
+actually shows.
+
+The signatures are OCR-tolerant on purpose. `DIRECTOR MODE` came back as
+`DIFIECTOR MODE`, `DINECTOH MODE`, `DIPECTOR MODE` and `DRECTOR MODE` across
+161 readings of the same two words, so a pattern matching only the correct
+spelling matches a minority of its own evidence.
+
+Detection now separates the two shipped games cleanly: the GTA recording scores
+6 signature hits with 0 for the runner-up, the Grounded recording 12 with 0.
+
+**And it did not move the number.** `unknown_event_ratio` stayed at 0.430,
+because the events it cannot name are not events. Of 84 unnamed, **71 carry
+`scene` + `vision` and no audio at all** — a shot boundary plus a frame
+description reading *"the player is driving a police car through a
+cityscape"*. Nothing happened. The recording is Director Mode scene-building
+with invincibility on: no deaths, no wanted level, no missions, and the
+profile's death and chase rules have nothing to fire on.
+
+So Phase 0's criteria 3 and 4 (`death` from `WASTED`/`BUSTED`, `chase`/`escape`
+from the wanted-level HUD) are **written and untestable against this footage**
+rather than met. They need a recording of someone playing GTA rather than
+building sets in it.
+
+The honest state of the gate, then: criterion 1 passes on one of three real
+recordings, and the reason the other two miss is different in each case —
+Ziad 2 by 0.008 with every remaining event genuinely ambiguous, and تجريب 4
+because most of what its detectors nominated was a camera cut.
+
 ### All three real recordings re-analysed — the gate is a profile problem (2026-08-19)
 
 4.2 hours of VLM across the two remaining projects. Coverage is now solved

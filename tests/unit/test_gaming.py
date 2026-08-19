@@ -12,6 +12,7 @@ The two claims worth testing here are the ones the spec makes hardest:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -61,9 +62,7 @@ def _text(timestamp: float, text: str, *, region: str | None = None, confidence:
         timestamp=timestamp,
         frame_path=Path(),
         detections=(
-            TextDetection(
-                text=text, confidence=confidence, timestamp=timestamp, region=region
-            ),
+            TextDetection(text=text, confidence=confidence, timestamp=timestamp, region=region),
         ),
     )
 
@@ -181,8 +180,13 @@ class TestDetectorsWithoutAProfile:
                 labels=(),
                 confidence=0.95,
             ),
-            region_start=None, region_end=None, sources=(),
-            model_name="m", model_version="1", prompt_id=None, prompt_version=None,
+            region_start=None,
+            region_end=None,
+            sources=(),
+            model_name="m",
+            model_version="1",
+            prompt_id=None,
+            prompt_version=None,
         )
         assert detectors.observations_from_vision([rich]) == []
 
@@ -335,9 +339,7 @@ class TestCorrelation:
     def test_a_named_event_keeps_its_name_wherever_it_was_read(self) -> None:
         # `defeat` is read off a defeat screen. A rule that dropped events on
         # screens would delete the clearest evidence this pipeline has.
-        screens = frame_state.spans(
-            [_observation(99.0, ("menu",)), _observation(101.0, ("menu",))]
-        )
+        screens = frame_state.spans([_observation(99.0, ("menu",)), _observation(101.0, ("menu",))])
         events = correlate(
             [self._observation(GameEventType.DEFEAT, 100.0, detectors.OCR)],
             screen_states=screens,
@@ -374,9 +376,7 @@ class TestCorrelation:
         events = correlate(
             [
                 self._observation(GameEventType.KILL, 100.0, detectors.OCR, 0.6),
-                self._observation(
-                    GameEventType.UNEXPECTED_EVENT, 100.3, detectors.AUDIO, 0.8, 0.5
-                ),
+                self._observation(GameEventType.UNEXPECTED_EVENT, 100.3, detectors.AUDIO, 0.8, 0.5),
                 self._observation(
                     GameEventType.UNEXPECTED_EVENT, 101.2, detectors.MICROPHONE_SOURCE, 0.7
                 ),
@@ -425,9 +425,7 @@ class TestCorrelation:
     def test_a_specific_type_beats_a_generic_one(self) -> None:
         events = correlate(
             [
-                self._observation(
-                    GameEventType.UNEXPECTED_EVENT, 10.0, detectors.AUDIO, 0.95
-                ),
+                self._observation(GameEventType.UNEXPECTED_EVENT, 10.0, detectors.AUDIO, 0.95),
                 self._observation(GameEventType.VICTORY, 10.2, detectors.OCR, 0.5),
             ]
         )
@@ -459,9 +457,7 @@ class TestCorrelation:
         events = correlate(
             [
                 self._observation(GameEventType.KILL, 100.0, detectors.OCR, 0.6, 1.0),
-                self._observation(
-                    GameEventType.UNEXPECTED_EVENT, 101.5, detectors.AUDIO, 0.6, 2.0
-                ),
+                self._observation(GameEventType.UNEXPECTED_EVENT, 101.5, detectors.AUDIO, 0.6, 2.0),
             ]
         )
         assert events[0].start_seconds == 100.0
@@ -491,11 +487,17 @@ class TestCorrelation:
 
     def test_the_event_shape_matches_the_spec(self) -> None:
         # §26's schema.
-        payload = correlate(
-            [self._observation(GameEventType.CLUTCH, 812.4, detectors.OCR, 0.9)]
-        )[0].as_dict()
+        payload = correlate([self._observation(GameEventType.CLUTCH, 812.4, detectors.OCR, 0.9)])[
+            0
+        ].as_dict()
         assert set(payload) >= {
-            "type", "start", "end", "confidence", "importance", "sources", "metadata"
+            "type",
+            "start",
+            "end",
+            "confidence",
+            "importance",
+            "sources",
+            "metadata",
         }
         assert 0.0 <= payload["confidence"] <= 1.0
         assert 0.0 <= payload["importance"] <= 1.0
@@ -878,3 +880,79 @@ def _write_profile(root: Path, game: str) -> Path:
         encoding="utf-8",
     )
     return directory
+
+
+class TestTheShippedGtaProfile:
+    """§23's bargain, for the second real game on this machine.
+
+    Written from on-screen text read out of a 96-minute recording rather than
+    from documentation, which is why the signatures are what that footage
+    shows -- Director Mode scene-building -- and why the OCR-tolerant spellings
+    are there: `DIRECTOR MODE` came back as `DIFIECTOR MODE`, `DINECTOH MODE`
+    and `DIPECTOR MODE` across 161 readings of the same phrase.
+    """
+
+    @staticmethod
+    def _profile():
+        from backend.config.paths import find_repository_root
+
+        clear_profile_cache()
+        return load_profile("gta_v", find_repository_root() / "profiles").profile
+
+    def test_it_can_be_detected_at_all(self) -> None:
+        # It shipped with zero signature patterns, so detection -- which
+        # matches on signatures -- could never identify it, and every GTA
+        # recording fell back to `generic`. That cost a real project 62
+        # unnamed driving events.
+        assert self._profile().signature_patterns
+
+    @pytest.mark.parametrize(
+        "reading",
+        ["DIRECTOR MODE", "DIFIECTOR MODE", "DINECTOH MODE", "DIPECTOR MODE"],
+    )
+    def test_the_ocr_spellings_of_one_phrase_all_match(self, reading: str) -> None:
+        # All four are the same two words, read 161 times off one recording.
+        # A signature that only matches the correct spelling matches a
+        # minority of the readings it was written for.
+        profile = self._profile()
+        assert any(
+            re.search(pattern, reading, re.IGNORECASE) for pattern in profile.signature_patterns
+        ), reading
+
+    def test_the_two_shipped_games_do_not_match_each_other(self) -> None:
+        # A signature that fires on the wrong game is worse than none: it
+        # applies rules written for footage this is not.
+        from backend.config.paths import find_repository_root
+        from backend.gaming.detection import detect_game
+
+        clear_profile_cache()
+        profiles = find_repository_root() / "profiles"
+        gta = detect_game(
+            ["DIRECTOR MODE", "SCENE CREATOR", "STUNT RAMPS", "PROPS PLACED"], profiles
+        )
+        grounded = detect_game(["Milk Molar", "Lean-To", "MUTATIONS", "Dandelion Tuft"], profiles)
+        assert gta is not None and gta.game == "gta_v" and gta.runner_up_hits == 0
+        assert grounded is not None and grounded.game == "grounded"
+        assert grounded.runner_up_hits == 0
+
+    def test_the_death_banner_is_a_death(self) -> None:
+        # Region-scoped on purpose: "WASTED" anywhere on screen is a word, and
+        # "WASTED" in the centre banner is the death screen.
+        found = detectors.observations_from_ocr(
+            [_text(10.0, "WASTED", region="centre_banner")], self._profile()
+        )
+
+        assert GameEventType.DEATH in {item.event_type for item in found}
+
+    def test_the_editor_chrome_is_ignored_outright(self) -> None:
+        profile = self._profile()
+
+        # Director Mode's menus are on screen for minutes at a time.
+        assert profile.should_ignore("SCENE")
+        assert profile.should_ignore("CATEGORY")
+        assert profile.should_ignore("12/25")
+        assert profile.should_ignore("CLEAR SCENE")
+        assert not profile.should_ignore("WASTED")
+
+    def test_its_fusion_rules_convert(self) -> None:
+        assert self._profile().fusion()
