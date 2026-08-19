@@ -51,6 +51,7 @@ CONFIG_FILES: Final[dict[str, tuple[str, ...]]] = {
     "audio.yaml": ("audio",),
     "captions.yaml": ("captions",),
     "qa.yaml": ("qa",),
+    "critique.yaml": ("critique",),
     "publishing.yaml": ("publishing",),
     "interaction.yaml": ("interaction", "presets"),
 }

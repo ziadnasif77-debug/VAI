@@ -8,6 +8,7 @@ never able to run.
 
 from backend.core.models.enums import JobStage
 from backend.pipeline.workers.base import ProgressReporter, StageWorker, WorkerContext
+from backend.pipeline.workers.critique_worker import CritiqueWorker
 from backend.pipeline.workers.edl_worker import EdlWorker
 from backend.pipeline.workers.gaming_workers import GameEventsWorker, OcrWorker
 from backend.pipeline.workers.media_workers import (
@@ -48,6 +49,7 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.GAME_EVENTS: GameEventsWorker(),
         JobStage.MOMENTS: MomentsWorker(),
         JobStage.STORY: StoryWorker(),
+        JobStage.CRITIQUE: CritiqueWorker(),
         JobStage.EDL: EdlWorker(),
         JobStage.RENDER: RenderWorker(),
         JobStage.QA: QaWorker(),

@@ -107,7 +107,7 @@ export type Media = {
 export type JobStage =
   | 'import' | 'probe' | 'proxy' | 'audio' | 'frames'
   | 'transcript' | 'audio_events' | 'scenes' | 'vision' | 'ocr'
-  | 'game_events' | 'moments' | 'story' | 'edl' | 'render' | 'qa'
+  | 'game_events' | 'moments' | 'story' | 'edl' | 'critique' | 'render' | 'qa'
   | 'export' | 'publish';
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';

@@ -110,7 +110,11 @@ def config(config_dir: Path) -> Iterator[AppConfig]:
     The Director (§95, Phase C) builds its provider the same way and chooses
     which clips are in the video, so it is off here for exactly the same
     reason -- with it on, the clip list of a pipeline test would depend on what
-    a 7B model felt like saying.
+    a 7B model felt like saying. The Critic (Phase E) is off for that reason
+    and one more: it *edits* the timeline, so a test asserting on clip
+    boundaries would be asserting on a model's taste. The Critic (Phase E) is off for the same
+    reason and one more: it *edits* the timeline, so a test asserting on clip
+    boundaries would be asserting on a model's taste.
 
     `tests/unit/test_narration.py` and `tests/unit/test_director.py` inject
     fakes and exercise both properly; anything wanting one inside a pipeline
@@ -128,6 +132,7 @@ def config(config_dir: Path) -> Iterator[AppConfig]:
             "narrative": loaded.narrative.model_copy(
                 update={"director": loaded.narrative.director.model_copy(update={"enabled": False})}
             ),
+            "critique": loaded.critique.model_copy(update={"enabled": False}),
         }
     )
     reset_config_cache()

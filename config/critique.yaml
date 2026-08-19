@@ -1,0 +1,31 @@
+# The Critic (Phase E).
+#
+# Every stage before this one judges the *source*: the scorer read events, the
+# optimiser read durations, the Director read a list of moments. None of them
+# ever saw the assembled edit, which is the only thing a viewer sees -- so a
+# defect that lives in the assembly is invisible to all of them by
+# construction. A clip that opens on twelve seconds of loading, three
+# inventory screens in a row, a video that stops rather than ends.
+#
+# The Critic reads the edit clip by clip -- what is on screen, what was said,
+# how long it runs, what it is doing there -- and answers with one note per
+# clip: keep it, trim one end, or drop it. Code does the rest: §42's operations
+# are the only vocabulary, §39 vetoes anything that would take the video out of
+# its length, and every applied and refused change is recorded.
+#
+# Nothing here decodes video. It runs before the render, not after, because a
+# criticism of a timeline costs a database write and the same criticism of a
+# finished MP4 costs a re-render.
+
+critique:
+  enabled: true
+
+  # §78's switch. On, the accepted changes are written to the timeline before
+  # the render. Off, the same review is produced and reported, and the edit is
+  # left exactly as it was -- the right setting for anyone who wants the second
+  # opinion without the second editor.
+  apply: true
+
+  # Whether `drop` is honoured at all. Trimming a clip's dead opening is nearly
+  # always right; removing a clip the optimiser chose is a bigger claim.
+  allow_drops: true

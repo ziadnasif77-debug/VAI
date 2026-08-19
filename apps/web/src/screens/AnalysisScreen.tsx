@@ -25,6 +25,10 @@ const GROUPS: ReadonlyArray<{label: string; stages: string[]}> = [
   {label: 'Gaming events', stages: ['ocr', 'game_events']},
   {label: 'Moments', stages: ['moments']},
   {label: 'Story', stages: ['story', 'edl']},
+  // The Critic reads the assembled edit and may trim it before anything is
+  // encoded (Phase E). Its own row: it is the one stage whose progress the
+  // user may want to read afterwards, because it can change the video.
+  {label: 'Review', stages: ['critique']},
   // Render and QA are their own rows rather than one "Render" group. Grouping
   // them averaged a stage that takes half an hour with one that takes seconds,
   // so a render at 59% displayed as 30% -- and a number that low, not moving,

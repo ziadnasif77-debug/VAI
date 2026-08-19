@@ -303,11 +303,16 @@ def generate_edit(
 ) -> QueuedResponse:
     """Rebuild the edit from stored analysis (§127).
 
-    Re-runs STORY, EDL and RENDER without touching a frame of the source, which
-    is what makes changing the target duration cost seconds instead of an hour.
+    Re-runs STORY, EDL, CRITIQUE and RENDER without touching a frame of the
+    source, which is what makes changing the target duration cost seconds
+    instead of an hour.
     """
     projects.get(project_id)
-    requeued = _requeue(jobs, project_id, (JobStage.STORY, JobStage.EDL, JobStage.RENDER))
+    requeued = _requeue(
+        jobs,
+        project_id,
+        (JobStage.STORY, JobStage.EDL, JobStage.CRITIQUE, JobStage.RENDER),
+    )
     return QueuedResponse(
         project_id=project_id,
         queued=requeued,

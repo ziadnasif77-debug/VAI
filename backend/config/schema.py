@@ -788,6 +788,28 @@ class DirectorConfig(_Section):
     enabled: bool = True
 
 
+class CritiqueConfig(_Section):
+    """The Critic (Phase E): the pipeline reviewing its own edit.
+
+    Off is a complete product -- every video this project has made was rendered
+    unreviewed. What the Critic adds is the one perspective nothing upstream
+    has: the assembled edit, read the way a viewer meets it.
+
+    ``apply`` is the §78 switch. On, the accepted changes are written to the
+    timeline before the render. Off, the same review is produced and reported
+    and the edit is left exactly as it was, which is the right setting for
+    anyone who wants the second opinion without the second editor.
+    """
+
+    enabled: bool = True
+    #: Write the accepted changes to the timeline. Off reports them instead.
+    apply: bool = True
+    #: Whether ``drop`` is honoured. Trimming a clip's dead opening is nearly
+    #: always right; removing a clip the optimiser chose is a bigger claim, and
+    #: §39 has to be asked either way.
+    allow_drops: bool = True
+
+
 class NarrativeConfig(_Section):
     story: StoryConfig
     best_moments: BestMomentsConfig = Field(default_factory=BestMomentsConfig)
@@ -1481,6 +1503,7 @@ class AppConfig(_Section):
     audio: AudioConfig
     captions: CaptionsConfig
     qa: QaConfig = Field(default_factory=QaConfig)
+    critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
     publishing: PublishingConfig
     interaction: InteractionConfig = Field(default_factory=InteractionConfig)
     presets: dict[str, PresetConfig]

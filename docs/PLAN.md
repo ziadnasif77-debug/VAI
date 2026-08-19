@@ -103,6 +103,42 @@ Development order follows SPEC §126.
 | 13 | **NL editing (LLM)** | LLM fallback for unparsed instructions and questions | ✅ **done** |
 | 14 | **Game Profiles** | one real game, then a profile API | ✅ **done** |
 | 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ✅ **done** |
+| C | **The Director** | a model proposes the shape; code selects, orders and cuts | ✅ **done** |
+| E | **The Critic** | the pipeline reads its own edit and may trim it before rendering | ✅ **done** |
+
+### Phase E — the Critic ✅ done
+
+The first stage that reads the pipeline's own output. Everything before it
+judges the *source*: the scorer read events, the optimiser read durations, the
+Director read a list of moments. None of them ever saw the assembled edit,
+which is the only object a viewer meets -- so a defect that lives in the
+assembly is invisible to all of them by construction.
+
+`CRITIQUE` sits between EDL and RENDER, deliberately: a criticism of a timeline
+costs a database write, and the same criticism of a finished MP4 costs a
+re-render. It reads the edit clip by clip from analysis that already exists --
+what is on screen, what was said, what events were named, how long it runs,
+what is drawn over it -- and asks for one note per clip: `keep`, `trim_start`,
+`trim_end` or `drop`.
+
+What makes it safe is what it is *not* allowed to do. A clip number outside the
+list it was shown is a rejection, not a nearest-neighbour repair. §42's
+operations are the only vocabulary, so nothing can be asked for that the
+timeline would not already do. A trim longer than half a clip is capped. And
+§39 keeps its veto: a review may improve a video, never shorten it out of the
+length that was asked for -- with a second regime for an edit that never
+reached the target, where the floor has already been missed and what is
+protected instead is the proportion.
+
+`critique.apply: false` produces the same review and changes nothing, which is
+§78's "the human has the last word" as a setting rather than a slogan.
+
+Measured on *Ziad 2* before any model was consulted: the evidence rows are
+built from stored analysis alone, and one of eleven clips -- thirty seconds of
+the finished video -- came back with **no observations, no words and no
+events**. The row says so in as many words, because "nothing is recorded here"
+and "nothing happens here" are different statements and only one of them is a
+reason to cut.
 
 **Rule that governs the order (§126):** do not build a large UI before the
 pipeline produces a convincing video. If `gameplay → analysis → events →

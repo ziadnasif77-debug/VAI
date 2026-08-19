@@ -59,6 +59,7 @@ PROMPT_VERSIONS: Final[dict[str, int]] = {
     # footage by guessing. A blueprint naming a moment that does not exist is
     # rejected rather than repaired.
     "narrative.blueprint": 1,
+    "critique.edit_review": 1,
 }
 
 

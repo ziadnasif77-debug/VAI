@@ -100,6 +100,10 @@ class JobStage(str, Enum):
     MOMENTS = "moments"
     STORY = "story"
     EDL = "edl"
+    #: Phase E. The first stage that reads the pipeline's own output rather
+    #: than the recording: it reviews the assembled edit and may trim or drop
+    #: a clip before anything is encoded.
+    CRITIQUE = "critique"
     RENDER = "render"
     QA = "qa"
     #: Delivery stages. Never auto-queued -- the user triggers them from the

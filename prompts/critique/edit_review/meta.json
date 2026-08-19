@@ -1,0 +1,41 @@
+{
+  "id": "critique.edit_review",
+  "version": 1,
+  "purpose": "Review a finished edit clip by clip and say what a viewer would dislike (Phase E). The model judges; deterministic code applies a closed set of conservative operations and vetoes anything that would break the duration band. It may never name a clip that is not in the list it was shown.",
+  "input_schema": {
+    "type": "object",
+    "required": ["clips", "total", "target", "intent"],
+    "properties": {
+      "clips": {
+        "type": "string",
+        "description": "Numbered lines: index, position, length, role, what is on screen, what was said, captions and effects."
+      },
+      "total": {"type": "string", "description": "Length of the edit as assembled."},
+      "target": {"type": "string", "description": "Length that was asked for."},
+      "intent": {"type": "string", "description": "The viewer's own words, where there are any."}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["verdict", "notes"],
+    "properties": {
+      "verdict": {"type": "string"},
+      "notes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["clip", "action"],
+          "properties": {
+            "clip": {"type": "integer", "minimum": 0},
+            "action": {
+              "type": "string",
+              "enum": ["keep", "trim_start", "trim_end", "drop"]
+            },
+            "seconds": {"type": "number", "minimum": 0},
+            "reason": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

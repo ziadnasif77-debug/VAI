@@ -78,6 +78,9 @@ _STATUS_AFTER: dict[JobStage, ProjectStatus] = {
     JobStage.PROBE: ProjectStatus.ANALYZING,
     JobStage.MOMENTS: ProjectStatus.MOMENTS_READY,
     JobStage.STORY: ProjectStatus.EDIT_GENERATED,
+    # CRITIQUE is deliberately absent: it runs between the EDL and the
+    # render and leaves the project in REVIEW either way. A status that
+    # flickered through a stage nobody waits for would say less, not more.
     JobStage.EDL: ProjectStatus.REVIEW,
     JobStage.RENDER: ProjectStatus.RENDERING,
     JobStage.QA: ProjectStatus.COMPLETED,

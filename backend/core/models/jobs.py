@@ -40,7 +40,8 @@ STAGE_DEPENDENCIES: dict[JobStage, tuple[JobStage, ...]] = {
     JobStage.MOMENTS: (JobStage.GAME_EVENTS,),
     JobStage.STORY: (JobStage.MOMENTS,),
     JobStage.EDL: (JobStage.STORY,),
-    JobStage.RENDER: (JobStage.EDL,),
+    JobStage.CRITIQUE: (JobStage.EDL,),
+    JobStage.RENDER: (JobStage.CRITIQUE,),
     JobStage.QA: (JobStage.RENDER,),
     JobStage.EXPORT: (JobStage.QA,),
     JobStage.PUBLISH: (JobStage.EXPORT,),
@@ -69,6 +70,7 @@ ANALYSIS_STAGES: tuple[JobStage, ...] = (
 EDIT_STAGES: tuple[JobStage, ...] = (
     JobStage.STORY,
     JobStage.EDL,
+    JobStage.CRITIQUE,
     JobStage.RENDER,
     JobStage.QA,
 )
