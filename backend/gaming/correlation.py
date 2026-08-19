@@ -31,8 +31,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Final
 
+from backend.analysis.frame_state import StateSpan
 from backend.core.logging import LogChannel, get_logger
-from backend.core.models.enums import GameEventType
+from backend.core.models.enums import FrameState, GameEventType
 from backend.gaming.events import EventObservation
 from backend.gaming.fusion import GENERIC_RULES, Fused, FusionRule, classify
 
@@ -112,6 +113,7 @@ def correlate(
     game_profile: str | None = None,
     min_confidence: float = 0.0,
     fusion_rules: Sequence[FusionRule] = GENERIC_RULES,
+    screen_states: Sequence[StateSpan] = (),
 ) -> list[GameEvent]:
     """Merge agreeing observations into events (§27).
 
@@ -127,6 +129,10 @@ def correlate(
         fusion_rules: Phase 0.2's evidence table, consulted only when no
             detector could name a cluster. A profile passes its own rules
             ahead of the generic ones.
+        screen_states: what the vision pass saw *between* the instants, from
+            :func:`backend.analysis.frame_state.spans`. Used for one thing
+            only: an instant the game was not being played at cannot be an
+            event nobody could name, because it is not an event.
 
     Returns events in chronological order.
     """
@@ -149,6 +155,7 @@ def correlate(
         if (event := _to_event(cluster, game_profile, fusion_rules)).confidence
         >= min_confidence
     ]
+    events, off_screen = _on_screen(events, screen_states)
     events.sort(key=lambda event: event.start_seconds)
 
     named = sum(1 for event in events if event.is_named)
@@ -168,9 +175,52 @@ def correlate(
                 if str(event.metadata.get("named_by", "")).startswith("fusion:")
             ),
             "multi_source": sum(1 for event in events if event.agreement > 1),
+            # Phase 0's criterion 8. A scene cut and an audio spike while the
+            # player is reading a menu is the interface making noise, not the
+            # game doing something.
+            "dropped_off_screen": off_screen,
         },
     )
     return events
+
+
+def _on_screen(
+    events: Sequence[GameEvent], screen_states: Sequence[StateSpan]
+) -> tuple[list[GameEvent], int]:
+    """Drop the unnamed events that happened while the game was not on screen.
+
+    Measured across ten real projects: of 389 events nobody could name, 104 had
+    a frame within two seconds of them, and of what those frames reported,
+    ``menu``, ``inventory`` and ``loading`` outnumbered every gameplay label
+    together. Those are not naming failures. A scene boundary and an audio
+    spike are exactly what a menu opening produces, and calling the result an
+    event nobody could identify is the detector describing the interface.
+
+    **Only unnamed events, and only screens.** A named event keeps its name
+    wherever it was read -- ``defeat`` is read off a defeat screen, and a rule
+    that dropped it would delete the clearest evidence this pipeline has. And
+    ``HUD_ONLY`` is not a screen: the vision model calls a health bar over a
+    firefight ``inventory``, which is the reason :mod:`frame_state` separates
+    the two at all.
+    """
+    screens = [
+        span
+        for span in screen_states
+        if span.state in {FrameState.MENU, FrameState.LOADING, FrameState.PAUSE}
+    ]
+    if not screens:
+        return list(events), 0
+
+    kept: list[GameEvent] = []
+    dropped = 0
+    for event in events:
+        if event.is_named or not any(
+            span.overlaps(event.start_seconds, event.end_seconds) > 0 for span in screens
+        ):
+            kept.append(event)
+        else:
+            dropped += 1
+    return kept, dropped
 
 
 def _cluster(

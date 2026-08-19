@@ -25,7 +25,7 @@ from typing import Any
 
 from ai.ocr import create_ocr_provider
 from ai.providers.base import OcrProvider, TextDetection
-from backend.analysis import perception
+from backend.analysis import frame_state, perception
 from backend.analysis.narration import observations_from_narration, read_incidents
 from backend.analysis.reactions import ReactionCandidate
 from backend.core.logging import LogChannel, get_logger
@@ -207,6 +207,12 @@ class GameEventsWorker:
             # A profile that knows the game names instants the generic table
             # cannot, and is consulted first for exactly that reason (§22).
             fusion_rules=(*resolution.profile.fusion(), *GENERIC_RULES),
+            # What the screen was showing between the instants. An unnamed
+            # event inside a menu is the interface making noise (§77's
+            # accidental_menu_section, caught one stage earlier).
+            screen_states=frame_state.spans(
+                vision, duration_seconds=media.metadata.duration_seconds
+            ),
         )
 
         repository = GameEventRepository(context.database)

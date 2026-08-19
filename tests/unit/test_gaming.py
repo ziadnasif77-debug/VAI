@@ -18,6 +18,7 @@ import pytest
 
 from ai.ocr.fake_provider import FakeOcrProvider
 from ai.providers.base import TextDetection, VisionObservation
+from backend.analysis import frame_state
 from backend.analysis.audio_events import GAMEPLAY, MICROPHONE, AudioEvent
 from backend.analysis.reactions import ReactionCandidate
 from backend.analysis.scenes import Scene
@@ -306,6 +307,66 @@ class TestCorrelation:
             source=source,
             confidence=confidence,
         )
+
+    def test_an_unnamed_instant_on_a_menu_is_not_an_event(self) -> None:
+        """§77's accidental menu, caught a stage earlier.
+
+        Measured across ten real projects: of 389 events nobody could name,
+        104 had a frame within two seconds of them, and ``menu``, ``inventory``
+        and ``loading`` outnumbered every gameplay label those frames reported,
+        together. A scene boundary and an audio spike are exactly what opening
+        a menu produces.
+        """
+        screens = frame_state.spans(
+            [
+                _observation(99.0, ("menu",)),
+                _observation(101.0, ("menu",)),
+            ]
+        )
+        events = correlate(
+            [
+                self._observation(GameEventType.UNEXPECTED_EVENT, 100.0, detectors.SCENE),
+                self._observation(GameEventType.UNEXPECTED_EVENT, 100.2, detectors.AUDIO),
+            ],
+            screen_states=screens,
+        )
+        assert events == []
+
+    def test_a_named_event_keeps_its_name_wherever_it_was_read(self) -> None:
+        # `defeat` is read off a defeat screen. A rule that dropped events on
+        # screens would delete the clearest evidence this pipeline has.
+        screens = frame_state.spans(
+            [_observation(99.0, ("menu",)), _observation(101.0, ("menu",))]
+        )
+        events = correlate(
+            [self._observation(GameEventType.DEFEAT, 100.0, detectors.OCR)],
+            screen_states=screens,
+        )
+        assert [event.event_type for event in events] == [GameEventType.DEFEAT]
+
+    def test_a_hud_reading_is_not_a_screen(self) -> None:
+        # The vision model calls a health bar over a firefight `inventory` --
+        # 181 observations on one real recording, more than any other label.
+        # Treating that as a menu would delete ordinary gameplay.
+        screens = frame_state.spans(
+            [_observation(99.0, ("inventory",)), _observation(101.0, ("inventory",))]
+        )
+        events = correlate(
+            [
+                self._observation(GameEventType.UNEXPECTED_EVENT, 100.0, detectors.SCENE),
+                self._observation(GameEventType.UNEXPECTED_EVENT, 100.2, detectors.AUDIO),
+            ],
+            screen_states=screens,
+        )
+        assert len(events) == 1
+
+    def test_without_screen_states_nothing_is_dropped(self) -> None:
+        # A project analysed before this existed, or one where vision found
+        # nothing, keeps every event it had.
+        events = correlate(
+            [self._observation(GameEventType.UNEXPECTED_EVENT, 100.0, detectors.SCENE)]
+        )
+        assert len(events) == 1
 
     def test_the_spec_example_becomes_one_event(self) -> None:
         # "Kill-feed change + weapon sound + NO WAY becomes one high-confidence

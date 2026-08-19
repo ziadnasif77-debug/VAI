@@ -106,6 +106,50 @@ Development order follows SPEC §126.
 | C | **The Director** | a model proposes the shape; code selects, orders and cuts | ✅ **done** |
 | E | **The Critic** | the pipeline reads its own edit and may trim it before rendering | ✅ **done** |
 
+### Phase 0's acceptance gate — measured, and **failed** (2026-08-19)
+
+Measured across all ten projects on this machine, from stored analysis, no
+models involved:
+
+| | measured | gate |
+| --- | --- | --- |
+| `unknown_event_ratio` | 0.42 – 0.93 (all events: **0.63**) | ≤ 0.35 |
+| named events with ≥3 sources | 0.60 – 1.00 | ≥ 0.20 ✅ |
+| `vision_frames_per_source_minute` | **4.0 on every project** | — |
+
+The cause is not the naming rules. For every project, the median gap from an
+event to the nearest frame anybody looked at:
+
+| | named events | unnamed events |
+| --- | --- | --- |
+| median gap to nearest look | **0.7 – 3.2 s** | **2.6 – 15.0 s** |
+
+Of 389 events nobody could name, **285 (73%) had no frame within two seconds
+of them**. Naming rules cannot name what nobody saw. Four observations per
+source minute is one look every fifteen seconds.
+
+The remaining 104 were looked at, and what those frames reported was
+`inventory` 45, `menu` 28, `loading` 2 against `driving` 31, `combat` 16,
+`exploration` 9 — most of them are not naming failures at all, they are the
+scene detector and the audio detector firing on an interface. **Fixed:**
+correlation now drops an *unnamed* event whose instant the vision pass says
+was a menu, a loading screen or a pause. Named events keep their names
+wherever they were read (`defeat` is read off a defeat screen) and `HUD_ONLY`
+is not a screen (`inventory` over a firefight is a health bar). Replayed over
+the stored events: 69 dropped, `unknown_event_ratio` **0.672 → 0.627**.
+
+Which leaves the gate 28 points short, and the remaining distance is **entirely
+a coverage decision**. Getting most events within ~2 s of a look means roughly
+a look every 4 seconds instead of every 15 — about **3.5–4× the VLM work per
+project**. On the 77-minute recording that is ~307 frames today against ~1,200.
+That is GPU time per project, and whose call it is is not the code's to make.
+
+**Phase A (evidence projection) and Phase B (the event relationship model)
+stay closed until it is made.** Phase 0's own text is the reason: "Relations
+between events are worth building once the events have names." A graph over a
+vocabulary that is 63% `unexpected_event` would organise the gap rather than
+close it.
+
 ### Phase E — the Critic ✅ done
 
 The first stage that reads the pipeline's own output. Everything before it
