@@ -155,6 +155,48 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### Phase E against the real model (2026-08-19)
+
+Run on *Ziad 2* and *Ziad 4* with `qwen2.5:7b-instruct` from the shared
+`F:\Models` store. Four defects, all found by running it and none visible to a
+scripted provider.
+
+**§54's unload did nothing.** `OllamaLLMProvider.unload()` returned early
+unless `load()` had been called — and no caller in this pipeline calls it,
+because Ollama loads a model to answer whether or not it is asked to.
+Measured: the Critic answered in 23 s, called `unload`, and left
+`qwen2.5:7b-instruct` resident with **4,528 MB of an 8 GB card** held, through
+the render that was about to start. It is now unconditional and never raises;
+verified on the card at 2,623 MB → 7,328 MB, resident list empty. The existing
+test passed throughout because it called `load()` first.
+
+**The model described actions instead of taking them.** Prompt v1 asked for one
+note per clip; the model answered `keep` eleven times with reasons reading
+"remove the first 2 seconds". Zero changes reached the edit. v2 asks only for
+clips that need work and the grammar no longer offers `keep` — a clip that is
+fine is one the review omits.
+
+**Unbounded strings truncated the JSON.** Ollama compiles the output schema
+into the grammar it decodes with, so a string with no `maxLength` is an
+invitation to fill the output budget; when it runs out mid-string the JSON
+never closes. Measured: **two runs in three lost all three attempts**, each
+taking 59 s. With every string and array bounded to match the Pydantic model:
+**four runs in four, in 7–13 s** — an 18× speed-up as a side effect of
+correctness. The Director's schema had the same latent defect and is fixed with
+it.
+
+**Sub-second trims.** The model returned 0.23 s, 0.48 s and 0.59 s alongside
+two real trims — a required field being filled, not a judgement. `§29` snaps
+cut points and `§41` moves them at that scale for reasons made of evidence, so
+a floor of 0.75 s demotes them to "no change". The model also drifted into
+Chinese on one verdict; v4 anchors the output language, as the Director's
+prompt already did.
+
+What it then produced on *Ziad 4*, unedited: five clips called "entirely a
+menu", of which §39 let three be dropped and **refused two** because they would
+have taken the edit under 9:15. That is the §77 `accidental_menu_section`
+defect caught before the render rather than after it.
+
 ### Phase 0's acceptance gate — measured, and **failed** (2026-08-19)
 
 Measured across all ten projects on this machine, from stored analysis, no

@@ -35,13 +35,21 @@ logger = get_logger("director.service", LogChannel.AI)
 MAX_MOMENTS_SHOWN: int = 40
 
 #: §93's shape, enforced by Ollama as a grammar rather than checked afterwards.
+#:
+#: **The lengths are load-bearing**, and the Critic found out how. Ollama
+#: compiles this into the grammar it decodes with, so a string with no bound is
+#: an invitation to fill the output budget -- and when the budget runs out
+#: mid-string the JSON is truncated and unparseable. Measured there: two runs
+#: in three lost all three attempts that way. Every cap matches the Pydantic
+#: model's exactly, so the grammar and the type agree about what fits.
 _SCHEMA: dict = {
     "type": "object",
     "required": ["theme", "beats"],
     "properties": {
-        "theme": {"type": "string"},
+        "theme": {"type": "string", "maxLength": 200},
         "beats": {
             "type": "array",
+            "maxItems": MAX_MOMENTS_SHOWN,
             "items": {
                 "type": "object",
                 "required": ["moment", "role"],
@@ -59,11 +67,15 @@ _SCHEMA: dict = {
                             "outro",
                         ],
                     },
-                    "reason": {"type": "string"},
+                    "reason": {"type": "string", "maxLength": 240},
                 },
             },
         },
-        "avoid": {"type": "array", "items": {"type": "string"}},
+        "avoid": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {"type": "string", "maxLength": 80},
+        },
     },
 }
 

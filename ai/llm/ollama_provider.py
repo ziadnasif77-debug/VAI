@@ -99,15 +99,34 @@ class OllamaLLMProvider:
         logger.info("Loaded the language model", extra={"model": self._config.model})
 
     def unload(self) -> None:
-        """Free the VRAM now rather than in five minutes (§54)."""
-        if not self._loaded:
+        """Free the VRAM now rather than in five minutes (§54).
+
+        Asked for unconditionally, and that is the point. This used to return
+        early unless :meth:`load` had been called -- but Ollama loads a model to
+        answer whether or not anyone asked it to, and every caller in this
+        pipeline reaches for :meth:`complete_json` directly. Measured on a real
+        project: the Critic answered in 23 s, called this, and left
+        ``qwen2.5:7b-instruct`` resident with 4,528 MB of an 8 GB card still
+        held -- through the render that was about to start.
+
+        Never raises. It runs in the ``finally`` of every caller, and a
+        transport error here would replace whatever they were actually doing
+        with a failure to tidy up.
+        """
+        try:
+            self._post(
+                "/api/generate",
+                {"model": self._config.model, "prompt": "", "keep_alive": 0},
+                timeout=_HEALTH_TIMEOUT_SECONDS,
+            )
+        except ModelError as error:
+            logger.warning(
+                "Could not release the language model",
+                extra={"model": self._config.model, "reason": str(error)[:160]},
+            )
             return
-        self._post(
-            "/api/generate",
-            {"model": self._config.model, "prompt": "", "keep_alive": 0},
-            timeout=_HEALTH_TIMEOUT_SECONDS,
-        )
-        self._loaded = False
+        finally:
+            self._loaded = False
         logger.info("Unloaded the language model", extra={"model": self._config.model})
 
     # -- the one useful call --------------------------------------------
@@ -155,6 +174,10 @@ class OllamaLLMProvider:
                     response = self._post(
                         "/api/generate", payload, timeout=self._config.timeout_seconds
                     )
+                    # Ollama loaded the model to answer this, whether or not
+                    # anyone called `load` first, so from here on the card is
+                    # holding it and `unload` has something to release.
+                    self._loaded = True
                     parsed = _parse(response.get("response", ""), schema)
                     fields["attempts"] = attempt
                     return parsed

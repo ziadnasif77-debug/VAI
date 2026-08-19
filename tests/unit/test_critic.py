@@ -22,7 +22,7 @@ from backend.core.models.enums import GameEventType, MomentType, TrackKind
 from backend.critic import gather, review
 from backend.critic.models import Action, Critique, CritiqueRejection, Note
 from backend.critic.revision import apply
-from backend.critic.service import MAX_CLIPS_SHOWN, MAX_TRIM_FRACTION
+from backend.critic.service import _SCHEMA, MAX_CLIPS_SHOWN, MAX_TRIM_FRACTION
 from backend.timeline.models import Timeline, TimelineClip, Track
 
 pytestmark = pytest.mark.unit
@@ -193,6 +193,11 @@ class TestTheReview:
         [
             {"clip": 0, "action": "explode"},
             {"clip": 0, "action": "trim_end", "seconds": 0},
+            # Measured on a real edit: 0.23 s, 0.48 s and 0.59 s alongside two
+            # real trims. A required field being filled, not a judgement -- and
+            # §29 and §41 move cut points at that scale for reasons made of
+            # evidence, so it would be undone anyway.
+            {"clip": 0, "action": "trim_start", "seconds": 0.25},
         ],
     )
     def test_a_note_that_cannot_be_acted_on_becomes_no_change(self, entry: dict) -> None:
@@ -215,6 +220,43 @@ class TestTheReview:
             review(gather(_timeline(0), target_seconds=1.0), provider=_provider()),
             CritiqueRejection,
         )
+
+
+class TestTheGrammarItIsGiven:
+    """The schema is what Ollama decodes with, so its bounds are behaviour.
+
+    A string with no `maxLength` is an invitation to fill the output budget,
+    and when the budget runs out mid-string the JSON is truncated and
+    unparseable. Measured against the real 7B on a real edit: two runs in three
+    lost all three attempts that way, each taking 59 s to generate a verdict
+    that never closed its quote. With every string bounded: four runs in four,
+    in 7-13 s.
+    """
+
+    def test_every_string_the_model_writes_is_bounded(self) -> None:
+        note = _SCHEMA["properties"]["notes"]["items"]["properties"]
+        assert _SCHEMA["properties"]["verdict"]["maxLength"] > 0
+        assert note["reason"]["maxLength"] > 0
+        assert _SCHEMA["properties"]["notes"]["maxItems"] == MAX_CLIPS_SHOWN
+
+    def test_the_bounds_match_the_type_that_receives_them(self) -> None:
+        # A grammar that allows more than the model accepts would produce
+        # answers the validator silently truncates, which is two rules for one
+        # limit and the slower one to notice.
+        assert _SCHEMA["properties"]["verdict"]["maxLength"] == (
+            Critique.model_fields["verdict"].metadata[0].max_length
+        )
+        assert (
+            _SCHEMA["properties"]["notes"]["items"]["properties"]["reason"]["maxLength"]
+            == Note.model_fields["reason"].metadata[0].max_length
+        )
+
+    def test_the_model_is_never_offered_an_action_that_does_nothing(self) -> None:
+        # v1 offered `keep` and got eleven of them, each with a reason
+        # describing a trim. A clip that is fine is one the review omits.
+        offered = _SCHEMA["properties"]["notes"]["items"]["properties"]["action"]["enum"]
+        assert Action.KEEP.value not in offered
+        assert set(offered) == {a.value for a in Action if a.changes_the_edit}
 
 
 # -- and what actually happens to the edit -----------------------------------
@@ -313,9 +355,7 @@ class TestTheRevision:
         assert revision.seconds_removed == pytest.approx(6.0)
 
     def test_but_it_may_not_be_shrunk(self) -> None:
-        revision = self._apply(
-            Critique(notes=(Note(clip=0, action=Action.DROP),)), target=1200.0
-        )
+        revision = self._apply(Critique(notes=(Note(clip=0, action=Action.DROP),)), target=1200.0)
 
         # A drop takes a quarter of a four-clip edit, which is past what a
         # review of an already-short video is allowed to remove.

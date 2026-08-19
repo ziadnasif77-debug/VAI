@@ -35,25 +35,47 @@ MAX_CLIPS_SHOWN: int = 40
 #: for, and which §39 gets a veto over.
 MAX_TRIM_FRACTION: float = 0.5
 
+#: The least. Measured on a real edit, the model returned trims of 0.23 s,
+#: 0.48 s and 0.59 s alongside two real ones -- a required field being filled,
+#: not an editorial judgement. Below this a note is treated as "no change":
+#: §29 snaps cut points and §41's refinement moves them at exactly this scale
+#: for reasons made of evidence, and a quarter-second taken off a clip on a
+#: model's say-so would be undone by them anyway.
+MIN_TRIM_SECONDS: float = 0.75
+
 #: §93's shape, enforced by Ollama as a grammar rather than checked after.
+#:
+#: **The lengths are load-bearing.** Ollama compiles this into the grammar it
+#: decodes with, so a string with no bound is an invitation to fill the output
+#: budget -- and when the budget runs out mid-string the JSON is truncated and
+#: unparseable. Measured on a real edit: two runs in three failed all three
+#: attempts, each taking 59 s to generate a verdict that never closed its
+#: quote, against 22 s for one that stopped. The caps match the Pydantic
+#: model's exactly, so the grammar and the type agree about what fits.
 _SCHEMA: dict = {
     "type": "object",
     "required": ["verdict", "notes"],
     "properties": {
-        "verdict": {"type": "string"},
+        "verdict": {"type": "string", "maxLength": 300},
         "notes": {
             "type": "array",
+            "maxItems": MAX_CLIPS_SHOWN,
             "items": {
                 "type": "object",
                 "required": ["clip", "action"],
                 "properties": {
                     "clip": {"type": "integer", "minimum": 0},
+                    # Only the actions that change something. `keep` is a
+                    # legitimate value of the type and a useless thing to ask a
+                    # model for: version 1 offered it and got eleven `keep`s
+                    # whose reasons described trims. A clip that is fine is one
+                    # the review does not mention.
                     "action": {
                         "type": "string",
-                        "enum": [action.value for action in Action],
+                        "enum": [action.value for action in Action if action.changes_the_edit],
                     },
                     "seconds": {"type": "number", "minimum": 0},
-                    "reason": {"type": "string"},
+                    "reason": {"type": "string", "maxLength": 240},
                 },
             },
         },
@@ -156,7 +178,7 @@ def _note(entry: dict, index: int, clip_seconds: float) -> Note | None:
 
     if action in {Action.TRIM_START, Action.TRIM_END}:
         ceiling = clip_seconds * MAX_TRIM_FRACTION
-        if seconds <= 0:
+        if seconds < MIN_TRIM_SECONDS:
             action, seconds = Action.KEEP, 0.0
         elif seconds > ceiling:
             # Asked to remove most of a clip. The clip still has whatever put
@@ -171,4 +193,4 @@ def _note(entry: dict, index: int, clip_seconds: float) -> Note | None:
         return None
 
 
-__all__ = ["MAX_CLIPS_SHOWN", "MAX_TRIM_FRACTION", "review"]
+__all__ = ["MAX_CLIPS_SHOWN", "MAX_TRIM_FRACTION", "MIN_TRIM_SECONDS", "review"]

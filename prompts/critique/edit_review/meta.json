@@ -1,38 +1,72 @@
 {
   "id": "critique.edit_review",
-  "version": 1,
-  "purpose": "Review a finished edit clip by clip and say what a viewer would dislike (Phase E). The model judges; deterministic code applies a closed set of conservative operations and vetoes anything that would break the duration band. It may never name a clip that is not in the list it was shown.",
+  "version": 4,
+  "purpose": "Review a finished edit and name the clips that need a change (Phase E). The model judges; deterministic code applies a closed set of conservative operations and vetoes anything that would break the duration band. It may never name a clip that is not in the list it was shown. Version 2 asked only for clips that need work (version 1 asked for one note per clip and got eleven `keep`s whose prose described trims). Version 3 adds the floor: measured trims of 0.23s were a required field being filled, not a judgement. Version 4 anchors the output language: on a real project the model answered an English prompt with a verdict that drifted into Chinese.",
   "input_schema": {
     "type": "object",
-    "required": ["clips", "total", "target", "intent"],
+    "required": [
+      "clips",
+      "total",
+      "target",
+      "intent"
+    ],
     "properties": {
       "clips": {
         "type": "string",
         "description": "Numbered lines: index, position, length, role, what is on screen, what was said, captions and effects."
       },
-      "total": {"type": "string", "description": "Length of the edit as assembled."},
-      "target": {"type": "string", "description": "Length that was asked for."},
-      "intent": {"type": "string", "description": "The viewer's own words, where there are any."}
+      "total": {
+        "type": "string",
+        "description": "Length of the edit as assembled."
+      },
+      "target": {
+        "type": "string",
+        "description": "Length that was asked for."
+      },
+      "intent": {
+        "type": "string",
+        "description": "The viewer's own words, where there are any."
+      }
     }
   },
   "output_schema": {
     "type": "object",
-    "required": ["verdict", "notes"],
+    "required": [
+      "verdict",
+      "notes"
+    ],
     "properties": {
-      "verdict": {"type": "string"},
+      "verdict": {
+        "type": "string"
+      },
       "notes": {
         "type": "array",
         "items": {
           "type": "object",
-          "required": ["clip", "action"],
+          "required": [
+            "clip",
+            "action"
+          ],
           "properties": {
-            "clip": {"type": "integer", "minimum": 0},
+            "clip": {
+              "type": "integer",
+              "minimum": 0
+            },
             "action": {
               "type": "string",
-              "enum": ["keep", "trim_start", "trim_end", "drop"]
+              "enum": [
+                "trim_start",
+                "trim_end",
+                "drop"
+              ]
             },
-            "seconds": {"type": "number", "minimum": 0},
-            "reason": {"type": "string"}
+            "seconds": {
+              "type": "number",
+              "minimum": 0
+            },
+            "reason": {
+              "type": "string"
+            }
           }
         }
       }

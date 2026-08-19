@@ -175,6 +175,48 @@ class TestRetries:
 
         assert bodies[-1]["keep_alive"] == 0
 
+    def test_a_model_nobody_called_load_for_is_still_released(self, config) -> None:
+        """The path every caller in this pipeline actually takes.
+
+        Ollama loads a model to answer whether or not anyone asked it to, and
+        `unload` used to return early unless `load` had been called -- which no
+        caller does. Measured on the real card: the Critic answered in 23 s,
+        called `unload`, and left 4,528 MB of an 8 GB card held through the
+        render that was about to start. The old test passed because it called
+        `load` first.
+        """
+        provider = OllamaLLMProvider(config.models.llm, gpu=config.gpu)
+        bodies: list[dict[str, Any]] = []
+        provider._post = lambda path, body, *, timeout: (  # type: ignore[assignment]
+            bodies.append(body) or {"response": '{"confidence": 0.9}'}
+        )
+
+        provider.complete_json("hello", schema=SCHEMA, prompt_id="test")
+        provider.unload()
+
+        assert bodies[-1]["keep_alive"] == 0
+
+    def test_a_provider_that_was_never_used_still_asks(self, config) -> None:
+        # An HTTP round trip costs milliseconds; being wrong costs gigabytes.
+        provider = OllamaLLMProvider(config.models.llm, gpu=config.gpu)
+        bodies: list[dict[str, Any]] = []
+        provider._post = lambda path, body, *, timeout: bodies.append(body) or {}  # type: ignore
+
+        provider.unload()
+
+        assert bodies and bodies[-1]["keep_alive"] == 0
+
+    def test_a_failure_to_release_never_replaces_what_the_caller_was_doing(self, config) -> None:
+        # `unload` runs in the `finally` of every caller. A transport error
+        # here would swallow their result and report tidying up as the failure.
+        provider = OllamaLLMProvider(config.models.llm, gpu=config.gpu)
+
+        def _refuse(path, body, *, timeout):
+            raise ModelError("gone", code=ErrorCode.MODEL_UNAVAILABLE)
+
+        provider._post = _refuse  # type: ignore[assignment]
+        provider.unload()  # must not raise
+
 
 class TestAvailability:
     """§95: 'is there a model' is answered before anything depends on it."""
