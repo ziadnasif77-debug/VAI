@@ -106,6 +106,8 @@ Development order follows SPEC §126.
 | C | **The Director** | a model proposes the shape; code selects, orders and cuts | ✅ **done** |
 | E | **The Critic** | the pipeline reads its own edit and may trim it before rendering | ✅ **done** |
 | F | **Preferences** | what the person keeps asking for becomes the next project's default | ✅ **done** |
+| A | **Evidence projection** | one read across the analysis stores, one definition of "near" | ✅ **done** |
+| B | **Episodes** | one situation, however many events it was reported as | ✅ **done** |
 
 ### Phase F — preferences ✅ done
 
@@ -154,6 +156,47 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 `exclude`, `تجنب`, `احذف` and `شيل`. It mattered enough to fix inside this
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
+
+### Phases A and B — measured first, then built (2026-08-20)
+
+Phase 0 deferred both and gave a condition: *"Relations between events are
+worth building once the events have names."* They have names now, so the
+question was asked of the data before anything was designed.
+
+**What 255 named events on three real recordings say.** Consecutive named
+events sit a median 12 seconds apart, and half to two-thirds of neighbouring
+pairs fall within fifteen. The commonest neighbour by a wide margin is the same
+type again — `low_health → low_health` nineteen times, `combat → combat`
+eighteen, `collision → collision` eighteen.
+
+And the load-bearing negative result: **the gap distribution for same-type
+pairs is indistinguishable from different-type pairs** — median 12.0 against
+11.4, first quartile 8.0 for both. Time cannot tell "this fight is still going"
+from "something else happened nearby", so an episode is not a time-window
+merge. Type identity is the signal; the window only stops a run reaching across
+the recording.
+
+**Phase B — `backend/gaming/episodes.py`.** A run of one named type, each
+within 20 seconds of the last, is one episode. The window was chosen off the
+curve rather than picked: 23% of named events absorbed at ten seconds, 33% at
+fifteen, 38% at twenty, 44% at thirty, and then it flattens. Twenty sits at the
+knee. Different types close together are **linked, not merged** — a `combat`
+and a `low_health` ten seconds apart are two true things about one situation,
+and which was which is what an editor needs.
+
+Read against the three recordings: 255 named events become **159 episodes**,
+37–38% absorbed on every one of them, with 77 links. The commonest links are
+`low_health ↔ combat` (hurt in a fight) and `collision ↔ combat` (GTA).
+
+**Phase A — `backend/evidence/`.** No table, no writer, no migration, exactly as
+Phase 0 required. What it replaces is four hand-rolled answers to one question:
+the Critic gathered per clip, the perception report per event, and two
+throwaway scripts per instant, each with its own idea of "near" and its own
+silent failure when an observation could not be attributed to a recording.
+
+**First consumer: the Critic's evidence rows**, which now read `combat x2`
+where they used to list `combat` twice. A model told that three things happened
+writes a review of an edit that does not exist.
 
 ### `maxLength` is not enforced, and the narration fix was the wrong one (2026-08-20)
 

@@ -118,9 +118,14 @@ class TestTheEvidence:
 
     def test_an_event_nobody_could_name_is_not_shown(self) -> None:
         class _Event:
+            # Shaped like the real thing: an episode reads spans, and a stub
+            # missing `end_seconds` fails loudly here rather than quietly in a
+            # video.
             def __init__(self, start: float, kind: GameEventType):
                 self.start_seconds = start
+                self.end_seconds = start + 2.0
                 self.event_type = kind
+                self.confidence = 0.8
 
         evidence = gather(
             _timeline(1),

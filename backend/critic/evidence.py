@@ -25,6 +25,7 @@ from typing import Any
 from ai.providers.base import StoredObservation
 from backend.core.duration import format_duration
 from backend.effects.models import EffectInstance
+from backend.gaming.episodes import read
 from backend.timeline.captions import Caption
 from backend.timeline.models import Timeline, TimelineClip
 
@@ -238,18 +239,29 @@ def _speech(clip: TimelineClip, segments: Sequence[Any]) -> str:
 
 
 def _events(clip: TimelineClip, events: Sequence[Any]) -> tuple[str, ...]:
-    named: list[str] = []
-    for event in events:
-        if not _inside(clip, getattr(event, "start_seconds", None)):
-            continue
-        kind = getattr(event, "event_type", None)
-        value = getattr(kind, "value", None) or str(kind)
-        # `unexpected_event` is the correlator saying it could not name this.
-        # Showing it to the Critic invites a story about a thing nobody
-        # identified, which is the failure mode this whole design is against.
-        if value and value != "unexpected_event" and value not in named:
-            named.append(value)
-    return tuple(named)
+    """What happened inside the clip, read as situations rather than reports.
+
+    Phase B's reason for existing, applied where it shows: measured across
+    three real recordings, 37-38% of named events are another report of the
+    situation before them -- `combat, combat, combat` at ten-second intervals
+    is one fight. Listing all three tells a model that three things happened,
+    and a model told that writes a review of an edit that does not exist.
+
+    `unexpected_event` never appears either way. It is the correlator saying it
+    could not name this, and showing it invites a story about something nobody
+    identified.
+    """
+    inside = [event for event in events if _inside(clip, getattr(event, "start_seconds", None))]
+    reading = read(inside, media_id=clip.media_id)
+    described: list[str] = []
+    for episode in reading.episodes:
+        value = episode.event_type.value
+        # A situation that took several reports says so, because "one long
+        # fight" and "a fight" are different things to cut.
+        text = f"{value} x{episode.parts}" if episode.is_merged else value
+        if text not in described:
+            described.append(text)
+    return tuple(described)
 
 
 def _captions(clip: TimelineClip, captions: Sequence[Caption]) -> int:
