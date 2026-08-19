@@ -1,6 +1,6 @@
 {
   "id": "interaction.question",
-  "version": 1,
+  "version": 2,
   "purpose": "Answer a question about the finished video from retrieved records only (SPEC 59, 80, 93). Grounded: every claim traces to a record, and a question the records cannot answer is refused rather than guessed.",
   "input_schema": {
     "type": "object",
@@ -28,14 +28,17 @@
     "properties": {
       "answer": {
         "type": "string",
-        "description": "Two or three sentences, from the records."
+        "description": "Two or three sentences, from the records.",
+        "maxLength": 1200
       },
       "citations": {
         "type": "array",
         "items": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 1200
         },
-        "description": "Ids of the records the answer relied on."
+        "description": "Ids of the records the answer relied on.",
+        "maxItems": 12
       },
       "answered": {
         "type": "boolean",

@@ -1,6 +1,6 @@
 {
   "id": "interaction.instruction",
-  "version": 2,
+  "version": 3,
   "purpose": "Read an editing instruction the rule-based parser could not, and return the preference changes it asks for as a validated IntentDelta (SPEC 63, 93). Never a file operation and never prose: the result is checked against the delta model before anything is stored.",
   "input_schema": {
     "type": "object",
@@ -125,7 +125,8 @@
                 "discovery",
                 "rare"
               ]
-            }
+            },
+            "maxItems": 12
           },
           "remove": {
             "type": "array",
@@ -150,7 +151,8 @@
                 "discovery",
                 "rare"
               ]
-            }
+            },
+            "maxItems": 12
           }
         }
       },
@@ -180,7 +182,8 @@
                 "discovery",
                 "rare"
               ]
-            }
+            },
+            "maxItems": 12
           },
           "remove": {
             "type": "array",
@@ -205,7 +208,8 @@
                 "discovery",
                 "rare"
               ]
-            }
+            },
+            "maxItems": 12
           }
         }
       },
@@ -216,7 +220,8 @@
       },
       "unsupported": {
         "type": "string",
-        "description": "Why the instruction cannot be expressed, when no field is set."
+        "description": "Why the instruction cannot be expressed, when no field is set.",
+        "maxLength": 240
       }
     }
   }

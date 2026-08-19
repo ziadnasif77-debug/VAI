@@ -220,7 +220,10 @@ def _read_window(
     )
     try:
         payload = provider.complete_json(
-            rendered, schema=_SCHEMA, prompt_id="analysis.narration", temperature=0.0
+            rendered,
+            schema=prompt.output_schema,
+            prompt_id="analysis.narration",
+            temperature=0.0,
         )
     except Exception as error:  # a window that fails is a window, not a run
         logger.warning(
@@ -324,38 +327,24 @@ def _overlaps(left: Incident, right: Incident) -> bool:
 #: grammar, so every enum here has to be a value that really exists -- a wrong
 #: one is *forced* out of the model and then rejected downstream, which fails
 #: silently and permanently.
-_SCHEMA: Final[dict[str, Any]] = {
-    "type": "object",
-    "properties": {
-        "incidents": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "event_type": {
-                        "type": "string",
-                        "enum": [item.value for item in GameEventType],
-                    },
-                    "start_seconds": {"type": "number"},
-                    "climax_seconds": {"type": "number"},
-                    "end_seconds": {"type": "number"},
-                    "importance": {"type": "number"},
-                    "quote": {"type": "string"},
-                },
-                "required": [
-                    "title",
-                    "event_type",
-                    "start_seconds",
-                    "climax_seconds",
-                    "end_seconds",
-                    "importance",
-                ],
-            },
-        }
-    },
-    "required": ["incidents"],
-}
+#: The window's shape, for readers and for the tests that hold the prompt file
+#: to it. **The schema that runs is the one in `prompts/analysis/narration/`**,
+#: read through :func:`load_prompt` -- there used to be a second copy here, and
+#: the two had silently drifted: the file constrained times to be non-negative
+#: and importance to 0-1, and the copy that was actually sent constrained
+#: neither.
+#:
+#: Both were missing the bounds that matter. Ollama compiles the schema into
+#: the grammar it decodes with, so a string with no `maxLength` is an
+#: invitation to fill the output budget, and when the budget runs out
+#: mid-string the JSON never closes. Every failure here costs a whole
+#: six-minute window of speech, silently: :func:`_read_window` catches it, logs
+#: one line, and returns nothing, so the recording is analysed as though the
+#: player said nothing for six minutes. It was logged repeatedly through a real
+#: 77-minute re-analysis before anybody read the line.
+MAX_INCIDENTS_PER_WINDOW: Final[int] = 20
+MAX_TITLE_CHARACTERS: Final[int] = 120
+MAX_QUOTE_CHARACTERS: Final[int] = 200
 
 
 __all__ = [

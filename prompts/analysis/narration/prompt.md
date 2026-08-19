@@ -49,3 +49,8 @@ changes subject.
 nothing, return an empty list — but read carefully first. Transcription of
 casual speech is rough, and a garbled line next to a clear reaction is usually
 part of the same situation rather than noise to skip.
+
+Keep each **title** to one short line and each **quote** to the words that
+matter. At most 20 incidents from this window -- six minutes of one person
+talking holds fewer distinct things than that, and a list that runs on is a
+list that gets cut off before its last entry closes.

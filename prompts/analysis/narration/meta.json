@@ -1,7 +1,7 @@
 {
   "id": "analysis.narration",
-  "version": 1,
-  "purpose": "Segment a window of narrated gameplay speech into complete incidents -- cause, climax and reaction -- so the editor can cut whole situations rather than the instants a signal detector spikes on (SPEC 19, 21, 26, 93). The model reads; correlation decides whether an incident is an event.",
+  "version": 2,
+  "purpose": "Segment a window of narrated gameplay speech into complete incidents -- cause, climax and reaction -- so the editor can cut whole situations rather than the instants a signal detector spikes on (SPEC 19, 21, 26, 93). The model reads; correlation decides whether an incident is an event. Version 2 bounds every string and the list: unbounded, the model filled the output budget and the JSON was truncated, which cost a whole six-minute window of speech per failure and said so in one log line.",
   "input_schema": {
     "type": "object",
     "required": [
@@ -46,7 +46,8 @@
           ],
           "properties": {
             "title": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 120
             },
             "event_type": {
               "type": "string",
@@ -93,10 +94,12 @@
               "maximum": 1
             },
             "quote": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 200
             }
           }
-        }
+        },
+        "maxItems": 20
       }
     }
   }

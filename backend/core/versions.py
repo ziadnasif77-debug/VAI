@@ -37,29 +37,29 @@ PROJECT_MANIFEST_VERSION: Final[int] = 1
 #: disagree, which is how a forgotten bump is caught before it serves stale
 #: results.
 PROMPT_VERSIONS: Final[dict[str, int]] = {
-    "vision.frame_description": 1,
+    "vision.frame_description": 2,
     # The transcript is the only source that already contains the story in
     # words. Without this pass a 41-minute recording with 658 seconds of
     # speech produced two moment types in total.
-    "analysis.narration": 1,
+    "analysis.narration": 2,
     # v2 of both: the model no longer sets the video's length. Ollama enforces
     # a schema as a grammar, so `minimum: 600` meant a model asked for "30
     # seconds" could not emit 30 -- it emitted 3000, and the person was told
     # their 30-second request had become a 50-minute video. Asked for "25
     # minutes" it produced 2500. Durations are arithmetic, which the rule
     # parser does exactly and this model does not; there was nothing to gain.
-    "interaction.instruction": 2,
+    "interaction.instruction": 3,
     # v3: trim, split and move. The timeline could do all three since Phase 8
     # and the chat could not ask for any of them.
-    "interaction.command": 3,
-    "interaction.question": 1,
+    "interaction.command": 4,
+    "interaction.question": 2,
     # The Director (Phase C): structure, never content. It is shown the
     # moments the pipeline found and answers with an order and a role for
     # each -- by index, so a name it invented cannot be matched back to
     # footage by guessing. A blueprint naming a moment that does not exist is
     # rejected rather than repaired.
-    "narrative.blueprint": 1,
-    "critique.edit_review": 4,
+    "narrative.blueprint": 2,
+    "critique.edit_review": 5,
 }
 
 

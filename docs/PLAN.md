@@ -155,6 +155,32 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### Six prompts were letting the model write without a limit (2026-08-19)
+
+Chasing one logged line — *"Could not read a transcript window"*, repeated
+through the 77-minute re-analysis — found the same defect the Critic had, in
+five more places.
+
+Ollama compiles a prompt's output schema into the grammar it decodes with, so
+a string with no `maxLength` is an invitation to fill the output budget; when
+the budget runs out mid-string the JSON never closes and the whole answer is
+lost. Every shipped prompt is now bounded — `vision.frame_description`,
+`critique.edit_review`, `narrative.blueprint` and the three `interaction.*` —
+and one test checks all of them at once, because checking one prompt at a time
+is how this was found one prompt at a time.
+
+**Narration lost the most and said the least.** `_read_window` catches its own
+failure, logs a line, and returns nothing, so a failed window means the
+recording is analysed as though the player said nothing for six minutes.
+
+And it had a second copy of its schema in Python that had silently drifted from
+the file: the file constrained times to be non-negative and importance to 0–1,
+and the copy actually being sent constrained neither, and neither had the
+bounds that mattered. The duplicate is gone — the schema that runs is now the
+one in `prompts/analysis/narration/`. The Critic and the Director keep their
+Python schemas, because those derive their enums from the types they validate
+into, and a test now holds each equal to its file.
+
 ### The GTA profile, and what it could not fix (2026-08-19)
 
 `profiles/gta_v/profile.json` had everything except a way to be found. Seven

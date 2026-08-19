@@ -1,6 +1,6 @@
 {
   "id": "interaction.command",
-  "version": 3,
+  "version": 4,
   "purpose": "Read an editing command the rule-based parser could not, and return one validated EditCommand or none (SPEC 63, 85, 93). The command changes project state through the application's own tool layer; the model never touches a file.",
   "input_schema": {
     "type": "object",
@@ -64,7 +64,8 @@
       },
       "reason": {
         "type": "string",
-        "description": "Why no command applies, when kind is none."
+        "description": "Why no command applies, when kind is none.",
+        "maxLength": 240
       },
       "start_delta": {
         "type": "number"

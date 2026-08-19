@@ -20,6 +20,9 @@ from ai.llm.fake_provider import FakeLLMProvider
 from ai.providers.base import TranscriptSegment
 from backend.analysis import narration
 from backend.analysis.narration import (
+    MAX_INCIDENTS_PER_WINDOW,
+    MAX_QUOTE_CHARACTERS,
+    MAX_TITLE_CHARACTERS,
     SOURCE,
     Incident,
     observations_from_narration,
@@ -27,6 +30,7 @@ from backend.analysis.narration import (
 )
 from backend.config.loader import load_config
 from backend.core.models.enums import GameEventType
+from backend.core.prompts import load_prompt
 
 pytestmark = pytest.mark.unit
 
@@ -110,6 +114,54 @@ class TestWhatItReads:
 
         assert observations[0].detail["incident_start"] == 24.8
         assert observations[0].detail["incident_end"] == 79.0
+
+
+class TestTheGrammarItIsGiven:
+    """The schema is what Ollama decodes with, so its bounds are behaviour.
+
+    An unbounded string invites the model to fill the output budget, and when
+    the budget runs out mid-string the JSON never closes. Here that costs a
+    whole six-minute window of speech per failure, and costs it *silently*:
+    `_read_window` catches, logs one line, and returns nothing, so the
+    recording is analysed as though the player said nothing for six minutes.
+    It was logged repeatedly through a real 77-minute re-analysis before
+    anybody read the line.
+    """
+
+    def test_every_string_the_model_writes_is_bounded(self) -> None:
+        incidents = load_prompt("analysis.narration").output_schema["properties"]["incidents"]
+        properties = incidents["items"]["properties"]
+
+        assert incidents["maxItems"] == MAX_INCIDENTS_PER_WINDOW
+        assert properties["title"]["maxLength"] == MAX_TITLE_CHARACTERS
+        assert properties["quote"]["maxLength"] == MAX_QUOTE_CHARACTERS
+
+    def test_the_schema_that_runs_is_the_one_in_the_prompt_file(self) -> None:
+        # There were two copies of this contract and they had drifted: the file
+        # constrained times to be non-negative and importance to 0-1, and the
+        # copy actually sent constrained neither. One source now, so the
+        # documented shape and the decoded shape cannot disagree again.
+        sent: list[dict] = []
+
+        class _Recording(FakeLLMProvider):
+            def complete_json(self, prompt, *, schema, prompt_id, temperature=None):
+                sent.append(schema)
+                return super().complete_json(
+                    prompt, schema=schema, prompt_id=prompt_id, temperature=temperature
+                )
+
+        read_incidents(SPEECH, config=load_config(), provider=_Recording(default={"incidents": []}))
+
+        assert sent
+        assert sent[0] == load_prompt("analysis.narration").output_schema
+
+    def test_a_window_that_fails_loses_only_itself(self) -> None:
+        # The behaviour that made this invisible, kept deliberately: one bad
+        # window must not lose the other fourteen.
+        assert (
+            read_incidents(SPEECH, config=load_config(), provider=FakeLLMProvider(fail_times=99))
+            == []
+        )
 
 
 class TestTheCardAfterwards:

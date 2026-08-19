@@ -365,3 +365,69 @@ class TestThePrompts:
     @pytest.mark.parametrize("prompt_id", INTERACTION_PROMPTS)
     def test_the_schema_is_valid_json(self, prompt_id: str) -> None:
         json.dumps(load_prompt(prompt_id).output_schema)
+
+
+class TestEveryPromptsGrammar:
+    """One rule, checked across every prompt this project ships (SPEC 93).
+
+    Ollama compiles a prompt's output schema into the grammar it decodes with.
+    A string with no ``maxLength`` is therefore an invitation to fill the
+    output budget, and when the budget runs out mid-string the JSON never
+    closes and the whole answer is lost.
+
+    It has now cost three separate things: two runs in three of the Critic's
+    review, and -- silently, for as long as it has existed -- a whole
+    six-minute window of speech per failure in the narration reader, which
+    catches its own error and returns nothing. Checking one prompt at a time
+    found it one prompt at a time, so this checks all of them.
+    """
+
+    @staticmethod
+    def _unbounded(node, path=""):
+        found = []
+        if not isinstance(node, dict):
+            return found
+        if node.get("type") == "string" and "maxLength" not in node and "enum" not in node:
+            found.append(path or "(root)")
+        if node.get("type") == "array" and "maxItems" not in node:
+            found.append(path + "[]")
+        for name, child in (node.get("properties") or {}).items():
+            found += TestEveryPromptsGrammar._unbounded(child, f"{path}.{name}")
+        if "items" in node:
+            found += TestEveryPromptsGrammar._unbounded(node["items"], path + ".items")
+        return found
+
+    @pytest.mark.parametrize("prompt_id", sorted(PROMPT_VERSIONS))
+    def test_nothing_the_model_writes_is_unbounded(self, prompt_id: str) -> None:
+        schema = load_prompt(prompt_id).output_schema
+        loose = self._unbounded(schema)
+        assert not loose, (
+            f"{prompt_id} lets the model write without a limit at: {loose}. "
+            "Ollama will decode until the output budget runs out and the JSON "
+            "will not close."
+        )
+
+    @pytest.mark.parametrize(
+        ("prompt_id", "module", "name"),
+        [
+            ("critique.edit_review", "backend.critic.service", "_SCHEMA"),
+            ("narrative.blueprint", "backend.director.service", "_SCHEMA"),
+        ],
+    )
+    def test_a_schema_built_in_code_matches_the_one_on_disk(
+        self, prompt_id: str, module: str, name: str
+    ) -> None:
+        """Two copies of one contract, held equal by a test.
+
+        These two are built in Python rather than read from the file, and for
+        a reason: their enums derive from the types they validate into, so an
+        action added to `Action` cannot be forgotten in the grammar. The cost
+        is a second copy, and the narration reader has just shown what an
+        unchecked second copy becomes -- its file constrained times to be
+        non-negative while the copy that was actually sent constrained
+        nothing, and nobody knew.
+        """
+        import importlib
+
+        in_code = getattr(importlib.import_module(module), name)
+        assert load_prompt(prompt_id).output_schema == in_code

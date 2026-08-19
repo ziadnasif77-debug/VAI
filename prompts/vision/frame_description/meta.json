@@ -1,10 +1,14 @@
 {
   "id": "vision.frame_description",
-  "version": 1,
+  "version": 2,
   "purpose": "Describe candidate gameplay frames: game state, visible action, HUD text and anything unusual. Supporting evidence for game-event detection (SPEC 15, 21, 26), never a decision on its own.",
   "input_schema": {
     "type": "object",
-    "required": ["game", "frame_count", "timestamps"],
+    "required": [
+      "game",
+      "frame_count",
+      "timestamps"
+    ],
     "properties": {
       "game": {
         "type": "string",
@@ -23,22 +27,33 @@
   },
   "output_schema": {
     "type": "object",
-    "required": ["frames"],
+    "required": [
+      "frames"
+    ],
     "properties": {
       "frames": {
         "type": "array",
         "items": {
           "type": "object",
-          "required": ["description", "labels", "confidence"],
+          "required": [
+            "description",
+            "labels",
+            "confidence"
+          ],
           "properties": {
             "description": {
               "type": "string",
-              "description": "What is visible in this frame."
+              "description": "What is visible in this frame.",
+              "maxLength": 600
             },
             "labels": {
               "type": "array",
-              "items": { "type": "string" },
-              "description": "Short lowercase tags justified by the image."
+              "items": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "description": "Short lowercase tags justified by the image.",
+              "maxItems": 8
             },
             "confidence": {
               "type": "number",
@@ -51,7 +66,8 @@
               "additionalProperties": true
             }
           }
-        }
+        },
+        "maxItems": 8
       }
     }
   }
