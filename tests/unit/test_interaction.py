@@ -204,6 +204,29 @@ class TestInstructionParsing:
         assert "clutch" in parsed.delta.priority_moment_types.add
         assert parsed.confidence > 0
 
+    @pytest.mark.parametrize(
+        "text", ["avoid fails", "skip the fails", "remove fail moments", "تجنب الفشل"]
+    )
+    def test_asking_against_a_moment_type_avoids_it(self, text: str) -> None:
+        """The failure was silent and backwards.
+
+        Only "no", "without" and the comparatives counted as negations, so
+        "avoid fails" put `fail` in *priority*_moment_types: someone asking for
+        fewer of something got more of it and nothing in the output said so. It
+        matters more since Phase F, which would see the same sentence in three
+        projects and make the inversion the default for every project after.
+        """
+        delta = parse_instruction(text).delta
+        assert delta.avoid_moment_types is not None
+        assert "fail" in delta.avoid_moment_types.add
+        assert delta.priority_moment_types is None
+
+    def test_asking_for_a_moment_type_still_prioritises_it(self) -> None:
+        delta = parse_instruction("add more fails").delta
+        assert delta.priority_moment_types is not None
+        assert "fail" in delta.priority_moment_types.add
+        assert delta.avoid_moment_types is None
+
     def test_remove_dead_time(self) -> None:
         parsed = parse_instruction("احذف الوقت الميت واللحظات المملة")
         assert parsed.delta.dead_time_policy is DeadTimePolicy.AGGRESSIVE

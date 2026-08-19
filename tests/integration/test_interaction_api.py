@@ -25,6 +25,35 @@ def create_project(client, **overrides) -> dict:
     return response.json()
 
 
+class TestPreferences:
+    """Phase F, over the API: a preference nobody can see is a bug."""
+
+    def test_a_fresh_install_has_learned_nothing_and_says_so(self, api_client) -> None:
+        project = create_project(api_client)
+        response = api_client.get(f"/api/projects/{project['id']}/preferences")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["learned"] == []
+        # "Nothing was learned" and "there was nothing to learn from" are
+        # different statements, and only one of them is worth showing.
+        assert "considered" in body
+
+    def test_a_repeated_request_appears_with_the_words_that_produced_it(self, api_client) -> None:
+        for index in range(3):
+            other = create_project(api_client, name=f"session {index}")
+            api_client.post(f"/api/projects/{other['id']}/chat", json={"text": "make it slower"})
+
+        project = create_project(api_client, name="the next one")
+        body = api_client.get(f"/api/projects/{project['id']}/preferences").json()
+
+        learned = {item["dimension"]: item for item in body["learned"]}
+        assert "pacing" in learned, body
+        assert learned["pacing"]["projects"] == 3
+        # The person's own words, not the editor's summary of them.
+        assert "make it slower" in learned["pacing"]["examples"]
+
+
 class TestPresets:
     def test_lists_every_preset(self, api_client) -> None:
         body = api_client.get("/api/presets").json()
@@ -79,9 +108,7 @@ class TestIntent:
 
     def test_follow_up_refines_rather_than_replaces(self, api_client) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/chat", json={"text": "ركز على الـclutch"}
-        )
+        api_client.post(f"/api/projects/{project['id']}/chat", json={"text": "ركز على الـclutch"})
         api_client.post(
             f"/api/projects/{project['id']}/chat", json={"text": "ولا تستخدم كثير effects"}
         )
@@ -104,9 +131,7 @@ class TestIntent:
 
     def test_reset_returns_to_the_preset(self, api_client) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/chat", json={"text": "make it cinematic"}
-        )
+        api_client.post(f"/api/projects/{project['id']}/chat", json={"text": "make it cinematic"})
         body = api_client.post(f"/api/projects/{project['id']}/intent/reset").json()
         assert body["style"] != "cinematic"
 
@@ -141,9 +166,7 @@ class TestQuestions:
 class TestConversation:
     def test_history_is_recorded(self, api_client) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/chat", json={"text": "focus on clutches"}
-        )
+        api_client.post(f"/api/projects/{project['id']}/chat", json={"text": "focus on clutches"})
         api_client.post(
             f"/api/projects/{project['id']}/chat", json={"text": "how long is the video?"}
         )
@@ -176,9 +199,7 @@ class TestChatIsOptional:
         self, api_client, sample_video
     ) -> None:
         project = create_project(api_client)
-        api_client.post(
-            f"/api/projects/{project['id']}/media", json={"path": str(sample_video)}
-        )
+        api_client.post(f"/api/projects/{project['id']}/media", json={"path": str(sample_video)})
         api_client.post(f"/api/projects/{project['id']}/analyze")
 
         status = api_client.get(f"/api/projects/{project['id']}/status").json()

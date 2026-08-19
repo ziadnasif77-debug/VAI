@@ -48,6 +48,8 @@ from backend.interaction.parser import (
 from backend.interaction.phrases import Phrasebook
 from backend.interaction.qa import QuestionAnswering
 from backend.interaction.store import ConversationStore, EditVersionStore, IntentStore
+from backend.preferences.learning import as_delta, learn
+from backend.preferences.models import Preferences
 
 logger = get_logger("interaction.service", LogChannel.APPLICATION)
 
@@ -104,9 +106,26 @@ class InteractionService:
             updates=self._intents.updates(project_id),
             project_target_duration_seconds=project.target_duration_seconds,
             project_mode=project.mode,
+            learned=self._learned(project_id),
         )
         self._intents.cache_resolved(project_id, preset, intent)
         return intent
+
+    def preferences(self, project_id: str | None = None) -> Preferences:
+        """What this editor has learned about the person using it (Phase F).
+
+        Read fresh rather than cached. The log it reads is small -- a handful
+        of rows per project -- and a cache would have to be invalidated by
+        every instruction in every project, which is more machinery than the
+        query costs.
+        """
+        if not self._config.interaction.learn_preferences:
+            return Preferences()
+        return learn(self._db, exclude_project=project_id)
+
+    def _learned(self, project_id: str) -> IntentDelta | None:
+        preferences = self.preferences(project_id)
+        return as_delta(preferences) if not preferences.is_empty else None
 
     def set_preset(self, project_id: str, preset_name: str) -> EditingIntent:
         """Switch preset, keeping every instruction the user has given (§4)."""

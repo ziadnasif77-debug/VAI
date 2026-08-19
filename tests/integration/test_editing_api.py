@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from backend.core.models.enums import JobStage, MomentType
+from backend.core.models.jobs import ANALYSIS_STAGES, EDIT_STAGES
 from backend.core.models.media import Media, MediaMetadata
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.timeline import TimelineRepository
@@ -113,9 +114,7 @@ class TestMomentsScreen:
 
         assert response.status_code == 200
 
-    def test_an_unknown_type_is_rejected_rather_than_ignored(
-        self, api_client, project
-    ) -> None:
+    def test_an_unknown_type_is_rejected_rather_than_ignored(self, api_client, project) -> None:
         response = api_client.get(
             f"/api/projects/{project['id']}/moments", params={"type": "amazing"}
         )
@@ -126,9 +125,7 @@ class TestMomentsScreen:
 class TestTimelineScreen:
     """§62: remove, restore, move, split, trim."""
 
-    def test_the_timeline_comes_back_with_its_clips(
-        self, api_client, project, timeline
-    ) -> None:
+    def test_the_timeline_comes_back_with_its_clips(self, api_client, project, timeline) -> None:
         response = api_client.get(f"/api/projects/{project['id']}/timeline")
 
         assert response.status_code == 200
@@ -156,9 +153,7 @@ class TestTimelineScreen:
         assert len(disabled) == 1
         assert disabled[0]["id"] == clip.id
 
-    def test_a_deleted_clip_is_still_there_to_restore(
-        self, api_client, project, timeline
-    ) -> None:
+    def test_a_deleted_clip_is_still_there_to_restore(self, api_client, project, timeline) -> None:
         # §78: the user has the last word, so "remove" must be undoable.
         clip = timeline.video_clips()[1]
         url = f"/api/projects/{project['id']}/timeline/operations"
@@ -237,7 +232,12 @@ class TestRenderAndQa:
         response = api_client.post(f"/api/projects/{project['id']}/generate-edit")
 
         assert response.status_code == 200
-        assert set(response.json()["queued"]) <= {"story", "edl", "render"}
+        # Stated against EDIT_STAGES rather than a written-out list: what the
+        # rule actually says is "nothing that would re-read the recording",
+        # and a hardcoded list makes adding an edit stage look like a
+        # regression (CRITIQUE did, in exactly this test).
+        assert set(response.json()["queued"]) <= {stage.value for stage in EDIT_STAGES}
+        assert not set(response.json()["queued"]) & {stage.value for stage in ANALYSIS_STAGES}
 
     def test_render_queues_the_render_and_its_qa(self, api_client, project) -> None:
         response = api_client.post(f"/api/projects/{project['id']}/render")
@@ -253,21 +253,15 @@ class TestRenderAndQa:
         assert body["latest"] is None
         assert body["blocked_by_qa"] is False
 
-    def test_qa_before_a_render_is_empty_rather_than_an_error(
-        self, api_client, project
-    ) -> None:
+    def test_qa_before_a_render_is_empty_rather_than_an_error(self, api_client, project) -> None:
         response = api_client.get(f"/api/projects/{project['id']}/qa")
 
         assert response.status_code == 200
         assert response.json()["findings"] == []
 
-    def test_the_stages_it_queued_really_are_queued(
-        self, api_client, project, app_state
-    ) -> None:
+    def test_the_stages_it_queued_really_are_queued(self, api_client, project, app_state) -> None:
         api_client.post(f"/api/projects/{project['id']}/render")
-        stages = {
-            job.stage for job in app_state.jobs.list_jobs(project["id"])
-        }
+        stages = {job.stage for job in app_state.jobs.list_jobs(project["id"])}
 
         assert JobStage.RENDER in stages
 
@@ -288,30 +282,21 @@ class TestServingFiles:
 
         assert response.status_code == 404
 
-    def test_a_path_pointing_outside_the_project_is_refused(
-        self, api_client, project
-    ) -> None:
+    def test_a_path_pointing_outside_the_project_is_refused(self, api_client, project) -> None:
         # A request is a string from the network even when the network is
         # loopback.
         response = api_client.get(
-            f"/api/projects/{project['id']}/files/renders/"
-            "..%2f..%2f..%2f..%2fWindows%2fwin.ini"
+            f"/api/projects/{project['id']}/files/renders/..%2f..%2f..%2f..%2fWindows%2fwin.ini"
         )
 
         assert response.status_code in (403, 404)
 
-    def test_a_missing_file_inside_the_project_is_a_404(
-        self, api_client, project
-    ) -> None:
-        response = api_client.get(
-            f"/api/projects/{project['id']}/files/renders/absent.mp4"
-        )
+    def test_a_missing_file_inside_the_project_is_a_404(self, api_client, project) -> None:
+        response = api_client.get(f"/api/projects/{project['id']}/files/renders/absent.mp4")
 
         assert response.status_code == 404
 
-    def test_a_file_inside_the_project_is_served(
-        self, api_client, project, app_state
-    ) -> None:
+    def test_a_file_inside_the_project_is_served(self, api_client, project, app_state) -> None:
         target = Path(project["project_directory"]) / "renders" / "note.txt"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("hello", encoding="utf-8")
@@ -349,9 +334,7 @@ class TestServingFiles:
         assert response.status_code == 206
         assert response.content == bytes(range(248, 256))
 
-    def test_an_impossible_range_is_416_with_the_real_length(
-        self, api_client, project
-    ) -> None:
+    def test_an_impossible_range_is_416_with_the_real_length(self, api_client, project) -> None:
         target = Path(project["project_directory"]) / "renders" / "short.bin"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"12345")
@@ -364,15 +347,11 @@ class TestServingFiles:
         assert response.status_code == 416
         assert response.headers["content-range"] == "bytes */5"
 
-    def test_a_whole_file_advertises_that_it_accepts_ranges(
-        self, api_client, project
-    ) -> None:
+    def test_a_whole_file_advertises_that_it_accepts_ranges(self, api_client, project) -> None:
         target = Path(project["project_directory"]) / "renders" / "whole.bin"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(b"0123456789")
 
-        response = api_client.get(
-            f"/api/projects/{project['id']}/files/renders/whole.bin"
-        )
+        response = api_client.get(f"/api/projects/{project['id']}/files/renders/whole.bin")
 
         assert response.headers.get("accept-ranges") == "bytes"

@@ -1441,6 +1441,12 @@ class InteractionConfig(_Section):
 
     enabled: bool = True
     default_preset: str = "best_moments"
+    #: Phase F. Start a new project from what the person keeps asking for
+    #: rather than from the preset alone. Off, every project begins the way the
+    #: first one did -- which is right for a first project and wrong for a
+    #: tenth. A learned preference never beats an instruction about the current
+    #: project, so switching this on cannot take an edit away from anyone.
+    learn_preferences: bool = True
     intent: IntentResolutionConfig = Field(default_factory=IntentResolutionConfig)
     qa: QaConfigInteraction = Field(default_factory=QaConfigInteraction)
     llm_fallback: LlmFallbackConfig = Field(default_factory=LlmFallbackConfig)

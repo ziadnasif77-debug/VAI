@@ -115,12 +115,19 @@ class IntentResolver:
         updates: Sequence[IntentUpdate] = (),
         project_target_duration_seconds: int | None = None,
         project_mode: Any = None,
+        learned: IntentDelta | None = None,
     ) -> EditingIntent:
         """Compose the effective intent.
 
         Args:
             preset_name: preset to start from; the configured default if absent.
             updates: instruction deltas, applied in ``sequence`` order.
+            learned: what this person keeps asking for, from Phase F. Applied
+                straight after the preset and before everything else, which is
+                the whole ordering question in one line: a preference beats
+                what shipped in the box, and anything said about *this* project
+                beats a preference. "Keep the effects this time" gets the
+                effects this time, and does not unlearn anything.
             project_target_duration_seconds: the project's own target. It wins
                 over the preset, and over any instruction only when
                 ``intent.project_settings_override_preset`` is set and no
@@ -128,6 +135,8 @@ class IntentResolver:
             project_mode: the project's video mode, treated the same way.
         """
         intent = self.base_intent(preset_name)
+        if learned is not None:
+            intent = self.apply(intent, learned)
 
         ordered = sorted(updates, key=lambda item: item.sequence)
         duration_set_by_instruction = any(

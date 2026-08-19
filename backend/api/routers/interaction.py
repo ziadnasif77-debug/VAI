@@ -13,6 +13,7 @@ from backend.interaction.models import (
     EditVersion,
     InteractionResult,
 )
+from backend.preferences.models import Preferences
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["interaction"])
 
@@ -92,8 +93,19 @@ def ask(
 
 @router.get("/intent", response_model=EditingIntent)
 def get_intent(project_id: str, state: AppState = Depends(get_state)) -> EditingIntent:
-    """The effective editing brief: preset + project settings + instructions."""
+    """The effective editing brief: preset + preferences + settings + instructions."""
     return state.interaction.current_intent(project_id)
+
+
+@router.get("/preferences", response_model=Preferences)
+def get_preferences(project_id: str, state: AppState = Depends(get_state)) -> Preferences:
+    """What this editor has learned about the person using it (Phase F).
+
+    Exposed because a preference nobody can see is indistinguishable from a
+    bug. Each one names the projects it came from and quotes what was actually
+    typed, so "why does this start slow" has an answer made of evidence (§80).
+    """
+    return state.interaction.preferences(project_id)
 
 
 @router.post("/intent/preset", response_model=EditingIntent)

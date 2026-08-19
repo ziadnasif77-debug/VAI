@@ -105,6 +105,13 @@ _COMMAND_MARKERS = (
     "أضف",
 )
 
+#: Words that turn a mention of a moment type into a request *against* it.
+#:
+#: The plain verbs were missing, and the failure was silent and backwards:
+#: "avoid fails" put `fail` in **priority**_moment_types, so someone asking for
+#: fewer of something got more of it and nothing said so. It matters more since
+#: Phase F, which would see the same sentence in three projects and make the
+#: inversion the default for every project after them.
 _NEGATIONS = (
     "no ",
     "not ",
@@ -115,6 +122,12 @@ _NEGATIONS = (
     "fewer",
     "reduce",
     "minimal",
+    "avoid",
+    "skip",
+    "remove",
+    "exclude",
+    "drop the",
+    "cut the",
     "لا ",
     "بدون",
     "قلل",
@@ -122,6 +135,10 @@ _NEGATIONS = (
     "أقل",
     "اقل",
     "ما تستخدم",
+    "تجنب",
+    "احذف",
+    "احذف",
+    "شيل",
 )
 
 #: Moment-type vocabulary in both languages.

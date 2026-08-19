@@ -105,6 +105,55 @@ Development order follows SPEC §126.
 | 15 | **Quality** | golden dataset, precision/recall benchmarking, packaging | ✅ **done** |
 | C | **The Director** | a model proposes the shape; code selects, orders and cuts | ✅ **done** |
 | E | **The Critic** | the pipeline reads its own edit and may trim it before rendering | ✅ **done** |
+| F | **Preferences** | what the person keeps asking for becomes the next project's default | ✅ **done** |
+
+### Phase F — preferences ✅ done
+
+The lesson written next to `chronological` in `EditingIntent`, generalised:
+
+> a default the user has to re-defeat per project is not a default
+
+That one was settled by changing the shipped value, which works exactly once
+and only for a preference the author happens to share. Everything else someone
+re-types every project — "make it faster", "fewer effects", "no fails" — was
+still re-typed every project.
+
+A preference is a change made in **several separate projects**. One instruction
+is a mood; three across three projects is how they want their videos. It is
+read from `editing_intent_updates`, which §4 has kept since Phase 13 — no new
+table, no writer, no migration.
+
+Four rules, each of which the alternative gets wrong:
+
+- **Separate projects, not repeated instructions.** Saying "faster" three times
+  in one project is one opinion repeated, usually because the first two did
+  not take.
+- **The value they settled on.** A project that went faster, then slower, then
+  fast contributes *fast*, not a vote for each.
+- **Recent projects only.** Nothing is unlearned by a rule; a habit simply
+  falls out of view once enough newer projects disagree.
+- **Nothing inferred from silence.** A project with no instructions is much
+  more often nobody looking than agreement.
+
+It sits between the preset and the instructions, which is the whole ordering
+question in one line: a preference beats what shipped in the box, and anything
+said about the current project beats a preference. "Keep it slow this time"
+gets it slow this time and unlearns nothing. `GET /preferences` exposes what
+was learned, with the projects it came from and the person's own words — a
+preference nobody can see is indistinguishable from a bug.
+
+Measured on this machine's database: 12 projects considered, **nothing
+learned**, because the real projects were driven by defaults rather than typed
+instructions. That is the correct answer and the reason `considered` is carried
+next to `learned`.
+
+**Found while building it:** the instruction parser read "avoid fails" as a
+*priority* for fails. `_NEGATIONS` held `no`, `without` and the comparatives
+but none of the plain verbs, so someone asking for fewer of something got more
+of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
+`exclude`, `تجنب`, `احذف` and `شيل`. It mattered enough to fix inside this
+phase because Phase F would have seen the same sentence in three projects and
+made the inversion the default for every project after them.
 
 ### Phase 0's acceptance gate — measured, and **failed** (2026-08-19)
 

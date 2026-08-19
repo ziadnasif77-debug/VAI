@@ -10,6 +10,21 @@
 interaction:
   enabled: true
   default_preset: best_moments
+  # Phase F: what the editor has learned about the person using it.
+  #
+  # A preference is a change made in several *separate* projects -- one
+  # instruction is a mood, three across three projects is how they want their
+  # videos. It sits between the preset and the instructions: it beats what
+  # shipped in the box, and anything typed for the current project beats it.
+  #
+  # The lesson it generalises is written next to `chronological` in
+  # EditingIntent: "a default the user has to re-defeat per project is not a
+  # default." That one was settled by changing the shipped value, which works
+  # exactly once and only for a preference the author happens to share.
+  #
+  # Off, every project starts the way the first one did.
+  learn_preferences: true
+
 
   intent:
     # Where an unspecified target duration comes from: the project's own
@@ -147,3 +162,4 @@ presets:
     variety: medium
     style: minimal
     priority_moment_types: []
+
