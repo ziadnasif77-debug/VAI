@@ -164,6 +164,13 @@ class OllamaLLMProvider:
                     temperature if temperature is not None else self._config.temperature
                 ),
                 "num_predict": self._config.max_output_tokens,
+                # Configured since §13 and never sent, so every request has
+                # run in Ollama's 4,096-token default. Text prompts fit, which
+                # is why nothing failed -- but a forty-clip edit review or a
+                # long moment list would cross it, and Ollama answers HTTP 400
+                # rather than truncating. The vision provider found that out
+                # the expensive way.
+                "num_ctx": self._config.context_tokens,
             },
         }
 

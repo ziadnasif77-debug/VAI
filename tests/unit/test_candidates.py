@@ -57,9 +57,7 @@ class TestTriggerExtraction:
             _spike(10.0),
             AudioEvent(event_type=AudioEventType.SILENCE, start_seconds=20.0, end_seconds=30.0),
             AudioEvent(event_type=AudioEventType.SPEECH, start_seconds=40.0, end_seconds=50.0),
-            AudioEvent(
-                event_type=AudioEventType.TRANSIENT, start_seconds=60.0, end_seconds=60.4
-            ),
+            AudioEvent(event_type=AudioEventType.TRANSIENT, start_seconds=60.0, end_seconds=60.4),
         ]
         triggers = triggers_from_audio(events, config.analysis)
         assert {round(t.start_seconds) for t in triggers} == {10, 60}
@@ -143,12 +141,17 @@ class TestFrameBudget:
 
     def test_dropped_regions_are_reported_not_hidden(self, config) -> None:
         # A silent truncation would read as "we looked at everything".
-        # Eight hours allows 1 920 frames, i.e. 480 regions at four each.
-        # Eight hundred nominations is comfortably more than that.
+        #
+        # The budget is passed explicitly rather than derived from the shipped
+        # ceiling. What this checks is what the plan does when it runs out, and
+        # stating that in terms of `max_frames_per_source_hour` made raising
+        # that ceiling look like a regression here.
         triggers = triggers_from_audio(
             [_spike(index * 35.0) for index in range(800)], config.analysis
         )
-        plan = build_candidates(triggers, config.analysis, duration_seconds=8 * HOUR)
+        plan = build_candidates(
+            triggers, config.analysis, duration_seconds=8 * HOUR, frame_budget=40
+        )
         assert plan.was_capped
         assert plan.dropped_regions > 0
         assert len(plan.analysed_regions) + plan.dropped_regions == len(plan.regions)
@@ -160,7 +163,9 @@ class TestFrameBudget:
         triggers = triggers_from_audio(
             [_spike(index * 35.0) for index in range(800)], config.analysis
         )
-        plan = build_candidates(triggers, config.analysis, duration_seconds=8 * HOUR)
+        plan = build_candidates(
+            triggers, config.analysis, duration_seconds=8 * HOUR, frame_budget=40
+        )
         dropped = [region for region in plan.regions if not region.is_analysed]
         assert dropped
         assert all(region.triggers for region in dropped)
@@ -178,9 +183,7 @@ class TestRegionShape:
         # The failure this prevents: constant activity merging into one region
         # that spans two hours and receives four keyframes, while the plan
         # reports full coverage.
-        triggers = triggers_from_audio(
-            [_spike(t) for t in range(10, 7200, 30)], config.analysis
-        )
+        triggers = triggers_from_audio([_spike(t) for t in range(10, 7200, 30)], config.analysis)
         plan = build_candidates(triggers, config.analysis, duration_seconds=2 * HOUR)
         assert len(plan) > 50
         assert max(region.duration for region in plan.regions) <= 70.0
@@ -200,9 +203,7 @@ class TestRegionShape:
         )
         region = plan.regions[0]
         assert region.start_seconds == pytest.approx(100.0 - sampling.candidate_pre_roll_seconds)
-        assert region.end_seconds == pytest.approx(
-            100.5 + sampling.candidate_post_roll_seconds
-        )
+        assert region.end_seconds == pytest.approx(100.5 + sampling.candidate_post_roll_seconds)
 
     def test_a_region_is_clamped_to_the_source(self, config) -> None:
         plan = build_candidates(
@@ -220,8 +221,7 @@ class TestRegionShape:
         region = plan.regions[0]
         assert region.keyframes
         assert all(
-            region.start_seconds < timestamp < region.end_seconds
-            for timestamp in region.keyframes
+            region.start_seconds < timestamp < region.end_seconds for timestamp in region.keyframes
         )
 
     def test_the_frames_land_on_what_the_detectors_pointed_at(self, config) -> None:
@@ -276,9 +276,7 @@ class TestRegionShape:
             end_seconds=157.0,
             sources=frozenset({AUDIO_SPIKE}),
             priority=0.8,
-            triggers=(
-                Trigger(source=AUDIO_SPIKE, start_seconds=103.0, end_seconds=103.4),
-            ),
+            triggers=(Trigger(source=AUDIO_SPIKE, start_seconds=103.0, end_seconds=103.4),),
         )
 
         frames = _keyframes(region, 4)
@@ -288,9 +286,7 @@ class TestRegionShape:
         assert max(frames) > 140.0, "the far end of the region is not left unwatched"
 
     def test_regions_are_returned_in_chronological_order(self, config) -> None:
-        triggers = triggers_from_audio(
-            [_spike(t) for t in (600.0, 100.0, 1200.0)], config.analysis
-        )
+        triggers = triggers_from_audio([_spike(t) for t in (600.0, 100.0, 1200.0)], config.analysis)
         plan = build_candidates(triggers, config.analysis, duration_seconds=HOUR)
         starts = [region.start_seconds for region in plan.regions]
         assert starts == sorted(starts)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -159,6 +160,40 @@ class TestVisionProviderWiring:
         with pytest.raises(ModelError) as exc_info:
             provider._preflight_vram()
         assert exc_info.value.code is ErrorCode.GPU_OUT_OF_MEMORY
+
+    def test_the_request_asks_for_a_context_big_enough_for_its_images(
+        self, config, tmp_path: Path
+    ) -> None:
+        """Ollama defaults to 4,096 tokens and rejects anything larger.
+
+        One 1080p frame is roughly 1,400 tokens, so a batch of four plus the
+        prompt measured 5,712 against that default -- and Ollama answers HTTP
+        400 rather than truncating. Every vision request failed all three
+        attempts in 1.7 seconds, which the logs reported as "the vision model
+        returned no usable result": a sentence about the model that was never
+        about the model.
+        """
+        provider = OllamaVisionProvider(config.models.vision, gpu=config.gpu)
+        sent: list[dict[str, Any]] = []
+        provider._post = lambda path, body, *, timeout: (  # type: ignore[assignment]
+            sent.append(body)
+            or {"response": '{"frames": [{"description": "x", "labels": [], "confidence": 0.5}]}'}
+        )
+        provider._preflight_vram = lambda: None  # type: ignore[assignment]
+        frame = tmp_path / "f.jpg"
+        frame.write_bytes(bytes([0xFF, 0xD8, 0xFF, 0xD9]))
+
+        provider.describe((frame,), (1.0,))
+
+        assert sent[0]["options"]["num_ctx"] == config.models.vision.context_tokens
+
+    def test_the_context_leaves_room_for_a_full_batch(self, config) -> None:
+        # ~1,400 tokens per frame, and the batch size is configurable. A
+        # context that fits three frames when the planner sends four is the
+        # same failure with a different number in it.
+        per_frame = 1400
+        batch = config.analysis.vision.max_frames_per_request
+        assert config.models.vision.context_tokens >= per_frame * batch
 
     def test_frames_without_timestamps_are_refused(self, config) -> None:
         provider = OllamaVisionProvider(config.models.vision, gpu=config.gpu)

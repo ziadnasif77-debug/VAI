@@ -78,7 +78,20 @@ analysis:
     max_frames_per_request: 4
     # Hard ceiling on VLM work per hour of source, so analysis time stays
     # predictable no matter how eventful the recording is.
-    max_frames_per_source_hour: 240
+    #
+    # Was 240, which is four looks per source minute -- one every fifteen
+    # seconds -- and it was fully spent on every real project: `frames_planned`
+    # equalled `frame_budget` every time, and **57-71% of the regions the cheap
+    # detectors nominated received no frame at all**. Those unwatched regions
+    # are where the unnamed events live. Measured across ten projects, of 389
+    # events nobody could name, 285 had no analysed frame within two seconds,
+    # while named events sat a median of 0.7-3.2 s from one.
+    #
+    # 720 is what it takes to give every nominated region its four frames on
+    # the densest real recording (242 regions in 84 minutes = 688/hour). It is
+    # a ceiling, not a target: a quiet recording nominates fewer regions and
+    # costs proportionally less.
+    max_frames_per_source_hour: 720
     min_confidence: 0.5
     describe_hud: true
     describe_scene: true

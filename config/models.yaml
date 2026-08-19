@@ -42,6 +42,12 @@ models:
     version: "qwen2.5vl-7b-q4_K_M"
     quantization: q4_K_M
     endpoint: "http://127.0.0.1:11434"
+    # Images are most of the context: one 1080p frame is roughly 1,400 tokens,
+    # so a batch of four plus the prompt measured 5,712 against Ollama's 4,096
+    # default -- which returns HTTP 400 rather than truncating, and every
+    # vision request failed all three attempts in 1.7 seconds. Raising
+    # analysis.vision.max_frames_per_request means raising this with it.
+    context_tokens: 8192
     max_output_tokens: 1024
     temperature: 0.1
     timeout_seconds: 300

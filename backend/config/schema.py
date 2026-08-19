@@ -239,7 +239,9 @@ class VisionAnalysisConfig(_Section):
     enabled: bool = True
     only_candidate_regions: bool = True
     max_frames_per_request: int = Field(default=4, ge=1)
-    max_frames_per_source_hour: int = Field(default=240, ge=1)
+    #: See `config/analysis.yaml` for how this number was arrived at: 240
+    #: left 57-71% of nominated candidate regions with no frame at all.
+    max_frames_per_source_hour: int = Field(default=720, ge=1)
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     describe_hud: bool = True
     describe_scene: bool = True
@@ -376,6 +378,12 @@ class SpeechModelConfig(_ModelBase):
 class VisionModelConfig(_ModelBase):
     quantization: str | None = None
     endpoint: str = "http://127.0.0.1:11434"
+    #: Context window asked of the runtime. **Images are most of it**: one
+    #: 1080p frame costs roughly 1,400 tokens, so a batch of four plus the
+    #: prompt measured 5,712 -- against Ollama's 4,096 default, which returns
+    #: HTTP 400 rather than truncating. 8,192 fits a four-frame batch with
+    #: room; raising `max_frames_per_request` means raising this with it.
+    context_tokens: int = Field(default=8192, ge=1024)
     max_output_tokens: int = Field(default=1024, ge=64)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
 

@@ -155,6 +155,44 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### Raising the vision budget, and what it uncovered (2026-08-19)
+
+`max_frames_per_source_hour: 240` is four looks per source minute — one every
+fifteen seconds — and it was **fully spent on every real project**:
+`frames_planned` equalled `frame_budget` every time, and **57–71% of the
+regions the cheap detectors nominated received no frame at all**.
+
+| project | regions | analysed | dropped | planned = budget |
+| --- | --- | --- | --- | --- |
+| Ziad 4 | 224 | 97 | **127 (57%)** | 385 |
+| Ziad 2 | 107 | 42 | **65 (61%)** | 165 |
+| سبي | 242 | 77 | **165 (68%)** | 308 |
+| — | 230 | 68 | **162 (70%)** | 270 |
+| — | 235 | 68 | **167 (71%)** | 270 |
+
+Those unwatched regions are where the unnamed events live. Raised to **720**,
+which is what the densest real recording needs to give every nominated region
+its four frames (242 regions in 84 minutes = 688/hour). It is a ceiling, not a
+target: a quiet recording nominates fewer regions and costs proportionally
+less.
+
+**Two bugs surfaced immediately, and one of them meant vision was broken on
+this machine right now.**
+
+`OllamaVisionProvider` never sent `num_ctx`, so every request ran in Ollama's
+4,096-token default. One 1080p frame is roughly 1,400 tokens, so a batch of
+four plus the prompt measured **5,712** — and current Ollama answers HTTP 400
+rather than truncating. Every vision request failed all three attempts in 1.7
+seconds, which the pipeline reported as *"the vision model returned no usable
+result after 3 attempts"*: a sentence about the model that was never about the
+model. `VisionModelConfig` gained `context_tokens: 8192` and the provider now
+sends it. Verified: a four-frame batch describes in 27.9 s.
+
+`OllamaLLMProvider` had the same defect and had simply not fired — its
+`context_tokens: 32768` has been configured since Phase 13 and never sent, so
+every LLM call has run in 4,096 as well. Text prompts fit; a forty-clip edit
+review would not have.
+
 ### Phase E against the real model (2026-08-19)
 
 Run on *Ziad 2* and *Ziad 4* with `qwen2.5:7b-instruct` from the shared

@@ -186,6 +186,14 @@ class OllamaVisionProvider:
             "options": {
                 "temperature": self._config.temperature,
                 "num_predict": self._config.max_output_tokens,
+                # Not optional, and the reason is images. Ollama defaults to a
+                # 4,096-token context and *rejects* anything larger with HTTP
+                # 400 rather than truncating it. One 1080p frame is roughly
+                # 1,400 tokens, so a batch of four measured 5,712 and every
+                # request failed all three attempts in 1.7 s -- which reads in
+                # the logs as "the vision model returned no usable result",
+                # a sentence about the model that was never about the model.
+                "num_ctx": self._config.context_tokens,
             },
         }
 
