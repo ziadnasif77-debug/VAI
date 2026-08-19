@@ -155,6 +155,44 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### The gate, re-measured at the new density (2026-08-19)
+
+*Ziad 2* re-analysed at 720 frames per source hour. 38.6 minutes of VLM for a
+41-minute recording — roughly real time — plus 6 minutes of correlation.
+
+| | before | after |
+| --- | --- | --- |
+| vision observations | 165 | **428** |
+| candidate regions analysed | 42 of 107 | **107 of 107** |
+| regions dropped for budget | 65 | **0** |
+| coverage | 0.96 | **1.00** |
+| events | 46 | 53 |
+| named | 18 | **34** |
+| **`unknown_event_ratio`** | **0.609** | **0.358** |
+| median gap, unnamed event → nearest look | 12.2 s | **0.2 s** |
+| unnamed events with a look within 2 s | 25% | **95%** |
+
+The diagnosis holds exactly. Coverage was the whole problem, and the gap it
+left collapsed from twelve seconds to two tenths.
+
+**The gate is missed by 0.008.** `unknown_event_ratio` 0.358 against ≤ 0.35 —
+one event short of 0.35, and that is where it is being left rather than closed
+by inventing a rule. The 18 events still unnamed were *all* looked at: their
+frames report `inventory` (16), `exploration` (6), `combat` (3), `drinking`
+(2), `driving` (1), and each carries audio, a scene boundary and a vision
+observation. Something happened while the player was exploring, and nothing on
+screen said what. `unexpected_event` is the honest answer for those, which is
+what §23 says it is for — and more looking cannot help them, because looking
+is no longer what they lack.
+
+Criterion 5 (≥20% of named events carrying ≥3 sources) passes at 0.74. The
+Grounded profile is live and doing the work: game detection identified it from
+the OCR text with no configuration, and its `creature_fight` fusion rule named
+**17 of the 34**.
+
+Not re-analysed: the other nine projects, at roughly one minute of VLM per
+minute of source (Ziad 4 ≈ 2.2 h, سبي ≈ 2 h).
+
 ### Raising the vision budget, and what it uncovered (2026-08-19)
 
 `max_frames_per_source_hour: 240` is four looks per source minute — one every

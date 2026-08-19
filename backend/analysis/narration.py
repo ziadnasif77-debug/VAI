@@ -90,7 +90,13 @@ def read_incidents(
     """
     if not segments:
         return []
-    if provider is None:
+    # Whoever caused the model to load is who releases it. An injected provider
+    # belongs to the caller and is left alone; one built here is ours, and
+    # holding it costs the next stage the card. Measured before this existed:
+    # GAME_EVENTS finished and left `qwen2.5:7b-instruct` resident with 5,958
+    # MB held, through MOMENTS, STORY, EDL, CRITIQUE and the render (§54).
+    ours = provider is None
+    if ours:
         provider = _provider(config)
     if provider is None or not provider.is_available():
         logger.info("No model for narration; the other detectors carry the analysis")
@@ -99,8 +105,12 @@ def read_incidents(
     settings = config.analysis.narration
     prompt = load_prompt("analysis.narration")
     found: list[Incident] = []
-    for window in _windows(segments, settings.window_seconds, settings.overlap_seconds):
-        found.extend(_read_window(window, prompt, provider, settings))
+    try:
+        for window in _windows(segments, settings.window_seconds, settings.overlap_seconds):
+            found.extend(_read_window(window, prompt, provider, settings))
+    finally:
+        if ours:
+            provider.unload()
 
     incidents = _deduplicate(found)
     logger.info(

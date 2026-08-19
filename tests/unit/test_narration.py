@@ -18,6 +18,7 @@ import pytest
 
 from ai.llm.fake_provider import FakeLLMProvider
 from ai.providers.base import TranscriptSegment
+from backend.analysis import narration
 from backend.analysis.narration import (
     SOURCE,
     Incident,
@@ -109,6 +110,31 @@ class TestWhatItReads:
 
         assert observations[0].detail["incident_start"] == 24.8
         assert observations[0].detail["incident_end"] == 79.0
+
+
+class TestTheCardAfterwards:
+    """§54: whoever caused the model to load is who releases it."""
+
+    def test_a_model_this_built_is_released(self, config, monkeypatch) -> None:
+        """Measured before this existed: GAME_EVENTS finished and left
+        `qwen2.5:7b-instruct` resident with 5,958 MB of an 8 GB card held --
+        through MOMENTS, STORY, EDL, CRITIQUE and the render.
+        """
+        built = FakeLLMProvider(default={"incidents": []})
+        monkeypatch.setattr(narration, "_provider", lambda _config: built)
+
+        read_incidents(SPEECH, config=config, provider=None)
+
+        assert built.unload_count == 1
+
+    def test_a_model_the_caller_owns_is_left_alone(self, config) -> None:
+        # The caller passed it in, so the caller decides when it goes -- and
+        # in the pipeline that caller reuses it for the next window.
+        theirs = FakeLLMProvider(default={"incidents": []})
+
+        read_incidents(SPEECH, config=config, provider=theirs)
+
+        assert theirs.unload_count == 0
 
 
 class TestWhatItRefuses:

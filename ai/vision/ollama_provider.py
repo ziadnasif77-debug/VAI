@@ -127,8 +127,11 @@ class OllamaVisionProvider:
         for five more minutes and the next stage meets an out-of-memory error
         on a card that is, on paper, free (§54).
         """
-        if not self._loaded:
-            return
+        # Unconditional, and the reason is the same one the language provider
+        # learned: Ollama loads a model to answer whether or not `load` was
+        # called, and a caller that reaches straight for `describe` -- as any
+        # test or script does -- leaves 5.2 GB of an 8 GB card held. The early
+        # return this replaces made that invisible.
         self._loaded = False
         try:
             self._post(
@@ -203,6 +206,9 @@ class OllamaVisionProvider:
                 response = self._post(
                     "/api/generate", payload, timeout=self._config.timeout_seconds
                 )
+                # Ollama loaded the model to answer this, whether or not
+                # anyone called `load` first, so the card is holding it now.
+                self._loaded = True
                 return _to_observations(response.get("response", ""), timestamps)
             except (ValidationError, ModelError) as exc:
                 last_error = exc
