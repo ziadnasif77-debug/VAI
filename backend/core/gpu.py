@@ -201,6 +201,62 @@ def release_local_caches() -> None:
         return
 
 
+def our_models(config: Any) -> frozenset[str]:
+    """The model tags this project is configured to load, and only those.
+
+    The set exists so that everything else on the card can be named as
+    somebody else's. Measured on this machine: the shared Ollama store holds
+    five models, and only two of them are VAI's. `qwen2.5-coder:7b` belongs to
+    an OpenHands install that reaches the same daemon from Docker through
+    `host.docker.internal:11434` -- the same tag that was once found resident
+    with an expiry in the year 2318, holding 4.7 GB while a render waited.
+    """
+    models = getattr(config, "models", None)
+    named = {
+        str(getattr(getattr(models, attribute, None), "model", "") or "")
+        for attribute in ("vision", "llm", "reasoning")
+    }
+    return frozenset(name for name in named if name)
+
+
+def foreign_models(config: Any) -> list[ResidentModel]:
+    """Models on the card that this project did not put there.
+
+    **Reported, never released.** Another program's model is not this
+    project's to unload: it may be mid-request, and taking its memory would be
+    the exact discourtesy this project asks for in return. What is owed is a
+    plain sentence naming what is holding the card, early enough to matter.
+    """
+    ours = our_models(config)
+    return [model for model in resident_models() if model.name not in ours]
+
+
+def contention(config: Any) -> dict[str, Any]:
+    """What the card is holding, and how much of it belongs to somebody else.
+
+    Answers the question §54 has always assumed away: "one heavy model at a
+    time" is honoured between this project's own stages and says nothing about
+    the rest of the machine. A render that fails after twenty minutes because
+    another program's model was resident is the worst way to learn it -- so
+    this is cheap enough to call at a stage boundary, and its whole output is a
+    sentence somebody can act on.
+    """
+    free_mb = free_vram_mb()
+    others = foreign_models(config)
+    held = sum(model.vram_mb for model in others)
+    return {
+        "free_vram_mb": free_mb,
+        "foreign_models": [str(model) for model in others],
+        "foreign_vram_mb": held,
+        "message": (
+            f"{held} MB of the card is held by {', '.join(str(m) for m in others)}, "
+            "which this project did not load and will not unload"
+            if others
+            else describe_pressure(free_mb)
+        ),
+    }
+
+
 def describe_pressure(free_mb: int | None) -> str:
     """A sentence an operator can act on, for a message about a full card."""
     parts = []

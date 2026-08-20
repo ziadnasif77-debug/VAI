@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.core.errors import ErrorCode, GamingEditorError, RenderError
-from backend.core.gpu import release_everything_we_loaded
+from backend.core.gpu import contention, release_everything_we_loaded
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import EffectEngine, EffectType, JobStage
 from backend.database.repositories.media import MediaRepository
@@ -72,6 +72,20 @@ class RenderWorker:
             freed = release_everything_we_loaded(context.config)
             if freed["released"] or freed["freed_mb"]:
                 logger.info("Freed the card before rendering", extra=freed)
+
+        # And then what is left, which is not ours to take. §54's "one heavy
+        # model at a time" is honoured between this project's own stages and
+        # assumes nothing else is on the machine -- but this one has an
+        # OpenHands install reaching the same Ollama daemon from Docker, and a
+        # `qwen2.5-coder:7b` it left resident once held 4.7 GB while a render
+        # waited twenty minutes to find out. Said here, before the twenty
+        # minutes, and said rather than acted on: another program's model may
+        # be mid-request, and taking its memory is the discourtesy this
+        # project asks not to receive.
+        held = contention(context.config)
+        if held["foreign_models"]:
+            logger.warning("The card is not empty and the rest is not ours", extra=held)
+            context.report(0.05, held["message"])
 
         target, width, height = self._target(context)
         runner = context.ffmpeg

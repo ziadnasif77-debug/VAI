@@ -157,6 +157,42 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### Who else is on this machine (shared infrastructure 5.4, 2026-08-20)
+
+Inspected with permission, read-only. Three programs on this machine want the
+same 8 GB card, and only one of them is this project.
+
+| program | models | runtime | endpoint |
+| --- | --- | --- | --- |
+| **VAI** | `qwen2.5:7b-instruct`, `qwen2.5vl:7b`, whisper `large-v3-turbo` | Ollama + faster-whisper | `127.0.0.1:11434` |
+| **Agent factory** (OpenHands, third-party, in Docker) | `qwen2.5-coder:7b`, and Gemini in the cloud | Ollama | `host.docker.internal:11434` — **the same daemon** |
+| **nav** | nomic embeddings, whisper | torch / llama.cpp | its own process |
+
+Two findings worth the look.
+
+**The mystery from 2026-08-15 is solved.** `qwen2.5-coder:7b`, found resident
+with an expiry in the year 2318 while a render waited, is OpenHands' configured
+local profile. It reaches the same Ollama daemon from inside Docker, so VAI's
+`release_everything_we_loaded` — which asks by name for the three tags VAI
+configures — correctly leaves it alone.
+
+**And that is the right behaviour, so 5.4 is a reporting problem, not a
+releasing one.** Another program's model may be mid-request, and taking its
+memory is exactly the discourtesy this project asks not to receive. What was
+missing is that nothing *named* the holder until Chromium failed to start
+twenty minutes into a render. `gpu.contention()` now answers "what is on the
+card and how much of it is not ours" in one sentence, and the render worker
+says it before the twenty minutes rather than after.
+
+`nav` uses a different runtime entirely — torch and llama.cpp hold VRAM that
+Ollama's API cannot see or release, which is why an earlier diagnosis found the
+card full with `resident_models()` empty.
+
+**5.3 (capability-based model selection) is not being built.** The shared store
+holds exactly the tags VAI names, `qwen3-coder:latest` is 18.6 GB and cannot
+fit this card at all, and a matcher for a shortage nobody has is speculation.
+The measurement is the deliverable.
+
 ### Phases A and B — measured first, then built (2026-08-20)
 
 Phase 0 deferred both and gave a condition: *"Relations between events are
