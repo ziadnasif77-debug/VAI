@@ -1366,6 +1366,16 @@ class YoutubePublishConfig(_Section):
     """
 
     enabled: bool = False
+    #: OAuth *client* identity for the device flow. The person supplies their
+    #: own Google Cloud client at setup: the id may sit in configuration (it
+    #: is public by design), the secret sits in its own file under the data
+    #: root -- Google documents installed-app client secrets as
+    #: non-confidential, and this still keeps the letter of "no credentials in
+    #: this file". The *token* never appears here at all; see ``token_file``.
+    client_id: str | None = None
+    client_secret_file: str | None = None
+    #: Where the granted refresh token lives, relative to the data root.
+    token_file: str = ".credentials/youtube_oauth.json"
     credential_id: str | None = None
     channel_id: str | None = None
     default_playlist: str | None = None

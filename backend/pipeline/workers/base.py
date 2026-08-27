@@ -42,6 +42,10 @@ class WorkerContext:
     #: tree: models are shared across every project and must not be copied into
     #: each one.
     models_dir: Path
+    #: The application data root (§84). App-wide state that is not one
+    #: project's -- the publish credentials live under it -- resolves from
+    #: here, never from the project tree.
+    data_root: Path
     #: Where game profiles live (§22). Resolved against the repository rather
     #: than the data root, because profiles ship with the code.
     profiles_dir: Path

@@ -275,6 +275,7 @@ class PipelineRunner:
             media=media,
             paths=self._paths.project(job.project_id),
             models_dir=self._paths.models_dir,
+            data_root=self._paths.data_root,
             profiles_dir=self._paths.profiles_dir,
             config=self._config,
             database=self._db,

@@ -40,8 +40,14 @@ publishing:
   # already fixed and the UI has something to bind to.
   youtube:
     enabled: false
-    # OAuth client is supplied at setup time and stored in the OS credential
-    # store; only its identifier is referenced here.
+    # The OAuth *client* pair is yours, created once at
+    # console.cloud.google.com (an "installed app" client with the YouTube
+    # Data API enabled). The id is public by design and may live here; the
+    # secret goes in its own file so this file never carries one. The granted
+    # token is written to token_file under the data root, owner-only.
+    client_id: null
+    client_secret_file: null          # e.g. .credentials/google_client_secret.txt
+    token_file: .credentials/youtube_oauth.json
     credential_id: null
     channel_id: null
     default_playlist: null

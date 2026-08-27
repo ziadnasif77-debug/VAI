@@ -30,6 +30,7 @@ from backend.api.routers import (
     media,
     profiles,
     projects,
+    publishing,
     system,
 )
 from backend.config.schema import AppConfig
@@ -58,9 +59,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        resolved = state or build_state(
-            config=config, config_dir=config_dir, data_root=data_root
-        )
+        resolved = state or build_state(config=config, config_dir=config_dir, data_root=data_root)
         app.state.services = resolved
         # A crash leaves jobs marked RUNNING; nothing is executing now, so
         # re-queue them and resume from where the pipeline stopped (§47).
@@ -104,9 +103,7 @@ def create_app(
         )
 
     @app.exception_handler(GamingEditorError)
-    async def handle_domain_error(
-        _request: Request, exc: GamingEditorError
-    ) -> JSONResponse:
+    async def handle_domain_error(_request: Request, exc: GamingEditorError) -> JSONResponse:
         """Return the typed error code so the UI can react to it (§81)."""
         status = http_status_for(exc.code)
         if status >= 500:
@@ -156,6 +153,7 @@ def create_app(
     app.include_router(interaction.presets_router, prefix=API_PREFIX)
     app.include_router(profiles.router, prefix=API_PREFIX)
     app.include_router(system.router, prefix=API_PREFIX)
+    app.include_router(publishing.router, prefix=API_PREFIX)
 
     _mount_interface(app)
     return app

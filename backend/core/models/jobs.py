@@ -44,7 +44,11 @@ STAGE_DEPENDENCIES: dict[JobStage, tuple[JobStage, ...]] = {
     JobStage.RENDER: (JobStage.CRITIQUE,),
     JobStage.QA: (JobStage.RENDER,),
     JobStage.EXPORT: (JobStage.QA,),
-    JobStage.PUBLISH: (JobStage.EXPORT,),
+    # QA, not EXPORT. The two are parallel deliveries of the same QA-passed
+    # render -- a copy to disk and an upload to a destination -- and chaining
+    # them forced a local export nobody asked for before every upload. Both
+    # stay manual (§51): neither is ever queued without an explicit request.
+    JobStage.PUBLISH: (JobStage.QA,),
 }
 
 #: Stages that consume the source recording. Expensive, cached, and preserved

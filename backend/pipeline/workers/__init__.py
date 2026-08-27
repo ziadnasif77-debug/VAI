@@ -19,6 +19,7 @@ from backend.pipeline.workers.media_workers import (
     ProxyWorker,
 )
 from backend.pipeline.workers.moments_worker import MomentsWorker
+from backend.pipeline.workers.publish_worker import PublishWorker
 from backend.pipeline.workers.qa_worker import QaWorker
 from backend.pipeline.workers.render_worker import RenderWorker
 from backend.pipeline.workers.speech_workers import AudioEventsWorker, TranscriptWorker
@@ -53,6 +54,7 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.EDL: EdlWorker(),
         JobStage.RENDER: RenderWorker(),
         JobStage.QA: QaWorker(),
+        JobStage.PUBLISH: PublishWorker(),
     }
 
 

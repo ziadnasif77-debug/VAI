@@ -21,8 +21,8 @@ from backend.core.versions import SCHEMA_VERSION
 from backend.database.connection import Database
 from backend.database.migrator import migrate, verify_schema_version
 from backend.interaction.service import InteractionService
+from backend.publishing import build_registry
 from backend.publishing.base import PublisherRegistry
-from backend.publishing.local_file import LocalFilePublisher
 from backend.services.health import HealthService
 from backend.services.job_manager import JobManager
 from backend.services.media_ingestion import MediaIngestionService
@@ -84,16 +84,9 @@ def build_state(
     verify_schema_version(database, SCHEMA_VERSION)
 
     jobs = JobManager(database, resolved_config)
-    publishers = PublisherRegistry()
-    publishers.register(
-        LocalFilePublisher(
-            default_directory=(
-                Path(resolved_config.publishing.local_file.default_directory)
-                if resolved_config.publishing.local_file.default_directory
-                else None
-            )
-        )
-    )
+    # The same construction the publish worker uses, so the API and the job
+    # runner can never disagree about which destinations exist.
+    publishers = build_registry(resolved_config, paths.data_root)
 
     return AppState(
         config=resolved_config,

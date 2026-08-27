@@ -343,8 +343,15 @@ class JobManager:
         )
         return failed
 
-    def requeue(self, job_id: str, *, reset_attempts: bool = True) -> Job:
+    def requeue(
+        self, job_id: str, *, reset_attempts: bool = True, payload: dict | None = None
+    ) -> Job:
         """Return a finished stage to the queue so it can run again (§90).
+
+        ``payload`` replaces the stored one when given. The publish stage is
+        why: its payload *is* the user's instruction -- target, title,
+        visibility -- and re-running it with yesterday's instruction is
+        nobody's intent.
 
         Re-analysis is a first-class operation: changing a sampling interval,
         a game profile or a prompt means a stage that already completed has to
@@ -368,6 +375,7 @@ class JobManager:
         requeued = job.model_copy(
             update={
                 "status": JobStatus.QUEUED,
+                **({"payload": dict(payload)} if payload is not None else {}),
                 "progress": 0.0,
                 "message": None,
                 "started_at": None,

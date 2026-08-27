@@ -398,3 +398,63 @@ class TestTheFilePicker:
 
         assert response.status_code == 501
         assert response.json()["error_code"] == "FILE_PICKER_UNAVAILABLE"
+
+
+class TestPublishingEndpoints:
+    """The delivery surface (§50, §51): status, sign-in, and the explicit queue."""
+
+    def test_targets_reports_local_ready_and_youtube_unconfigured(self, api_client) -> None:
+        body = api_client.get("/api/publishing/targets").json()
+
+        by_name = {item["target"]: item for item in body["targets"]}
+        assert by_name["local_file"]["connected"] is True
+        # No OAuth client in the test configuration: available must say so
+        # rather than letting a publish fail minutes in.
+        assert by_name["youtube"]["available"] is False
+        assert by_name["youtube"]["connected"] is False
+
+    def test_auth_start_without_a_client_is_a_clear_501(self, api_client) -> None:
+        response = api_client.post("/api/publishing/youtube/auth/start")
+
+        assert response.status_code == 501
+        assert "client" in response.json()["message"].lower()
+
+    def test_auth_poll_without_a_flow_says_none(self, api_client) -> None:
+        assert api_client.post("/api/publishing/youtube/auth/poll").json()["status"] == "none"
+
+    def test_publish_queues_a_job_carrying_the_instruction(self, api_client) -> None:
+        project = api_client.post(
+            "/api/projects",
+            json={"name": "Deliver", "target_duration_seconds": 900, "mode": "story"},
+        ).json()
+
+        response = api_client.post(
+            f"/api/projects/{project['id']}/publish",
+            json={"target": "local_file", "metadata": {"title": "My video"}},
+        )
+
+        assert response.status_code == 200
+        job_id = response.json()["job_id"]
+        jobs = api_client.get(f"/api/projects/{project['id']}/jobs").json()["items"]
+        row = next(item for item in jobs if item["id"] == job_id)
+        assert row["stage"] == "publish"
+        assert row["status"] == "queued"
+
+    def test_a_second_publish_replaces_the_instruction(self, api_client) -> None:
+        project = api_client.post(
+            "/api/projects",
+            json={"name": "Deliver twice", "target_duration_seconds": 900, "mode": "story"},
+        ).json()
+        first = api_client.post(
+            f"/api/projects/{project['id']}/publish",
+            json={"target": "local_file", "metadata": {"title": "Old title"}},
+        ).json()
+
+        second = api_client.post(
+            f"/api/projects/{project['id']}/publish",
+            json={"target": "local_file", "metadata": {"title": "New title"}},
+        ).json()
+
+        # Same job row, new payload: publishing twice with yesterday's title
+        # is nobody's intent.
+        assert second["job_id"] == first["job_id"]

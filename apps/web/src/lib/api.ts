@@ -56,6 +56,7 @@ const post = <T>(path: string, body?: unknown) =>
   request<T>(path, {method: 'POST', body: body ? JSON.stringify(body) : undefined});
 const patch = <T>(path: string, body: unknown) =>
   request<T>(path, {method: 'PATCH', body: JSON.stringify(body)});
+const del = <T>(path: string) => request<T>(path, {method: 'DELETE'});
 
 // ---------------------------------------------------------------------------
 // types — mirrors of the API's response models
@@ -109,6 +110,17 @@ export type JobStage =
   | 'transcript' | 'audio_events' | 'scenes' | 'vision' | 'ocr'
   | 'game_events' | 'moments' | 'story' | 'edl' | 'critique' | 'render' | 'qa'
   | 'export' | 'publish';
+
+export type PublishTargets = {
+  targets: {target: 'local_file' | 'youtube'; available: boolean; connected: boolean}[];
+};
+
+export type PublishBody = {
+  target: 'local_file' | 'youtube';
+  metadata?: {title?: string; description?: string; visibility?: 'private' | 'unlisted' | 'public'};
+  destination?: string | null;
+  render_id?: string | null;
+};
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -311,6 +323,18 @@ export const api = {
   },
 
   qa: (projectId: string) => get<QaReport>(`/projects/${projectId}/qa`),
+
+  publishing: {
+    targets: () => get<PublishTargets>(`/publishing/targets`),
+    authStart: () =>
+      post<{verification_url: string; user_code: string; expires_in_seconds: number}>(
+        `/publishing/youtube/auth/start`,
+      ),
+    authPoll: () => post<{status: string}>(`/publishing/youtube/auth/poll`),
+    disconnect: () => del<{disconnected: boolean}>(`/publishing/youtube/auth`),
+    publish: (projectId: string, body: PublishBody) =>
+      post<{job_id: string; target: string}>(`/projects/${projectId}/publish`, body),
+  },
 
   chat: (projectId: string, text: string) =>
     post<ChatReply>(`/projects/${projectId}/chat`, {text}),

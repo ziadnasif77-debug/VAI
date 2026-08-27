@@ -141,6 +141,10 @@ class PublishResult(_Base):
     error_code: str | None = None
     error_message: str | None = None
     completed_at: datetime | None = None
+    #: Partial outcomes that did not fail the publication -- "thumbnail
+    #: failed: ..." with the video itself up. §79's remedy rule for delivery:
+    #: the person is told exactly what rode along and what did not.
+    notes: list[str] = Field(default_factory=list)
 
     @field_validator("completed_at")
     @classmethod
