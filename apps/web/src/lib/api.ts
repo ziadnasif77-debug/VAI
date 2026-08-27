@@ -109,7 +109,7 @@ export type JobStage =
   | 'import' | 'probe' | 'proxy' | 'audio' | 'frames'
   | 'transcript' | 'audio_events' | 'scenes' | 'vision' | 'ocr'
   | 'game_events' | 'moments' | 'story' | 'edl' | 'critique' | 'render' | 'qa'
-  | 'export' | 'publish';
+  | 'shorts' | 'export' | 'publish';
 
 export type PublishTargets = {
   targets: {target: 'local_file' | 'youtube'; available: boolean; connected: boolean}[];
@@ -334,6 +334,7 @@ export const api = {
     disconnect: () => del<{disconnected: boolean}>(`/publishing/youtube/auth`),
     publish: (projectId: string, body: PublishBody) =>
       post<{job_id: string; target: string}>(`/projects/${projectId}/publish`, body),
+    shorts: (projectId: string) => post<{job_id: string}>(`/projects/${projectId}/shorts`),
   },
 
   chat: (projectId: string, text: string) =>

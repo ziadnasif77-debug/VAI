@@ -922,6 +922,36 @@ class ThumbnailsConfig(_Section):
     per_scene: int = Field(default=1, ge=1)
 
 
+class ShortsConfig(_Section):
+    """Vertical cuts of the strongest moments (§35's ranking, 9:16 delivery).
+
+    A Short is a tiny edit rendered through the same stack as the long video:
+    an NVENC cut of one moment, centre-cropped to 9:16, with the caption layer
+    composited at the vertical frame size. One analysis pays for both shapes.
+    """
+
+    enabled: bool = True
+    #: How many to cut, strongest first. YouTube treats up to 3 minutes as a
+    #: Short now; 60 s is still where retention lives, so both are knobs.
+    count: int = Field(default=3, ge=1, le=20)
+    min_seconds: float = Field(default=15.0, gt=0)
+    max_seconds: float = Field(default=60.0, gt=0)
+    width: int = Field(default=1080, ge=240)
+    height: int = Field(default=1920, ge=240)
+    #: Where the 9:16 window sits in the 16:9 frame. Centre keeps the action
+    #: and crops the HUD corners away, which for a Short is a feature.
+    anchor: Literal["center", "left", "right"] = "center"
+    #: Burn the captions for the cut's own speech. The caption engine is the
+    #: long-form one at a different frame size, not a second implementation.
+    captions: bool = True
+
+    @model_validator(mode="after")
+    def _band(self) -> ShortsConfig:
+        if self.max_seconds < self.min_seconds:
+            raise ValueError("shorts.max_seconds must be >= shorts.min_seconds")
+        return self
+
+
 class RemotionConfig(_Section):
     """Remotion renders motion graphics only, as a transparent overlay.
 
@@ -1523,6 +1553,7 @@ class AppConfig(_Section):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     thumbnails: ThumbnailsConfig = Field(default_factory=ThumbnailsConfig)
     remotion: RemotionConfig = Field(default_factory=RemotionConfig)
+    shorts: ShortsConfig = Field(default_factory=ShortsConfig)
     effects: EffectsConfig
     audio: AudioConfig
     captions: CaptionsConfig

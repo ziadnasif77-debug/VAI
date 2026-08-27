@@ -200,6 +200,28 @@ export function ExportScreen({
       </section>
 
       <section className="panel">
+        <h2>Shorts</h2>
+        <p className="muted">
+          The strongest moments as vertical 9:16 cuts, captions included — from the
+          analysis this project already paid for.
+        </p>
+        <button
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await api.publishing.shorts(project.id);
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+        >
+          Generate Shorts
+        </button>
+        <p className="muted">Progress and file paths land on the shorts job in Analysis.</p>
+      </section>
+
+      <section className="panel">
         <h2>YouTube</h2>
 
         {!youtube?.available && (

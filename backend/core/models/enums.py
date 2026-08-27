@@ -106,6 +106,11 @@ class JobStage(str, Enum):
     CRITIQUE = "critique"
     RENDER = "render"
     QA = "qa"
+    #: Vertical cuts of the strongest moments (9:16), from the same analysis.
+    #: Delivery-family and manual like its siblings: one long video plus N
+    #: Shorts is the reach model every competitor is built on, and here it
+    #: costs no second analysis.
+    SHORTS = "shorts"
     #: Delivery stages. Never auto-queued -- the user triggers them from the
     #: export screen. PUBLISH exists so distribution (YouTube auto-publish and
     #: any later target) plugs into the finished pipeline instead of forcing a

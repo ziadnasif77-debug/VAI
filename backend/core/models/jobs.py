@@ -49,6 +49,10 @@ STAGE_DEPENDENCIES: dict[JobStage, tuple[JobStage, ...]] = {
     # them forced a local export nobody asked for before every upload. Both
     # stay manual (§51): neither is ever queued without an explicit request.
     JobStage.PUBLISH: (JobStage.QA,),
+    # Shorts cut from the source recordings, so they need the analysis and the
+    # moments -- not the long-form render. QA gates them anyway: shipping
+    # vertical cuts of a project whose pipeline is broken helps nobody.
+    JobStage.SHORTS: (JobStage.QA,),
 }
 
 #: Stages that consume the source recording. Expensive, cached, and preserved
@@ -86,6 +90,7 @@ EDIT_STAGES: tuple[JobStage, ...] = (
 DELIVERY_STAGES: tuple[JobStage, ...] = (
     JobStage.EXPORT,
     JobStage.PUBLISH,
+    JobStage.SHORTS,
 )
 
 #: Stages that are never queued automatically. The automatic pipeline stops at

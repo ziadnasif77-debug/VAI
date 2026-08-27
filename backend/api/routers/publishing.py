@@ -168,6 +168,28 @@ def auth_disconnect(state: AppState = Depends(get_state)) -> dict[str, bool]:
     return {"disconnected": True}
 
 
+class QueuedShorts(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_id: str
+
+
+@router.post("/projects/{project_id}/shorts", response_model=QueuedShorts)
+def shorts(project_id: str, state: AppState = Depends(get_state)) -> QueuedShorts:
+    """Queue vertical cuts of the strongest moments (§51: asked for, never assumed)."""
+    state.projects.get(project_id)
+    existing = next(
+        (job for job in state.jobs.list_jobs(project_id) if job.stage is JobStage.SHORTS),
+        None,
+    )
+    job = (
+        state.jobs.queue(project_id, JobStage.SHORTS)
+        if existing is None
+        else state.jobs.requeue(existing.id)
+    )
+    return QueuedShorts(job_id=job.id)
+
+
 @router.post("/projects/{project_id}/publish", response_model=QueuedPublish)
 def publish(
     project_id: str,

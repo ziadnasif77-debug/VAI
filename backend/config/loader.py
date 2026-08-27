@@ -46,6 +46,7 @@ CONFIG_FILES: Final[dict[str, tuple[str, ...]]] = {
         "proxy",
         "thumbnails",
         "remotion",
+        "shorts",
     ),
     "effects.yaml": ("effects",),
     "audio.yaml": ("audio",),

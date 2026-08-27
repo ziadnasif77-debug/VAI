@@ -125,9 +125,10 @@ class TestStageGraph:
     def test_delivery_stages_are_never_automatic(self) -> None:
         completed = set(JobStage) - set(DELIVERY_STAGES)
         assert runnable_stages(completed) == ()
-        # Both deliveries unlock together once QA passes: export to disk and
-        # publish to a destination are parallel, not a chain.
+        # Every delivery unlocks together once QA passes -- shorts, export to
+        # disk and publish to a destination are parallel, not a chain.
         assert runnable_stages(completed, include_manual=True) == (
+            JobStage.SHORTS,
             JobStage.EXPORT,
             JobStage.PUBLISH,
         )

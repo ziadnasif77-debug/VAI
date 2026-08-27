@@ -22,6 +22,7 @@ from backend.pipeline.workers.moments_worker import MomentsWorker
 from backend.pipeline.workers.publish_worker import PublishWorker
 from backend.pipeline.workers.qa_worker import QaWorker
 from backend.pipeline.workers.render_worker import RenderWorker
+from backend.pipeline.workers.shorts_worker import ShortsWorker
 from backend.pipeline.workers.speech_workers import AudioEventsWorker, TranscriptWorker
 from backend.pipeline.workers.story_worker import StoryWorker
 from backend.pipeline.workers.vision_workers import SceneWorker, VisionWorker
@@ -55,6 +56,7 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.RENDER: RenderWorker(),
         JobStage.QA: QaWorker(),
         JobStage.PUBLISH: PublishWorker(),
+        JobStage.SHORTS: ShortsWorker(),
     }
 
 

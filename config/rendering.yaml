@@ -144,3 +144,19 @@ remotion:
   min_overlay_saving: 0.15
 
 # Effects live in config/effects.yaml -- the effects engine is its own module.
+
+# Vertical Shorts (9:16) cut from the same analysis. A Short is a tiny edit
+# rendered through the same stack as the long video -- an NVENC cut of one
+# strong moment, centre-cropped, captions composited at the vertical frame.
+# Manual like every delivery: nothing is cut until the person asks.
+shorts:
+  enabled: true
+  count: 3
+  min_seconds: 15
+  max_seconds: 60
+  width: 1080
+  height: 1920
+  # center keeps the action and crops the HUD corners away -- for a Short,
+  # a feature.
+  anchor: center
+  captions: true
