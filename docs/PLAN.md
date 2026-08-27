@@ -163,6 +163,41 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### Proved live, then shipped — Shorts, the gate, the grammar (2026-08-27)
+
+Three live runs on real footage closed the day, each exercising what the day
+built.
+
+**Shorts, for real this time.** The stage had only ever run against fixtures.
+On the Grounded recording it cut three finished verticals in 296 s — clutch,
+boss and victory, sixty seconds each at 1080×1920 with captions burned — into
+`renders/shorts/`. Nothing was skipped and no §95 note was needed.
+
+**The certification render, with the day's features on.** The GTA
+out-of-sample project ran story → edl → critique → render → qa in 5.3
+minutes: the Director consulted, the live 7B Critic reviewing (it flagged the
+menu opening and an over-long first clip — taste improving, guardrails
+unchanged), a 552.5 s 1080p60 file, and **QA passed** with two honest
+warnings (5.8 s of black that the recording itself contains — the death
+fade). The VRAM gate was consulted on a card showing 7,029 MB free and
+correctly did nothing; the card ended at 7,033 MB with nothing resident. The
+J/L planner was consulted at the render's one internal boundary and correctly
+kept it **hard** — no speech opens or tails either side there, and the
+grammar only offsets a cut that speech justifies. The audible proof of the J
+lead lives in the spectral integration test; the certification proves the
+consult path and that QA's sync check holds with the feature live.
+`jl_cuts.enabled` ships **on** after that pass.
+
+**The package, rebuilt.** `dist/VAI-0.1.0.zip`, 296 MB with a fresh sha256,
+now carries the detector wave, both render features and the updated profiles.
+
+What live YouTube publishing still needs is the one step that is not code's
+to take: an OAuth client from the owner's own Google Cloud console
+(`client_id` into `config/publishing.yaml`, the client secret into
+`.credentials/`), after which Connect in the Export screen runs the device
+flow end-to-end. The 39 publishing tests cover everything up to Google's
+front door.
+
 ### The detector wave — every gap the golden set named, answered with evidence (2026-08-27)
 
 Each of the expansion's misses was diagnosed from stored rows before anything
@@ -1560,3 +1595,4 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-27 | **Golden set 16 → 53 spans** across three windows and two games; GTA window labelled before analysis (out-of-sample). GTA events P 0.35 / R 0.82 with fragmentation, not hallucination, as the dominant penalty; Grounded first-ever numbers P 0.42 / R 0.83 with 139 s of moments over boring stretches. `scripts/analyse_cut.py` added; dataset tests parametrised over `datasets/*`. |
 | 2026-08-27 | **Evaluation moves to situation granularity.** `read_as_episodes` scores events through the product's own episode reader (generics pass through); straddling predictions match first, judged after (a boundary episode had turned a found label into a miss). Seed 0.26→0.35, GTA out-of-sample 0.35→0.53, Grounded 0.42→0.56 precision, recall unpaid everywhere. |
 | 2026-08-27 | **Detector wave from the golden set's misses**: cluster discipline (context never bridges, claiming span capped 15 s), vision-only low_health demoted, `suppressed_generic_rules` (Grounded vetoes the two rules its footage contradicts), creature-bar OCR events, `WOOZY` as near_death, `description_pattern`/`min_label_count` on fusion rules, fire named from the prose (`visible_destruction`/`burning_wreck`), generic markers unjudgeable in the metric, type-aware tie-break. Grounded events 0.60/**1.00**, moments **0.80/1.00**; every remaining out-of-sample miss carries its documented reason. |
+| 2026-08-27 | **Live proofs + ship**: three real Shorts with captions in 296 s; certification story→QA in 5.3 min with QA green, VRAM gate consulted, J/L planner correctly keeping a speechless boundary hard; `jl_cuts` ships enabled; `dist/VAI-0.1.0.zip` rebuilt (296 MB). Live YouTube publish awaits only the owner's Google OAuth client. |

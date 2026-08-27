@@ -39,12 +39,13 @@ render:
     preset: medium
     crf: 19
   # J-cuts and L-cuts: the audio leads (J) or trails (L) the picture at a cut,
-  # instead of both switching on the same frame. OFF by default -- this changes
-  # the sound of every join, and turning it on is a product decision. When on,
-  # only boundaries where speech opens the incoming clip (J) or tails the
-  # outgoing one (L) are offset; everything else stays a hard cut.
+  # instead of both switching on the same frame. Only boundaries where speech
+  # opens the incoming clip (J) or tails the outgoing one (L) are offset;
+  # everything else stays a hard cut. Turned on 2026-08-27 after the live
+  # certification render passed QA with it -- the standard join inside a scene
+  # is film grammar's default, and the hard cut is the marked case.
   jl_cuts:
-    enabled: false
+    enabled: true
     max_lead_seconds: 0.6
     crossfade_ms: 120
     speech_window_seconds: 1.0
