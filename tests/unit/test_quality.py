@@ -264,6 +264,71 @@ class TestTheWindow:
         assert seconds == pytest.approx(30.0)
 
 
+class TestGenericMarkers:
+    """`unexpected_event` is the correlator saying it cannot name this.
+
+    A person cannot label "unexpected", so an unmatched marker is unjudgeable
+    -- the same reasoning as a window straddler that finds nothing. One that
+    *does* find a label still counts: flagging the instant is finding it.
+    """
+
+    def test_an_unmatched_generic_claim_is_not_a_false_positive(self) -> None:
+        score, _, _ = score_events(
+            [Prediction(300.0, 302.0, "unexpected_event", 0.9)],
+            recording(event(100.0, 110.0)),
+        )
+
+        assert score.false_positives == 0
+        assert score.generic_markers == 1
+
+    def test_a_generic_claim_that_finds_a_label_still_counts(self) -> None:
+        score, _, _ = score_events(
+            [Prediction(104.0, 106.0, "unexpected_event", 0.9)],
+            recording(event(100.0, 110.0)),
+        )
+
+        assert score.true_positives == 1
+        assert score.generic_markers == 0
+
+    def test_named_claims_still_pay_for_being_wrong(self) -> None:
+        score, _, _ = score_events(
+            [Prediction(300.0, 302.0, "combat", 0.9)],
+            recording(event(100.0, 110.0)),
+        )
+
+        assert score.false_positives == 1
+
+
+class TestTypeTieBreak:
+    """One prediction over two labels at the same distance means the one it names.
+
+    Measured: a death prediction spanning both a rare-loot pickup and the
+    death eight seconds later matched the pickup -- greedy order, equal
+    distance -- and the report said the system missed a death it had found.
+    """
+
+    def test_the_label_sharing_the_name_wins_the_tie(self) -> None:
+        labels = recording(
+            Span(
+                kind=SpanKind.EVENT,
+                event_type=GameEventType.RARE_LOOT,
+                start_seconds=628.0,
+                end_seconds=633.0,
+            ),
+            event(636.0, 642.0),
+            watched=(600.0, 1200.0),
+        )
+
+        score, matches, misses = score_events(
+            [Prediction(618.0, 650.0, "death", 0.82)], labels
+        )
+
+        assert score.true_positives == 1
+        found = next(match for match in matches if match.span is not None)
+        assert found.span.event_type is GameEventType.DEATH
+        assert [span.event_type for span in misses] == [GameEventType.RARE_LOOT]
+
+
 class TestOpinions:
     def test_certain_only_excludes_the_arguable_labels(self) -> None:
         subject = recording(

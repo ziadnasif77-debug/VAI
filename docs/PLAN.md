@@ -163,6 +163,76 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### The detector wave — every gap the golden set named, answered with evidence (2026-08-27)
+
+Each of the expansion's misses was diagnosed from stored rows before anything
+was written, and each fix is the smallest thing the evidence supports.
+
+**Grounded was inventing action, and the mechanism had three parts.** The 2.5 s
+correlation window chains transitively, and on dense footage (vision every
+5 s, ambient transients under it) it built clusters of 59–96 seconds; one
+observation then named the whole thing (a single narration `outplay` named a
+minute of base-building), and `_combine` rewarded the pile-up with 0.9+
+confidence. Three rules now hold the line: **context does not bridge** (a
+screen description attaches to the instant beside it but never extends the
+chain), **claiming evidence is capped at 15 s** (`MAX_CLUSTER_CLAIM_SECONDS`,
+under the episode layer's 20 s knee — past that it is two events, and whether
+they are one situation is the episode layer's question), and **a state read by
+one kind of sensor is context, not an event** (vision-only `low_health` is the
+model reading Grounded's always-on hunger dials; demoted to generic, it can
+still become `near_death` when audio corroborates through fusion).
+
+**Profiles can now contradict the generic table.** The generic
+`combat_seen_and_heard` rule exists because GTA's vision `combat` labels are
+real; Grounded's are a player *holding a bow*. `suppressed_generic_rules`
+lets the profile that knows better say so by name — Grounded vetoes
+`combat_seen_and_heard` and `driving_impact`, and its real fights are caught
+instead by what the evidence actually shows: the creature's own health bar in
+OCR (`WEEVIL` at 27:24, `ORB WEAVER` at 28:08 — new anchored event rules) and
+a tightened `creature_fight` that needs two high-confidence combat frames
+plus a creature name in the prose. `WOOZY`, the game's own text, replaces the
+invented `hurt_and_heard` as the `near_death` signal.
+
+**Rules can read what the model wrote, not only how it labelled.**
+`FusionRule` gained `description_pattern` and `min_label_count`. The fire the
+golden set marked and the pipeline missed was in the prose at every fire —
+"vehicle on fire", "engulfed in flames" — while the *label* stayed `combat`.
+A generic `visible_destruction` rule and a GTA `burning_wreck` rule (placed
+ahead of `shootout`, because profile rules are consulted in order) now name
+them: ten `high_damage` events on the out-of-sample cut, four of them inside
+labelled spans, including the freeway wrecks at 49:41 the window ends on.
+
+**The metric stopped counting the unjudgeable.** Generic claims
+(`unexpected_event` — the correlator saying *something happened here*) now
+get the boundary-straddler treatment: they may find a label, but an unmatched
+one is reported as a marker, not a false positive, because a person cannot
+label "unexpected". Ties in greedy matching break on type agreement — a
+death prediction spanning a rare-loot pickup and the death eight seconds
+later now matches the death (it previously matched the pickup and reported
+the found death as missed).
+
+Events at situation granularity, every label, across the day's three passes:
+
+| window | expansion baseline | after episode scoring | after the detector wave |
+| --- | --- | --- | --- |
+| Grounded 20–30 | 0.42 / 0.83 / f1 0.56 | 0.56 / 0.83 / 0.67 | **0.60 / 1.00 / 0.75** |
+| GTA 40–50 (OOS) | 0.35 / 0.82 / 0.49 | 0.53 / 0.82 / 0.64 | **0.50 / 0.73 / 0.59** |
+| GTA 30–40 (seed) | 0.26 / 1.00 / 0.42 | 0.35 / 1.00 / 0.52 | **0.35 / 1.00 / 0.52** |
+
+Grounded moments went from 0.60 / 0.75 to **0.80 / 1.00** — the poison arc,
+the double-death comedy and both creature fights are all found, with one
+unlabelled claim. The out-of-sample recall honestly *fell* to 0.73: the three
+remaining misses are documented limits, not regressions — the police rams
+left no impact evidence any sensor captured (night, no scene cut), the
+ambulance fire was found at 47:19–47:35 where the 5-second labelling grid
+put it at 47:35–47:50 (sampling parallax between two grids), and the
+four-star night freeway run defeated every sensor that looked (star row too
+dim for OCR, vision saw two frames of plain driving). Raw-row recall on the
+same window is 0.91. The Grounded unknown-event ratio rose from 0.27 to 0.63
+— which is the suppression telling the truth: most of what used to be
+"named" there was wrong, and §23 always preferred an honest unknown to a
+confident invention. 1,660 unit tests green.
+
 ### Fragmentation was the metric's problem, and the metric now speaks situations (2026-08-27)
 
 The expansion's central finding — 20 of the GTA window's 26 event claims sat
@@ -1489,3 +1559,4 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-14 | **Engineering review of the pass** (8-angle finder fleet, 25 candidates). Fixed: Remotion effects on disabled/trimmed clips now filtered by the same single-owner rule as the FFmpeg half (they previously drew at placeholder positions over unrelated footage); moment event types plumbed from the moments table into the planner (every `events:` trigger list was dead input); text_pop labels only from trigger-listed events (never `UNEXPECTED EVENT`); kill_counter needs ≥2 countable events and carries its tally; stingers obey the effects/realisation switches; legacy `strength` popped, not read; filter chain orders camera moves before frame furniture (a zoom after bars visibly thickened them); letterbox skipped on portrait targets (would cover 76%); realisers are a registry the realisable set derives from; `min_trailing_seconds` floor made honest (0.2) and sub-clearance gaps yield no pause candidate at any `min_pause`; caption RTL decided by UAX#9 first-strong letter, so code-switched Latin-first lines stay LTR. |
 | 2026-08-27 | **Golden set 16 → 53 spans** across three windows and two games; GTA window labelled before analysis (out-of-sample). GTA events P 0.35 / R 0.82 with fragmentation, not hallucination, as the dominant penalty; Grounded first-ever numbers P 0.42 / R 0.83 with 139 s of moments over boring stretches. `scripts/analyse_cut.py` added; dataset tests parametrised over `datasets/*`. |
 | 2026-08-27 | **Evaluation moves to situation granularity.** `read_as_episodes` scores events through the product's own episode reader (generics pass through); straddling predictions match first, judged after (a boundary episode had turned a found label into a miss). Seed 0.26→0.35, GTA out-of-sample 0.35→0.53, Grounded 0.42→0.56 precision, recall unpaid everywhere. |
+| 2026-08-27 | **Detector wave from the golden set's misses**: cluster discipline (context never bridges, claiming span capped 15 s), vision-only low_health demoted, `suppressed_generic_rules` (Grounded vetoes the two rules its footage contradicts), creature-bar OCR events, `WOOZY` as near_death, `description_pattern`/`min_label_count` on fusion rules, fire named from the prose (`visible_destruction`/`burning_wreck`), generic markers unjudgeable in the metric, type-aware tie-break. Grounded events 0.60/**1.00**, moments **0.80/1.00**; every remaining out-of-sample miss carries its documented reason. |

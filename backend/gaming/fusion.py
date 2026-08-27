@@ -32,6 +32,7 @@ Three properties keep that honest:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Final
@@ -62,6 +63,18 @@ class FusionRule:
     #: The weakest observation that may satisfy ``labels``. A label reported at
     #: 0.2 confidence is the model saying it does not know.
     min_label_confidence: float = 0.45
+    #: How many observations must carry a satisfying label. One is the old
+    #: behaviour; the Grounded window measured why a rule sometimes needs two:
+    #: the vision model calls a player *holding a bow* "combat", so a single
+    #: label proved nothing, while every real creature fight put the label on
+    #: consecutive frames.
+    min_label_count: int = 1
+    #: A regular expression (case-insensitive) that must appear in at least
+    #: one observation's description. This is how a rule reads what the vision
+    #: model *wrote* rather than only how it labelled: "engulfed in flames" is
+    #: in the prose, not in any label, and it was in the prose at every fire
+    #: the golden set marked and the pipeline missed.
+    description_pattern: str = ""
     #: What this rule alone is worth. Below any profile OCR rule on purpose.
     confidence: float = 0.65
     #: Extra seconds either side of the cluster the named event covers.
@@ -69,9 +82,13 @@ class FusionRule:
 
     def matches(self, bundle: EvidenceBundle) -> bool:
         """Whether this rule's evidence is all present."""
-        if not (self.labels or self.sources or self.types):
+        if not (self.labels or self.sources or self.types or self.description_pattern):
             return False
-        if self.labels and not bundle.has_label(self.labels, self.min_label_confidence):
+        if self.labels and not bundle.has_label(
+            self.labels, self.min_label_confidence, self.min_label_count
+        ):
+            return False
+        if self.description_pattern and not bundle.describes(self.description_pattern):
             return False
         if self.sources and not bundle.sources.issuperset(self.sources):
             return False
@@ -91,23 +108,45 @@ class EvidenceBundle:
     types: frozenset[GameEventType]
     #: Vision labels with the best confidence each was reported at.
     labels: dict[str, float] = field(default_factory=dict)
+    #: Every confidence each label was reported at, for rules that need to
+    #: count sightings rather than take the best one.
+    label_confidences: dict[str, tuple[float, ...]] = field(default_factory=dict)
+    #: Every observation description, joined, for rules that read the prose.
+    descriptions: str = ""
 
-    def has_label(self, wanted: Sequence[str], min_confidence: float) -> bool:
-        return any(self.labels.get(label, -1.0) >= min_confidence for label in wanted)
+    def has_label(
+        self, wanted: Sequence[str], min_confidence: float, min_count: int = 1
+    ) -> bool:
+        return any(
+            sum(1 for value in self.label_confidences.get(label, ()) if value >= min_confidence)
+            >= min_count
+            for label in wanted
+        )
+
+    def describes(self, pattern: str) -> bool:
+        return bool(re.search(pattern, self.descriptions, re.IGNORECASE))
 
 
 def bundle_of(cluster: Sequence[EventObservation]) -> EvidenceBundle:
     """Collect what a cluster saw, for the rules to read."""
     labels: dict[str, float] = {}
+    confidences: dict[str, list[float]] = {}
+    described: list[str] = []
     for item in cluster:
         label = item.detail.get("label")
         if isinstance(label, str) and label:
             key = label.strip().lower()
             labels[key] = max(labels.get(key, 0.0), item.confidence)
+            confidences.setdefault(key, []).append(item.confidence)
+        description = item.detail.get("description")
+        if isinstance(description, str) and description:
+            described.append(description)
     return EvidenceBundle(
         sources=frozenset(item.source for item in cluster),
         types=frozenset(item.event_type for item in cluster),
         labels=labels,
+        label_confidences={key: tuple(values) for key, values in confidences.items()},
+        descriptions="\n".join(described),
     )
 
 
@@ -116,6 +155,17 @@ def bundle_of(cluster: Sequence[EventObservation]) -> EvidenceBundle:
 #: would name without knowing the game, which is exactly the §23 line. A profile
 #: adds rules that need to know the game (Phase 0.3).
 GENERIC_RULES: Final[tuple[FusionRule, ...]] = (
+    # Something on screen is burning or blowing up. The vision model wrote it
+    # plainly at every fire the golden set marked -- "vehicle on fire",
+    # "engulfed in flames" -- while its *label* stayed `combat` or `driving`,
+    # so no label rule could see it. First in the table because destruction is
+    # rarer and more specific than the fight it usually sits inside.
+    FusionRule(
+        event_type=GameEventType.HIGH_DAMAGE,
+        name="visible_destruction",
+        description_pattern=r"on fire|burning|engulfed in flames|explod|ablaze|up in flames",
+        confidence=0.6,
+    ),
     # A fight on screen while something was heard. The single most common
     # unnamed instant on this footage -- the vision model reported `combat` 53
     # times on one recording and every one of them was discarded.

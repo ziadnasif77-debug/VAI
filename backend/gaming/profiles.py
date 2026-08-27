@@ -215,15 +215,25 @@ class ProfileFusionRule(_Model):
     sources: tuple[str, ...] = ()
     types: tuple[GameEventType, ...] = ()
     min_label_confidence: float = Field(default=0.45, ge=0.0, le=1.0)
+    min_label_count: int = Field(default=1, ge=1)
+    description_pattern: str = ""
     confidence: float = Field(default=0.65, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _asks_for_something(self) -> ProfileFusionRule:
-        if not (self.labels or self.sources or self.types):
+        if not (self.labels or self.sources or self.types or self.description_pattern):
             raise ValueError(
                 f"Fusion rule {self.name!r} requires no evidence at all, so it "
                 "would name every unnamed instant in the recording."
             )
+        if self.description_pattern:
+            try:
+                re.compile(self.description_pattern)
+            except re.error as error:
+                raise ValueError(
+                    f"Fusion rule {self.name!r} has a description pattern that is "
+                    f"not a regular expression: {error}."
+                ) from error
         return self
 
 
@@ -248,6 +258,14 @@ class GameProfile(_Model):
     #: Rules that name an instant from evidence no single detector could name,
     #: consulted ahead of the generic table (Phase 0.2, 0.3).
     fusion_rules: tuple[ProfileFusionRule, ...] = ()
+
+    #: Names of generic fusion rules this game contradicts. The generic table
+    #: is written for the common case, and Grounded is the measured
+    #: counter-case: its vision labels call a player *holding a bow*
+    #: "combat" and buggy-riding "driving", so `combat_seen_and_heard` and
+    #: `driving_impact` named eight fights and four crashes on a stretch a
+    #: person marked boring. A profile that knows better says so by name.
+    suppressed_generic_rules: tuple[str, ...] = ()
 
     #: Named HUD regions: ``kill_feed``, ``health``, ``score``, ``timer``...
     #: The names are free-form so a profile can declare what its game has.
@@ -329,9 +347,19 @@ class GameProfile(_Model):
                 sources=rule.sources,
                 types=rule.types,
                 min_label_confidence=rule.min_label_confidence,
+                min_label_count=rule.min_label_count,
+                description_pattern=rule.description_pattern,
                 confidence=rule.confidence,
             )
             for rule in self.fusion_rules
+        )
+
+    def rules_with(self, generic) -> tuple[Any, ...]:
+        """This profile's rules ahead of the generic table, minus what it vetoes."""
+        suppressed = set(self.suppressed_generic_rules)
+        return (
+            *self.fusion(),
+            *(rule for rule in generic if rule.name not in suppressed),
         )
 
     @property

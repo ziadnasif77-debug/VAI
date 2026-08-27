@@ -171,6 +171,12 @@
   ],
   "fusion_rules": [
     {
+      "event_type": "high_damage",
+      "name": "burning_wreck",
+      "description_pattern": "on fire|burning|engulfed in flames|explod|ablaze",
+      "confidence": 0.72
+    },
+    {
       "event_type": "collision",
       "name": "vehicle_impact",
       "labels": [
@@ -207,6 +213,16 @@
         "low_health"
       ],
       "confidence": 0.72
+    },
+    {
+      "event_type": "chase",
+      "name": "pursuit_described",
+      "labels": [
+        "driving"
+      ],
+      "min_label_confidence": 0.6,
+      "description_pattern": "police|\\bcops?\\b|pursu|\\bchas(?:e|ed|ing)\\b|wanted\\s+level|sirens?",
+      "confidence": 0.7
     }
   ]
 }

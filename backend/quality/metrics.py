@@ -92,6 +92,11 @@ class Score:
     excluded: int = 0
     #: Predictions dropped for landing outside the annotated window.
     out_of_window: int = 0
+    #: Unmatched generic claims (`unexpected_event`, `rare_event`) -- the
+    #: correlator saying *something happened here* without naming it. A person
+    #: cannot label "unexpected", so an unmatched marker is unjudgeable: it is
+    #: not counted as a false positive, and not hidden either.
+    generic_markers: int = 0
 
     @property
     def predicted(self) -> int:
@@ -138,6 +143,7 @@ class Score:
             "false_negatives": self.false_negatives,
             "excluded_opinions": self.excluded,
             "out_of_window": self.out_of_window,
+            "generic_markers": self.generic_markers,
         }
 
 
@@ -196,6 +202,9 @@ def score_events(
     labelled span -- an event is an instant, and asking two instants to overlap
     is asking the wrong question.
     """
+    from backend.gaming.correlation import GENERIC_TYPES
+
+    generic = {kind.value for kind in GENERIC_TYPES}
     labels = recording.of_kind(SpanKind.EVENT, certain_only=certain_only)
     excluded = len(recording.of_kind(SpanKind.EVENT)) - len(labels)
     return _match(
@@ -204,6 +213,7 @@ def score_events(
         recording,
         excluded=excluded,
         distance=lambda prediction, span: _instant_distance(prediction, span, tolerance_seconds),
+        judgeable=lambda prediction: prediction.label not in generic,
     )
 
 
@@ -349,6 +359,7 @@ def _match(
     *,
     excluded: int,
     distance: Any,
+    judgeable: Any = None,
 ) -> tuple[Score, tuple[Match, ...], tuple[Span, ...]]:
     """Greedily pair predictions with labels, best pairing first.
 
@@ -375,17 +386,31 @@ def _match(
     # that finds nothing is discarded rather than counted wrong, because its
     # claim may live in the part nobody watched.
     pool = inside + boundary
-    candidates: list[tuple[float, int, int]] = []
+    # Ties break on type agreement. Matching stays type-agnostic -- detector
+    # vocabulary and annotator vocabulary differ, and a `low_health` span over
+    # a labelled fight is still the system finding the fight -- but when one
+    # prediction covers two labels at the same distance, the label that shares
+    # its name is the one it means. Measured: a death prediction spanning both
+    # a rare-loot pickup and the death eight seconds later matched the pickup
+    # and reported the death as missed.
+    candidates: list[tuple[float, int, int, int]] = []
     for prediction_index, prediction in enumerate(pool):
         for label_index, span in enumerate(labels):
             score = distance(prediction, span)
             if score is not None:
-                candidates.append((score, prediction_index, label_index))
+                named = (
+                    span.event_type is not None
+                    and prediction.label == span.event_type.value
+                ) or (
+                    span.moment_type is not None
+                    and prediction.label == span.moment_type.value
+                )
+                candidates.append((score, 0 if named else 1, prediction_index, label_index))
     candidates.sort()
 
     paired_predictions: dict[int, tuple[int, float]] = {}
     paired_labels: set[int] = set()
-    for score, prediction_index, label_index in candidates:
+    for score, _mismatch, prediction_index, label_index in candidates:
         if prediction_index in paired_predictions or label_index in paired_labels:
             continue
         paired_predictions[prediction_index] = (label_index, score)
@@ -401,10 +426,19 @@ def _match(
         )
         for prediction_index, (label_index, _) in sorted(paired_predictions.items())
     )
+    # An unmatched claim that names nothing gets the boundary treatment: it
+    # may find a label (the system flagged the instant), but failing to find
+    # one proves nothing a person could have labelled either way.
+    judged = judgeable or (lambda prediction: True)
     unmatched = tuple(
         Match(prediction=prediction, span=None)
         for index, prediction in enumerate(inside)
-        if index not in paired_predictions
+        if index not in paired_predictions and judged(prediction)
+    )
+    generic_markers = sum(
+        1
+        for index, prediction in enumerate(inside)
+        if index not in paired_predictions and not judged(prediction)
     )
     misses = tuple(span for index, span in enumerate(labels) if index not in paired_labels)
 
@@ -417,6 +451,7 @@ def _match(
         false_negatives=len(misses),
         excluded=excluded,
         out_of_window=out_of_window + unmatched_boundary,
+        generic_markers=generic_markers,
     )
     return score, matches + unmatched, misses
 

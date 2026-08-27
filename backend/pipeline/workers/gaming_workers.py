@@ -206,7 +206,7 @@ class GameEventsWorker:
             min_confidence=analysis.hud.min_confidence,
             # A profile that knows the game names instants the generic table
             # cannot, and is consulted first for exactly that reason (§22).
-            fusion_rules=(*resolution.profile.fusion(), *GENERIC_RULES),
+            fusion_rules=resolution.profile.rules_with(GENERIC_RULES),
             # What the screen was showing between the instants. An unnamed
             # event inside a menu is the interface making noise (§77's
             # accidental_menu_section, caught one stage earlier).

@@ -95,6 +95,11 @@ def report(
         )
         if score.out_of_window:
             print(f"           {score.out_of_window} discarded: outside the watched window")
+        if score.generic_markers:
+            print(
+                f"           {score.generic_markers} generic marker(s) not scored: "
+                "a claim that names nothing cannot be wrong about what happened"
+            )
         if score.excluded:
             print(f"           {score.excluded} labels excluded as opinion")
         if name == "events" and raw_events is not None:

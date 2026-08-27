@@ -44,6 +44,17 @@ logger = get_logger("gaming.correlation", LogChannel.PIPELINE)
 #: sound, and a player reacts a beat after that.
 DEFAULT_WINDOW_SECONDS: Final[float] = 2.5
 
+#: The widest stretch of *claiming* evidence one cluster may cover. The window
+#: above is 2.5 seconds because a cluster means "the same instant" -- but
+#: chaining is transitive, and on the Grounded golden window it built clusters
+#: of 59 to 96 seconds: audio transients every few seconds kept the chain
+#: alive, one narration observation named the whole thing "outplay", and the
+#: evaluator scored an invented minute-long event. Fifteen seconds keeps every
+#: †real §27 shape (kill + sound + reaction) and sits under the episode
+#: layer's measured 20-second knee, which is where situations -- as opposed to
+#: instants -- are joined on purpose.
+MAX_CLUSTER_CLAIM_SECONDS: Final[float] = 15.0
+
 #: Confidence gained per additional agreeing source, before diminishing
 #: returns. Applied as ``1 - (1 - c) * decay**(n - 1)``, which approaches
 #: certainty without reaching it.
@@ -232,16 +243,51 @@ def _cluster(
     member, so a chain of observations a second apart stays one event instead
     of fragmenting — which is precisely the "three explosions" failure §27
     exists to prevent.
+
+    Two limits keep "the same instant" meaning what it says, both measured on
+    the Grounded golden window where their absence built 59-to-96-second
+    clusters:
+
+    * **Context does not bridge.** A screen description arrives with every
+      analysed frame, so at a five-second vision cadence a chain of them can
+      connect anything to anything. A claiming observation joins by its
+      distance from the last *claiming* one; context attaches to whatever
+      cluster it lands beside but never extends the reach.
+    * **A cluster's claiming evidence is capped** at
+      :data:`MAX_CLUSTER_CLAIM_SECONDS`. Past that, this layer's answer is
+      two events -- and whether they are one *situation* is the episode
+      layer's question, answered at its own measured threshold.
     """
     clusters: list[list[EventObservation]] = []
+    claim_start: float | None = None
+    claim_end: float | None = None
     for observation in observations:
         if clusters:
             current = clusters[-1]
-            latest_end = max(item.end_seconds for item in current)
-            if observation.start_seconds - latest_end <= window:
+            anchor = (
+                claim_end
+                if claim_end is not None
+                else max(item.end_seconds for item in current)
+            )
+            near = observation.start_seconds - anchor <= window
+            if near and observation.context_only:
                 current.append(observation)
                 continue
+            if near and not observation.context_only:
+                start = claim_start if claim_start is not None else observation.start_seconds
+                if max(claim_end or 0.0, observation.end_seconds) - start <= (
+                    MAX_CLUSTER_CLAIM_SECONDS
+                ):
+                    current.append(observation)
+                    claim_start = start
+                    claim_end = max(claim_end or 0.0, observation.end_seconds)
+                    continue
         clusters.append([observation])
+        if observation.context_only:
+            claim_start = claim_end = None
+        else:
+            claim_start = observation.start_seconds
+            claim_end = observation.end_seconds
     return clusters
 
 
@@ -253,6 +299,18 @@ def _to_event(
     """Turn one cluster into a single event."""
     sources = tuple(sorted({item.source for item in cluster}))
     event_type = _resolve_type(cluster)
+
+    # A state read by one kind of sensor is context, not an event. Measured on
+    # the Grounded window: the vision model reads the game's always-on
+    # hunger-and-thirst dials as "low health" while the player walks -- four
+    # frames in a row, on footage a person marked boring. Demoting the type to
+    # generic hands the cluster to fusion, where `hurt_and_heard` still names
+    # the real thing when audio corroborates it, and a HUD or profile reading
+    # (a source that can actually see the bar) is never demoted.
+    if event_type is GameEventType.LOW_HEALTH:
+        claiming = {item.source for item in cluster if item.event_type is event_type}
+        if claiming == {"vision"}:
+            event_type = GameEventType.UNEXPECTED_EVENT
 
     # Phase 0.2: no detector could name this instant, but the evidence together
     # might. Only reached when the resolved type is generic, so a source that

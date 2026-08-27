@@ -832,6 +832,240 @@ class TestEndToEndDetection:
         assert with_profile[0].confidence > 0.8
 
 
+class TestSuppressedGenericRules:
+    @staticmethod
+    def _profile(game):
+        from backend.config.paths import find_repository_root
+
+        clear_profile_cache()
+        return load_profile(game, find_repository_root() / "profiles").profile
+
+    def test_a_profile_can_veto_a_generic_rule_by_name(self) -> None:
+        from backend.gaming.fusion import GENERIC_RULES
+
+        names = [rule.name for rule in self._profile("grounded").rules_with(GENERIC_RULES)]
+
+        assert "combat_seen_and_heard" not in names
+        assert "driving_impact" not in names
+        assert "visible_destruction" in names
+        assert any(name.endswith("creature_fight") for name in names)
+
+    def test_a_profile_that_vetoes_nothing_keeps_the_whole_table(self) -> None:
+        from backend.gaming.fusion import GENERIC_RULES
+
+        names = [rule.name for rule in self._profile("gta_v").rules_with(GENERIC_RULES)]
+
+        assert {rule.name for rule in GENERIC_RULES} <= set(names)
+        assert names.index("gta_v:burning_wreck") < names.index("gta_v:shootout")
+
+
+class TestClusterDiscipline:
+    """The 2.5-second window means an instant, and chaining must not unmean it.
+
+    Measured on the Grounded golden window: audio transients every few seconds
+    and a screen description with every analysed frame chained clusters of 59
+    to 96 seconds, one narration observation named a whole minute "outplay",
+    and the benchmark scored an invented event on footage a person marked
+    boring.
+    """
+
+    @staticmethod
+    def _claim(at, duration=1.0, source=detectors.AUDIO, confidence=0.6):
+        return detectors.EventObservation(
+            event_type=GameEventType.UNEXPECTED_EVENT,
+            start_seconds=at,
+            end_seconds=at + duration,
+            source=source,
+            confidence=confidence,
+        )
+
+    @staticmethod
+    def _context(at, duration=1.0, **detail):
+        return detectors.EventObservation(
+            event_type=GameEventType.UNEXPECTED_EVENT,
+            start_seconds=at,
+            end_seconds=at + duration,
+            source=detectors.VISION,
+            confidence=0.9,
+            context_only=True,
+            detail=detail,
+        )
+
+    def test_a_chain_of_transients_cannot_become_a_minute(self) -> None:
+        observations = [self._claim(100.0 + 3.0 * step) for step in range(20)]
+
+        events = correlate(observations)
+
+        assert len(events) >= 2
+        for event in events:
+            assert event.end_seconds - event.start_seconds <= 16.0
+
+    def test_context_does_not_bridge_two_instants(self) -> None:
+        # A claim, a description two seconds later, and a second claim close
+        # to the description but far from the first claim. Before the frontier
+        # rule the description glued them into one event.
+        events = correlate(
+            [
+                self._claim(100.0),
+                self._context(103.0, description="the player walks"),
+                self._claim(105.5),
+            ]
+        )
+
+        assert len(events) == 2
+
+    def test_a_description_still_attaches_to_the_instant_beside_it(self) -> None:
+        # Fusion reads descriptions alongside signals (§ Phase 0.2); the
+        # frontier rule must not orphan them.
+        events = correlate(
+            [
+                self._claim(100.0),
+                self._context(100.4, description="a vehicle engulfed in flames"),
+            ]
+        )
+
+        assert len(events) == 1
+        assert events[0].event_type is GameEventType.HIGH_DAMAGE
+
+    def test_low_health_read_by_vision_alone_is_not_an_event(self) -> None:
+        # The vision model reads Grounded's always-on hunger dials as "low
+        # health" while the player walks. One kind of sensor claiming a state
+        # is context; with audio beside it, fusion may still name it.
+        alone = correlate(
+            [
+                detectors.EventObservation(
+                    event_type=GameEventType.LOW_HEALTH,
+                    start_seconds=100.0,
+                    end_seconds=101.0,
+                    source=detectors.VISION,
+                    confidence=0.8,
+                    detail={"label": "low_health"},
+                )
+            ]
+        )
+
+        assert all(event.event_type is not GameEventType.LOW_HEALTH for event in alone)
+
+    def test_low_health_with_audio_under_it_becomes_near_death(self) -> None:
+        events = correlate(
+            [
+                detectors.EventObservation(
+                    event_type=GameEventType.LOW_HEALTH,
+                    start_seconds=100.0,
+                    end_seconds=101.0,
+                    source=detectors.VISION,
+                    confidence=0.8,
+                    detail={"label": "low_health"},
+                ),
+                self._claim(100.3, confidence=0.7),
+            ]
+        )
+
+        assert len(events) == 1
+        assert events[0].event_type is GameEventType.NEAR_DEATH
+
+    def test_low_health_from_a_hud_reading_survives(self) -> None:
+        events = correlate(
+            [
+                detectors.EventObservation(
+                    event_type=GameEventType.LOW_HEALTH,
+                    start_seconds=100.0,
+                    end_seconds=101.0,
+                    source=detectors.OCR,
+                    confidence=0.8,
+                )
+            ]
+        )
+
+        assert len(events) == 1
+        assert events[0].event_type is GameEventType.LOW_HEALTH
+
+
+class TestDescriptionPatternRules:
+    """Rules that read what the vision model wrote, not only how it labelled."""
+
+    @staticmethod
+    def _observation(at, source, confidence=0.7, event_type=None, **detail):
+        return detectors.EventObservation(
+            event_type=event_type or GameEventType.UNEXPECTED_EVENT,
+            start_seconds=at,
+            end_seconds=at + 0.5,
+            source=source,
+            confidence=confidence,
+            detail=detail,
+        )
+
+    def test_a_fire_in_the_prose_is_high_damage(self) -> None:
+        # "engulfed in flames" was in the description at every fire the golden
+        # set marked, while the label stayed `combat`.
+        events = correlate(
+            [
+                self._observation(100.0, detectors.AUDIO, 0.6),
+                self._observation(
+                    100.2,
+                    detectors.VISION,
+                    0.9,
+                    label="combat",
+                    description="The vehicle is engulfed in flames beside the road.",
+                ),
+            ]
+        )
+
+        assert len(events) == 1
+        assert events[0].event_type is GameEventType.HIGH_DAMAGE
+        assert events[0].metadata["named_by"] == "fusion:visible_destruction"
+
+    def test_a_label_quorum_refuses_a_single_sighting(self) -> None:
+        from backend.gaming.fusion import FusionRule, bundle_of
+
+        rule = FusionRule(
+            event_type=GameEventType.COMBAT,
+            name="two_frames_or_nothing",
+            labels=("combat",),
+            min_label_count=2,
+        )
+        one = bundle_of([self._observation(100.0, detectors.VISION, 0.9, label="combat")])
+        two = bundle_of(
+            [
+                self._observation(100.0, detectors.VISION, 0.9, label="combat"),
+                self._observation(101.0, detectors.VISION, 0.9, label="combat"),
+            ]
+        )
+
+        assert not rule.matches(one)
+        assert rule.matches(two)
+
+    def test_a_rule_of_only_a_description_pattern_is_a_valid_rule(self) -> None:
+        from backend.gaming.fusion import FusionRule, bundle_of
+
+        rule = FusionRule(
+            event_type=GameEventType.HIGH_DAMAGE,
+            name="prose_only",
+            description_pattern="explod",
+        )
+        bundle = bundle_of(
+            [
+                self._observation(
+                    100.0, detectors.VISION, 0.9, description="The car explodes."
+                )
+            ]
+        )
+
+        assert rule.matches(bundle)
+
+    def test_a_profile_refuses_a_broken_description_pattern(self) -> None:
+        import pytest as _pytest
+
+        from backend.gaming.profiles import ProfileFusionRule
+
+        with _pytest.raises(Exception, match="not a regular expression"):
+            ProfileFusionRule(
+                event_type=GameEventType.CHASE,
+                name="broken",
+                description_pattern="police(",
+            )
+
+
 class TestFakeOcrProvider:
     def test_it_satisfies_the_provider_protocol(self) -> None:
         from ai.providers.base import OcrProvider
