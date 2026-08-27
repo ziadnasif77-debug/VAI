@@ -108,6 +108,9 @@ Development order follows SPEC §126.
 | F | **Preferences** | what the person keeps asking for becomes the next project's default | ✅ **done** |
 | A | **Evidence projection** | one read across the analysis stores, one definition of "near" | ✅ **done** |
 | B | **Episodes** | one situation, however many events it was reported as | ✅ **done** |
+| P1 | **YouTube upload** | device-flow OAuth + resumable chunked upload, publish as a job | ✅ **done** |
+| P1 | **Shorts 9:16** | strongest moments as vertical cuts through the same stack | ✅ **done** |
+| P1 | **Distribution** | `scripts/package.py` → 296 MB zip around the self-repairing launcher | ✅ **done** |
 
 ### Phase F — preferences ✅ done
 
@@ -156,6 +159,39 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 `exclude`, `تجنب`, `احذف` and `شيل`. It mattered enough to fix inside this
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
+
+### Product phase 1 — the loop closes (2026-08-20)
+
+The product-strategy report named three product-killing gaps; all three are
+shut, each through a seam that already existed.
+
+**YouTube upload.** The publishing seam promised a destination would cost one
+publisher class; it did. Device-flow OAuth (a code at google.com/device, one
+token request per UI poll, the refresh token in one owner-only file under the
+data root), resumable chunked upload where **the server owns the offset**,
+quota and auth errors that carry their remedy, and thumbnail/playlist as notes
+on success rather than failure modes. Publishing is a job: the person's
+instruction rides in the payload verbatim, QA's blocking verdict is honoured
+(§76), and the job history is the publication history (§81). One graph edit —
+`PUBLISH` now depends on QA, not EXPORT: the two are parallel deliveries, not
+a chain. 39 tests, no network anywhere in them.
+
+**Shorts.** A Short is a tiny edit run through the same stack at 9:16: NVENC
+cut of a top moment, centre-cropped (the HUD corners going away is a feature
+at 606 px wide), captions built by the long-form engine on a one-clip
+timeline, the same Remotion overlay at 1080×1920, audio kept. `SHORTS` is a
+third manual delivery beside EXPORT and PUBLISH — §51 is a test: running the
+pipeline never cuts them unasked. Proved against a real encoder: a plan
+becomes a 1080×1920 file of the planned length with audio in 2.9 s.
+
+**Distribution.** `scripts/package.py` builds `dist/VAI-<version>/` (+ zip,
+**296 MB**, sha256 beside it) around the self-repairing launcher that already
+existed: bundled ffmpeg and node, prebuilt web UI, INSTALL.txt in Arabic and
+English. What never ships is enforced twice — excludes by name, then a guard
+that kills the build if `.credentials` or the builder's database leak through.
+Verified: the packaged tree boots and wires all 19 stages. The honest limit is
+stated in the note: Python 3.11 once, from python.org; everything after is
+automatic.
 
 ### The certification run — everything at once, on a real recording (2026-08-20)
 
