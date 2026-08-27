@@ -23,6 +23,7 @@ from backend.core.models.jobs import (
     Job,
     ProjectStageStatus,
     dependencies_of,
+    downstream_of,
     runnable_stages,
     stages_in_order,
 )
@@ -467,7 +468,85 @@ class JobManager:
                 },
             )
         self._settle_abandoned(project_id)
+        self._backfill_new_stages(project_id)
         return recovered
+
+    def _backfill_new_stages(self, project_id: str | None) -> list[Job]:
+        """Create rows for stages that joined the graph after a project ran.
+
+        CRITIQUE arrived between EDL and RENDER, and a project analysed before
+        it existed has no row for it -- so RENDER refuses to start with
+        "critique incomplete", forever, and there is nothing on the screen to
+        run. Every path that requeues by existing rows hits the same wall.
+        Startup is where state is made true (§47), so the rows are created
+        here, and the *status* they are created in is the whole decision:
+
+        * a project whose later stages are **complete** gets the missing stage
+          as completed with ``skipped`` in its result -- the truthful record
+          that the stage did not exist when this project ran. Queueing it
+          instead would have an upgrade silently re-editing a finished video,
+          which §78 exists to forbid.
+        * a project still on its way to a render gets it **queued**, so the
+          runner simply runs it in order.
+
+        Project-wide stages only: those are where the graph has ever grown
+        mid-pipeline, and a per-media backfill would need per-media rows this
+        pass has no reason to invent yet.
+        """
+        projects = [project_id] if project_id else self._jobs.project_ids()
+        created: list[Job] = []
+        for project in projects:
+            rows = [job for job in self._jobs.list_for_project(project) if job.media_id is None]
+            by_stage = {job.stage for job in rows}
+            done = {job.stage for job in rows if job.status is JobStatus.COMPLETED}
+            for stage in stages_in_order():
+                if stage in PER_MEDIA_STAGES or stage in MANUAL_STAGES or stage in by_stage:
+                    continue
+                later = set(downstream_of(stage))
+                if not later & by_stage:
+                    # The project never got this far; nothing to make true.
+                    continue
+                finished = bool(later & done)
+                job = Job(
+                    id=new_id("job"),
+                    project_id=project,
+                    stage=stage,
+                    status=JobStatus.COMPLETED if finished else JobStatus.QUEUED,
+                    progress=1.0 if finished else 0.0,
+                    max_attempts=self._max_attempts,
+                    created_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc) if finished else None,
+                    message=(
+                        f"The {stage.value} stage was added to the pipeline after this project ran"
+                        if finished
+                        else None
+                    ),
+                    result=(
+                        {
+                            "skipped": True,
+                            "reason": (
+                                f"the {stage.value} stage did not exist when this "
+                                "project was rendered"
+                            ),
+                        }
+                        if finished
+                        else {}
+                    ),
+                )
+                with self._db.transaction():
+                    self._jobs.create(job)
+                created.append(job)
+        if created:
+            logger.warning(
+                "Backfilled stages the graph gained after these projects ran",
+                extra={
+                    "jobs": len(created),
+                    "stages": sorted({job.stage.value for job in created}),
+                    "completed": sum(1 for job in created if job.status is JobStatus.COMPLETED),
+                    "queued": sum(1 for job in created if job.status is JobStatus.QUEUED),
+                },
+            )
+        return created
 
     def _settle_abandoned(self, project_id: str | None) -> list[Job]:
         """Close queued jobs that were cancelled but never settled.

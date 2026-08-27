@@ -157,6 +157,46 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### The certification run — everything at once, on a real recording (2026-08-20)
+
+The complete VAI 2.0 chain, live in one pass on *Ziad 2*: Director consulted,
+Critic reviewing with apply on, segmented overlay rendering, contention
+reported, QA judging the file. The point of running it was to find what only
+the whole chain can show, and it did, immediately.
+
+**Find: a stage inserted mid-graph strands every project that predates it.**
+CRITIQUE arrived between EDL and RENDER; the real projects have no row for it;
+RENDER refused to start — *"critique incomplete"*, forever, with nothing on the
+screen to run. Fixed where §47 already makes state true: startup recovery now
+backfills rows for stages the graph gained after a project ran. The status is
+the decision — a **finished** project gets the row as completed-with-`skipped`
+(the truthful record that the stage did not exist; queueing it would have an
+upgrade silently re-editing a finished video, which §78 forbids), a project
+still before its render gets it **queued**, and one that never reached the gap
+gets nothing.
+
+**The run itself, end to end (11.8 minutes):**
+
+| stage | took | what happened |
+| --- | --- | --- |
+| moments | 0.1 s | 29 moments from the re-analysed events |
+| story | 10.3 s | Director consulted, **rejected** — it named a moment outside the list; the guardrail held, the plan says so in its notes |
+| edl | 0.0 s | 13 clips, 45 captions, 10 effects |
+| critique | 19.5 s | live 7B: 9 trims applied (0.75 s floor and §39 respected), 0 refused, verdict recorded |
+| render | 672.6 s | 1080p60 h264+aac, **overlay as 22 stretches covering 3,423 of 17,784 frames** — 81% of the Chromium pass gone on a real render |
+| qa | 45.8 s | 3 warnings for the human, no failures |
+
+Output: `rnd-e676b5c63198.mp4`, 592.8 s against a 600 s request (inside
+tolerance *after* the Critic's trims), 1.14 GiB. The card ended at 7,295 MB
+free with nothing resident — every model released itself.
+
+Honest notes on model quality, distinct from correctness: the Critic's nine
+trims were near-uniform ("1.0 s off the start", same reason) — a 7B
+pattern-matching more than judging. Every one passed the floor, the cap and
+the duration veto, which is the design working: mediocre taste cannot become a
+broken video. And the Director's rejection is the index guardrail earning its
+place a second time on real footage.
+
 ### Who else is on this machine (shared infrastructure 5.4, 2026-08-20)
 
 Inspected with permission, read-only. Three programs on this machine want the

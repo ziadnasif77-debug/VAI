@@ -13,12 +13,17 @@ while preserving context, constructs a story, and renders it.
 3 hours of gameplay  →  Story / Best Moments  →  20 minutes  →  YouTube-ready MP4
 ```
 
-**Status:** all 15 phases complete. A real recording goes in and a finished,
-QA'd video comes out, entirely through the browser. The first quality
-measurement against hand-written labels is in
-[docs/PHASE_15.md](docs/PHASE_15.md) — events recall 0.86, moments recall 1.00,
-precision weaker and honestly a lower bound. Progress and what to do next:
-[docs/PLAN.md](docs/PLAN.md).
+**Status:** the 15 foundation phases and the 2.0 plan are complete. A real
+recording goes in and a finished, QA'd video comes out, entirely through the
+browser. On top of the pipeline, 2.0 added perception dense enough to watch
+every nominated region (`unknown_event_ratio` 0.61→0.36 on one real recording,
+0.45→0.23 on another), a **Director** that proposes the shape of the edit, a
+**Critic** that reviews the assembled timeline before rendering, learned
+per-user preferences, and an overlay pass that renders only the frames that
+carry something — measured 1,284 s → 15.5 s on a real ten-minute edit. Every
+model answer is checked against evidence and every fallback is the
+deterministic pipeline that shipped first. Progress, measurements and what
+remains: [docs/PLAN.md](docs/PLAN.md).
 
 ---
 
@@ -46,6 +51,16 @@ chat is a control surface, not a requirement.
 English question, English answer — decided per message, not by a setting. The
 moment types, event names and score dimensions are translated too, so an
 explanation reads as one sentence rather than a frame around English terms.
+
+**It reviews its own work.** Before rendering, a model reads the assembled
+edit clip by clip — what is on screen, what was said, what happened — and may
+trim a dead opening or drop a clip that is all menu. Code holds the veto:
+a note about a clip that does not exist is discarded, and no review may take
+the video out of its requested length.
+
+**It learns what you keep asking for.** "Make it faster" in three separate
+projects becomes the starting point of the fourth — and anything you say about
+the current project still beats it.
 
 **It reads the HUD when it knows the game.** A profile declares where the game
 puts its state, and the pipeline reads what no OCR can — GTA V's wanted level
@@ -176,7 +191,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 1318 tests (~24 min)
+.venv/bin/python -m pytest              # 1505 tests (~25 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
 ```

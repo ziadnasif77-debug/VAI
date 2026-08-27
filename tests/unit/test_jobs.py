@@ -468,6 +468,104 @@ class TestRecovery:
         assert job_manager.recover(project_id) == []
 
 
+class TestBackfillOfStagesTheGraphGainedLater:
+    """A stage inserted mid-graph must not strand the projects that predate it.
+
+    Found by a certification run, not by review: CRITIQUE arrived between EDL
+    and RENDER, the real projects had no row for it, and RENDER refused to
+    start with "critique incomplete" -- forever, with nothing on the screen to
+    run. The status a backfilled row is created in is the whole decision, so
+    each case is its own test.
+    """
+
+    def _seed(self, job_manager: JobManager, project_id: str, *, through: JobStage):
+        """Project-wide rows as an old build would have left them, sans CRITIQUE."""
+        order = [
+            JobStage.STORY,
+            JobStage.EDL,
+            JobStage.CRITIQUE,
+            JobStage.RENDER,
+            JobStage.QA,
+        ]
+        for stage in order:
+            if stage is JobStage.CRITIQUE:
+                continue  # the stage did not exist when this project ran
+            job = job_manager.queue(project_id, stage)
+            job_manager._jobs.update(
+                job.model_copy(
+                    update={
+                        "status": JobStatus.COMPLETED,
+                        "completed_at": datetime.now(timezone.utc),
+                    }
+                )
+            )
+            if stage is through:
+                break
+
+    def test_a_finished_project_gets_the_stage_as_recorded_history(
+        self, job_manager: JobManager, project_id: str
+    ) -> None:
+        # Queueing it instead would have an upgrade re-editing a finished
+        # video on its own initiative, which §78 exists to forbid.
+        self._seed(job_manager, project_id, through=JobStage.QA)
+
+        job_manager.recover(project_id)
+
+        row = job_manager._jobs.find(project_id, JobStage.CRITIQUE)
+        assert row is not None
+        assert row.status is JobStatus.COMPLETED
+        assert row.result["skipped"] is True
+        assert "did not exist" in row.result["reason"]
+
+    def test_a_project_still_before_its_render_gets_the_stage_queued(
+        self, job_manager: JobManager, project_id: str
+    ) -> None:
+        self._seed(job_manager, project_id, through=JobStage.EDL)
+        # RENDER exists but never completed: the honest state is "run it".
+        job_manager.queue(project_id, JobStage.RENDER)
+
+        job_manager.recover(project_id)
+
+        row = job_manager._jobs.find(project_id, JobStage.CRITIQUE)
+        assert row is not None
+        assert row.status is JobStatus.QUEUED
+
+    def test_a_project_that_never_reached_the_gap_is_left_alone(
+        self, job_manager: JobManager, project_id: str
+    ) -> None:
+        # Nothing downstream has a row, so there is no wall to hit and
+        # nothing to make true.
+        self._seed(job_manager, project_id, through=JobStage.STORY)
+
+        job_manager.recover(project_id)
+
+        assert job_manager._jobs.find(project_id, JobStage.CRITIQUE) is None
+
+    def test_an_existing_row_is_never_touched(
+        self, job_manager: JobManager, project_id: str
+    ) -> None:
+        self._seed(job_manager, project_id, through=JobStage.QA)
+        existing = job_manager.queue(project_id, JobStage.CRITIQUE)
+
+        job_manager.recover(project_id)
+
+        assert job_manager._jobs.find(project_id, JobStage.CRITIQUE).id == existing.id
+
+    def test_the_render_can_start_after_the_backfill(
+        self, job_manager: JobManager, project_id: str
+    ) -> None:
+        # The symptom the certification hit, end to end: requeue RENDER on a
+        # legacy project and it must be allowed to begin.
+        self._seed(job_manager, project_id, through=JobStage.QA)
+        job_manager.recover(project_id)
+
+        render = job_manager._jobs.find(project_id, JobStage.RENDER)
+        job_manager.requeue(render.id)
+        started = job_manager.start(render.id)
+
+        assert started.status is JobStatus.RUNNING
+
+
 class TestScheduling:
     def test_next_runnable_starts_with_import(
         self, job_manager: JobManager, project_id: str, media_id: str

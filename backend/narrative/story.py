@@ -345,7 +345,18 @@ def _directed(
     shown = list(selection.moments)
     ordered, beats, notes = _story_order(shown, config)
     if blueprint is None or blueprint.is_empty:
-        return selection, ordered, beats, notes
+        # Reaching here at all means a Director was configured and consulted --
+        # `build_plan` only calls `_directed` when it was handed one -- so the
+        # silence would be the plan hiding a decision. The worker logs the
+        # specific rejection; the plan records that it happened, because "the
+        # deterministic order was used" and "the Director's answer was thrown
+        # away" are different statements about the same video (§80).
+        return (
+            selection,
+            ordered,
+            beats,
+            [*notes, "the Director was consulted and its answer was not usable"],
+        )
 
     roles: dict[int, str] = {}
     for beat in blueprint.beats:

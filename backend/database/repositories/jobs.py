@@ -160,6 +160,11 @@ class JobRepository:
             params = (project_id,)
         return [_from_row(row) for row in self._db.fetch_all(sql, params)]
 
+    def project_ids(self) -> list[str]:
+        """Every project that has ever queued a job, for startup-wide passes."""
+        rows = self._db.fetch_all("SELECT DISTINCT project_id FROM analysis_jobs ORDER BY project_id")
+        return [str(row["project_id"]) for row in rows]
+
     def stale_running_jobs(self, project_id: str | None = None) -> list[Job]:
         """Jobs left RUNNING by a crash (§47).
 
