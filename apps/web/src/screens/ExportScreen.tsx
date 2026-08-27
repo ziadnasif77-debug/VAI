@@ -22,6 +22,9 @@ export function ExportScreen({
 }) {
   const [busy, setBusy] = useState(false);
   const [title, setTitle] = useState(project.name);
+  const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<'private' | 'unlisted' | 'public'>('private');
   const [authCode, setAuthCode] = useState<{url: string; code: string} | null>(null);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
@@ -78,13 +81,13 @@ export function ExportScreen({
     try {
       await api.publishing.publish(project.id, {
         target: 'youtube',
-        metadata: {title, visibility},
+        metadata: {title, description, tags, thumbnail_path: thumbnail, visibility},
       });
       setPublishedUrl('queued');
     } finally {
       setBusy(false);
     }
-  }, [project.id, title, visibility]);
+  }, [project.id, title, description, tags, thumbnail, visibility]);
 
   const job = status.data?.job ?? null;
   const latest = status.data?.latest ?? null;
@@ -249,10 +252,38 @@ export function ExportScreen({
 
         {youtube?.connected && (
           <>
+            <button
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const meta = await api.metadata.suggest(project.id);
+                  setTitle(meta.title);
+                  setDescription(meta.description);
+                  setTags(meta.tags);
+                  setThumbnail(meta.thumbnail_path);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              disabled={busy}
+            >
+              Suggest from the analysis
+            </button>
             <label className="field">
               <span>Title</span>
               <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={100} />
             </label>
+            <label className="field">
+              <span>Description</span>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={5}
+                maxLength={5000}
+              />
+            </label>
+            {tags.length > 0 && <p className="muted">Tags: {tags.join(', ')}</p>}
+            {thumbnail && <p className="muted mono file-path">Thumbnail: {thumbnail}</p>}
             <label className="field">
               <span>Visibility</span>
               <select

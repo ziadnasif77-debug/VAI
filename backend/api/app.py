@@ -28,6 +28,7 @@ from backend.api.routers import (
     interaction,
     jobs,
     media,
+    metadata,
     profiles,
     projects,
     publishing,
@@ -154,6 +155,7 @@ def create_app(
     app.include_router(profiles.router, prefix=API_PREFIX)
     app.include_router(system.router, prefix=API_PREFIX)
     app.include_router(publishing.router, prefix=API_PREFIX)
+    app.include_router(metadata.router, prefix=API_PREFIX)
 
     _mount_interface(app)
     return app

@@ -111,6 +111,9 @@ Development order follows SPEC §126.
 | P1 | **YouTube upload** | device-flow OAuth + resumable chunked upload, publish as a job | ✅ **done** |
 | P1 | **Shorts 9:16** | strongest moments as vertical cuts through the same stack | ✅ **done** |
 | P1 | **Distribution** | `scripts/package.py` → 296 MB zip around the self-repairing launcher | ✅ **done** |
+| P2 | **Timeline UX** | trim/split/move/delete controls in the UI over the §42 API, refusals shown verbatim | ✅ **done** |
+| P2 | **Upload metadata** | evidence-built title/description/tags/chapters/thumbnail, `POST /metadata/suggest`, wired into Export | ✅ **done** |
+| P2 | **Profile authoring** | docs/PROFILES.md + `scripts/profile_report.py` signature miner | ✅ **done** |
 
 ### Phase F — preferences ✅ done
 
@@ -159,6 +162,48 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 `exclude`, `تجنب`, `احذف` and `شيل`. It mattered enough to fix inside this
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
+
+### Product phase 2, in parallel — and the package proven (2026-08-27)
+
+Three agents worked disjoint files at once; everything below is theirs plus the
+wiring, merged and green in one pass (1,602 unit tests).
+
+**The distribution was tried like a user.** sha256 verified, unzipped in 4 s to
+a fresh location, launched from there: server up, prebuilt UI served, bundled
+ffmpeg 9.0 detected, `publishing/targets` honest on a fresh install, a project
+created, and a **fresh database inside the package tree with the dev repo
+untouched**. The one substituted step — dependency install — was substituted
+because it writes gigabytes into a C: Python, which this machine forbids; the
+junction stated it plainly.
+
+**Timeline editing UX** (agent A): per-clip trim ±1 s on either edge, split at
+midpoint, move, delete/restore with §78 styling — over the §42 operations API
+exactly as it is, backend refusals shown verbatim on the clip row that asked.
+Undo deliberately skipped: no revert endpoint exists, and inventing one from
+the UI is how contracts rot.
+
+**Upload metadata** (agent B): `POST /projects/{id}/metadata/suggest` builds a
+`VideoMetadata` from evidence only — episodes (not duplicate reports) for the
+description, STORY clips for chapters (first at 0.0 by construction), bilingual
+templates keyed by the transcript's script, tags under YouTube's 500-char
+budget by dropping least-frequent-first, thumbnail frame at the best moment's
+peak into `assets/`. Export screen gained "Suggest from the analysis"; the
+publish payload now carries description, tags and thumbnail.
+
+**Profile authoring** (agent C): `docs/PROFILES.md` — every claim cited to a
+measured incident in this repo — and `scripts/profile_report.py`, the
+signature miner run twice by hand this month, now a tool: top OCR strings,
+label counts, candidates filtered of chrome, and a paste-ready escaped-regex
+snippet. Verified against the real GTA project; the misspellings surface
+individually, exactly where the guide says to collapse them.
+
+**Precision, measured at the new density on the golden set** (the eval cut
+re-created from the original recording — its temp source had been cleaned):
+events recall **0.86 → 1.00** (the missed fire at 35:50 is now found) and
+`unknown_event_ratio` 0.81 → **0.33**; measured precision moved 0.38 → 0.26 as
+claims rose 16 → 27. Against a 16-span seed that is the documented lower-bound
+effect, not a verdict — §118's own caveat. The real precision work needs more
+labelled spans first, and that is now the top of Phase 2's remainder.
 
 ### Product phase 1 — the loop closes (2026-08-20)
 

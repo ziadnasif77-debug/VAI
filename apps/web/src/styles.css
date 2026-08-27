@@ -293,3 +293,29 @@ button.link { background: none; padding: 0; color: var(--accent); text-decoratio
 .chat-kind { font-size: 12px; }
 .chat-input { display: flex; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--panel-edge); }
 .chat-input input { flex: 1; min-width: 0; }
+
+/* --- timeline clip controls (§62) ---------------------------------------- */
+
+/* Trim comes as start/end pairs; the tiny label is what keeps four otherwise
+   identical ±1s buttons tellable apart without hovering for tooltips. */
+.trim { display: inline-flex; align-items: center; gap: 2px; }
+.trim-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 2px 0 6px;
+}
+
+/* Eight small buttons outgrow one line before the panel does; wrapping keeps
+   a narrow window usable instead of clipping the row. */
+.clip .clip-actions { flex-wrap: wrap; justify-content: flex-end; }
+
+/* .clip.disabled already greys the row; the strike-through says "removed" to
+   anyone the opacity change is too subtle for (§78). The badge is the word
+   itself, so it stays unstruck. */
+.clip.disabled .clip-title { text-decoration: line-through; }
+.clip.disabled .clip-title .badge { text-decoration: none; }
+
+/* The backend's refusal, verbatim, on the row that asked for the edit (§78). */
+.clip-error { margin-top: 2px; font-size: 13px; }

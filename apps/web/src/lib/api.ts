@@ -115,9 +115,23 @@ export type PublishTargets = {
   targets: {target: 'local_file' | 'youtube'; available: boolean; connected: boolean}[];
 };
 
+export type SuggestedMetadata = {
+  title: string;
+  description: string;
+  tags: string[];
+  thumbnail_path: string | null;
+  chapters: {title: string; start_seconds: number}[];
+};
+
 export type PublishBody = {
   target: 'local_file' | 'youtube';
-  metadata?: {title?: string; description?: string; visibility?: 'private' | 'unlisted' | 'public'};
+  metadata?: {
+    title?: string;
+    description?: string;
+    tags?: string[];
+    thumbnail_path?: string | null;
+    visibility?: 'private' | 'unlisted' | 'public';
+  };
   destination?: string | null;
   render_id?: string | null;
 };
@@ -335,6 +349,12 @@ export const api = {
     publish: (projectId: string, body: PublishBody) =>
       post<{job_id: string; target: string}>(`/projects/${projectId}/publish`, body),
     shorts: (projectId: string) => post<{job_id: string}>(`/projects/${projectId}/shorts`),
+  },
+
+  metadata: {
+    /** Evidence-built title/description/tags/chapters/thumbnail (§80: from data). */
+    suggest: (projectId: string) =>
+      post<SuggestedMetadata>(`/projects/${projectId}/metadata/suggest`),
   },
 
   chat: (projectId: string, text: string) =>

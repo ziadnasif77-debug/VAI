@@ -185,6 +185,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/SPEC.md](docs/SPEC.md) | the specification — every `§N` in the code points here |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, contracts, dependency direction |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | every choice the spec left open, and why |
+| [docs/PROFILES.md](docs/PROFILES.md) | writing a game profile — anatomy, the measured method, pitfalls |
 | `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
 | [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
 
