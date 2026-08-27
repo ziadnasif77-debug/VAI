@@ -163,6 +163,49 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### The golden set triples — two windows, two games, out-of-sample (2026-08-27)
+
+The precision numbers had a documented excuse: 16 labelled spans in one
+ten-minute window of one game is a lower bound, not a measurement. The excuse
+is now spent. Two new windows were labelled from fixed 5-second contact sheets
+(`scripts/annotate.py`), read from pixels and on-screen text only, pipeline
+output never consulted — and the GTA window was labelled **before the pipeline
+ever analysed it**, so its numbers are out-of-sample by construction. The set:
+**53 spans across three windows and two games** (Grounded 20:00–30:00, 15
+spans; GTA 40:00–50:00, 22 spans; the seed's 16). `scripts/analyse_cut.py`
+closes the workflow gap — cut → project → analysis through MOMENTS, nothing
+rendered — and the dataset tests now parametrise over `datasets/*` so a new
+window is covered the day it lands.
+
+**GTA, out-of-sample** (proj-30f5d0b6b6f3, the 40:00–50:00 cut, offset 2400):
+events **precision 0.35, recall 0.82** (9 of 11), moments **0.33 / 0.80**
+(4 of 5), unknown-event ratio **0.19**, and only 42 s of selected moments over
+stretches marked boring. Decomposing the 17 unmatched claims changes the
+story: **20 of 26 predictions sit inside or beside a labelled event span** —
+the penalty is fragmentation (five combat micro-events across one labelled
+65-second firefight; the episodes layer exists to merge exactly this), not
+hallucination. Of the 6 truly outside, at least four look like events the
+5-second labelling grid under-captured (the 45:34 collision is the Surano
+carjack; the 46:09 `escape` is semantically right). What it actually missed:
+the burning wreck at 47:35 (fire still has no detector) and the four-star
+freeway run at 48:25–49:30 (night footage, tiny star row — the wanted-level
+fusion never fired).
+
+**Grounded, first measurement ever** (proj-87a4213b248e, full-recording
+analysis, offset 0): events **0.42 / 0.83** (5 of 6; missed the second death —
+"died by misadventure" at 26:36), moments **0.60 / 0.75**, but **139 s of
+selected moments overlap stretches marked boring**, and 5 of the 8 unmatched
+event claims sit inside those stretches. The failure modes are opposite by
+genre: GTA over-fragments real action; Grounded invents action where there is
+none (combat claims during foraging, `outplay` during base-building). The
+next precision work is genre-aware: episode-level scoring for dense footage,
+and stricter audio-only nomination on quiet footage.
+
+Labelling honesty, recorded in the dataset descriptions themselves: labelled
+by Claude from 5-second contact sheets; the audio was never heard, so
+sound-only events are systematically under-labelled; short events between
+tiles are inferred from aftermath and say so in their notes.
+
 ### Product phase 2, in parallel — and the package proven (2026-08-27)
 
 Three agents worked disjoint files at once; everything below is theirs plus the
@@ -1393,3 +1436,4 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-14 | **Research → audit → comparison → implementation pass** (three-agent workflow). The audit's central find: seventeen planned effects across three real projects and zero reaching pixels — the render worker passed `effects=()` to the overlay and no FFmpeg realiser existed. Shipped: (1) `TimelineRepository.list_effects` + an FFmpeg realiser for the duration-neutral five (zoom, punch_in, cinematic_bars, flash, camera_shake) baked into segments with the effect set hashed into the segment name for §47 reuse; (2) the Remotion wire closed with reader-side content guards; (3) Stanford's α=0.9/β=0.1 pause split (Leake et al., SIGGRAPH 2017) replacing midpoint cut placement, with a 0.2 s trailing floor; (4) caption direction from the first strong-directional letter when the stored language is NULL, so the two legacy Arabic projects render RTL. Verified on real footage: punch-in edges land at the stored centiseconds (YDIF spikes at 19.45 s/20.33 s), bars darken exactly 138 px rows, the VICTORY pop has non-zero alpha in the overlay, QA green on all three projects. |
 | 2026-08-15 | **Phase 0.3 — the profile that never loaded, and the game nobody checked.** `projects.detected_game` had existed since the schema was written with nothing to fill it, so every project resolved to the generic profile and `profiles/gta_v` had never once been used. Worse, the footage is not GTA: the OCR says *Milk Molar*, *Lean-To*, *Dandelion Tuft*, *Soldier Ant Egg* — Grounded, in both real projects. Shipped: a deterministic game recogniser (three signatures and a clear margin, or it stays silent), a `grounded` profile written from measured on-screen text, profile-level fusion rules, and the correction that mattered most — `\bdefeat\b` had been reading the quest tracker *"Defeat the O.R.C. guards at the Milk Molar stash"* as a defeat **19 times in one recording**, making it the most common named event in the project and every one of them wrong. Honest named-event ratio on سبي: **0.22 → 0.55**. Also found: the renderer was starting `node` from `C:\Program Files` rather than the bundled `tools/node`, against the standing rule that nothing depends on the system drive. |
 | 2026-08-14 | **Engineering review of the pass** (8-angle finder fleet, 25 candidates). Fixed: Remotion effects on disabled/trimmed clips now filtered by the same single-owner rule as the FFmpeg half (they previously drew at placeholder positions over unrelated footage); moment event types plumbed from the moments table into the planner (every `events:` trigger list was dead input); text_pop labels only from trigger-listed events (never `UNEXPECTED EVENT`); kill_counter needs ≥2 countable events and carries its tally; stingers obey the effects/realisation switches; legacy `strength` popped, not read; filter chain orders camera moves before frame furniture (a zoom after bars visibly thickened them); letterbox skipped on portrait targets (would cover 76%); realisers are a registry the realisable set derives from; `min_trailing_seconds` floor made honest (0.2) and sub-clearance gaps yield no pause candidate at any `min_pause`; caption RTL decided by UAX#9 first-strong letter, so code-switched Latin-first lines stay LTR. |
+| 2026-08-27 | **Golden set 16 → 53 spans** across three windows and two games; GTA window labelled before analysis (out-of-sample). GTA events P 0.35 / R 0.82 with fragmentation, not hallucination, as the dominant penalty; Grounded first-ever numbers P 0.42 / R 0.83 with 139 s of moments over boring stretches. `scripts/analyse_cut.py` added; dataset tests parametrised over `datasets/*`. |

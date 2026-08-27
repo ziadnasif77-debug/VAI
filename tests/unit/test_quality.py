@@ -16,6 +16,7 @@ The arithmetic is tested too, but the arithmetic was never the risk.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -339,33 +340,59 @@ class TestEvaluatingOneRecording:
         assert result.misses[0].start_seconds == 300.0
 
 
-class TestTheShippedDataset:
-    """The seed dataset is data, and data can rot."""
+_DATASETS = sorted(
+    (Path(__file__).resolve().parents[2] / "datasets").glob("*.dataset.json")
+)
 
-    def test_it_loads(self, repo_root) -> None:
-        dataset = load_dataset(repo_root / "datasets" / "gta_v_2026-05-16.dataset.json")
+
+@pytest.mark.parametrize("path", _DATASETS, ids=lambda p: p.stem)
+class TestTheShippedDatasets:
+    """Every golden file is data, and data can rot.
+
+    Parametrised over the directory, not named files: a window added to the
+    set is covered the day it lands, and one that breaks the schema fails
+    here rather than at evaluation time.
+    """
+
+    def test_it_loads(self, path: Path) -> None:
+        dataset = load_dataset(path)
 
         assert dataset.recordings
         assert dataset.total_spans > 0
 
-    def test_it_labels_more_than_one_kind_of_thing(self, repo_root) -> None:
+    def test_it_labels_more_than_one_kind_of_thing(self, path: Path) -> None:
         # §117 lists events, boring segments, best moments, reactions and game
         # state. A dataset of only events would benchmark one detector.
-        dataset = load_dataset(repo_root / "datasets" / "gta_v_2026-05-16.dataset.json")
+        dataset = load_dataset(path)
         kinds = {span.kind for recording in dataset.recordings for span in recording.spans}
 
         assert len(kinds) >= 3
 
-    def test_every_span_says_why_it_is_there(self, repo_root) -> None:
+    def test_every_span_says_why_it_is_there(self, path: Path) -> None:
         # The reason a label exists is the first thing anyone re-checking it
         # wants, and it is unrecoverable later.
-        dataset = load_dataset(repo_root / "datasets" / "gta_v_2026-05-16.dataset.json")
+        dataset = load_dataset(path)
 
         for item in dataset.recordings:
             for span in item.spans:
                 assert span.note.strip(), f"{span.kind.value} at {span.start_seconds} has no note"
 
-    def test_the_file_is_formatted_json(self, repo_root) -> None:
-        path = repo_root / "datasets" / "gta_v_2026-05-16.dataset.json"
-
+    def test_the_file_is_formatted_json(self, path: Path) -> None:
         json.loads(path.read_text(encoding="utf-8"))
+
+    def test_every_span_sits_inside_its_window(self, path: Path) -> None:
+        # A label outside the watched stretch would be discarded silently by
+        # the evaluator’s own window rule — better to refuse it here.
+        dataset = load_dataset(path)
+
+        for item in dataset.recordings:
+            low, high = item.window
+            for span in item.spans:
+                assert low <= span.start_seconds and span.end_seconds <= high, (
+                    f"{span.kind.value} {span.start_seconds}-{span.end_seconds} "
+                    f"outside {low}-{high}"
+                )
+
+
+def test_the_dataset_directory_is_not_empty() -> None:
+    assert _DATASETS, "the golden set is gone"

@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "name": "gta-v-2026-05-16-w2400",
+  "description": "Minutes 40:00-50:00 of the same GTA V session the seed dataset covers at 30:00-40:00. Labelled from contact sheets on a fixed 5-second grid (120 frames), by Claude, before this window was ever analysed by the pipeline -- the labels are out-of-sample by construction. Read from pixels and on-screen text only; the audio was never heard. Five-second sampling means short events between tiles (single gunshots, the instant of a carjack) are inferred from their aftermath and noted as such.",
+  "recordings": [
+    {
+      "source_path": "D:\\Gaming 2026\\2026-05-16 22-24-49.mkv",
+      "size_bytes": 2968812560,
+      "duration_seconds": 3757.418,
+      "game": "gta_v",
+      "annotated_from_seconds": 2400.0,
+      "annotated_to_seconds": 3000.0,
+      "note": "Same cheat-enabled sandbox session as the seed window: the INVINCIBILITY countdown and cheat toasts recur, and one death lands exactly when the countdown runs out. Arc of the window: street shootout -> Coquette carjack -> three-star chase with two police rams -> car wrecked -> rooftop firefight with helicopter and rappelling SWAT -> invincibility expires -> WASTED -> hospital -> on-foot rampage -> truck theft -> four-star freeway run -> bail-out onto a hillside over burning wrecks.",
+      "spans": [
+        {
+          "kind": "event",
+          "start_seconds": 2405.0,
+          "end_seconds": 2425.0,
+          "confidence": "certain",
+          "note": "Street shootout at 40:05-40:25: muzzle flash, fires and bodies on the street, about two stars.",
+          "event_type": "combat"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2440.0,
+          "end_seconds": 2475.0,
+          "confidence": "certain",
+          "note": "Three-star police chase in the stolen Coquette from 40:40; police cruisers visible behind and beside.",
+          "event_type": "chase"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2458.0,
+          "end_seconds": 2472.0,
+          "confidence": "certain",
+          "note": "Police broadside at 41:00 and a second ram at 41:10.",
+          "event_type": "collision"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 2430.0,
+          "end_seconds": 2475.0,
+          "confidence": "opinion",
+          "note": "Carjacking the Invetero Coquette at 40:30 straight into the chase and the rams.",
+          "moment_type": "chaos"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2530.0,
+          "end_seconds": 2585.0,
+          "confidence": "certain",
+          "note": "Rooftop firefight 42:10-43:15 after the car is wrecked at Playa Vista: bloodied player firing down, about four stars by 42:35.",
+          "event_type": "combat"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2583.0,
+          "end_seconds": 2595.0,
+          "confidence": "opinion",
+          "note": "Police helicopter close with SWAT rappelling at 43:05-43:10. Same labelling call as the seed window's helicopter: the shape of encounter a reel wants.",
+          "event_type": "boss_fight"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 2530.0,
+          "end_seconds": 2600.0,
+          "confidence": "certain",
+          "note": "The rooftop stand: wrecked car to rooftop firefight to helicopter and rappelling SWAT. The strongest stretch of the window's first half.",
+          "moment_type": "chaos"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 2620.0,
+          "end_seconds": 2660.0,
+          "confidence": "opinion",
+          "note": "The INVINCIBILITY countdown runs out on screen ('Cheat deactivated' ~43:50) and the wanted level collects its debt: WASTED within twenty seconds.",
+          "moment_type": "fail"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2646.0,
+          "end_seconds": 2654.0,
+          "confidence": "certain",
+          "note": "WASTED at ~44:10; black by 44:15, Mount Zonah Medical Center sign at 44:20.",
+          "event_type": "death"
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 2660.0,
+          "end_seconds": 2695.0,
+          "confidence": "certain",
+          "note": "Hospital respawn 44:20-44:55: cheat re-activation toasts, weapon wheel, walking out into a dusk street. Nothing contested."
+        },
+        {
+          "kind": "game_state",
+          "start_seconds": 2660.0,
+          "end_seconds": 2680.0,
+          "confidence": "opinion",
+          "note": "No stars read in the hospital tiles after the death; the row appears hidden.",
+          "state": {
+            "wanted_level": 0
+          }
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2700.0,
+          "end_seconds": 2726.0,
+          "confidence": "opinion",
+          "note": "Post-respawn street attacks 45:00-45:25: a burning motorcycle at 45:15, fleeing pedestrians, stars returning. The attacks themselves fall between sampled tiles; labelled from the aftermath.",
+          "event_type": "combat"
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 2745.0,
+          "end_seconds": 2795.0,
+          "confidence": "opinion",
+          "note": "Driving the stolen Surano across the city 45:45-46:35. Faint wanted stars, no police in frame; transit."
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2800.0,
+          "end_seconds": 2875.0,
+          "confidence": "certain",
+          "note": "On-foot rampage 46:40-47:55: bodies on the road at 46:45 and 46:50, aiming at 47:00, $15 looted at 47:15, a burning wreck beside an ambulance 47:35-47:45, firing at a police car at 47:50.",
+          "event_type": "combat"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2855.0,
+          "end_seconds": 2870.0,
+          "confidence": "certain",
+          "note": "An overturned vehicle burning beside the PARAMEDIC ambulance at 47:45-47:50.",
+          "event_type": "high_damage"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 2820.0,
+          "end_seconds": 2875.0,
+          "confidence": "opinion",
+          "note": "The burning-vehicles stretch of the rampage, police engaged, invincibility re-armed mid-scene ('Cheat activated: Invincible for 5 minutes' ~47:44).",
+          "moment_type": "chaos"
+        },
+        {
+          "kind": "game_state",
+          "start_seconds": 2865.0,
+          "end_seconds": 3000.0,
+          "confidence": "certain",
+          "note": "INVINCIBILITY countdown bottom-right from 47:45 to the end of the window: 04:57 at 47:50 down to 02:47 at 49:55.",
+          "state": {
+            "invincibility": true
+          }
+        },
+        {
+          "kind": "game_state",
+          "start_seconds": 2905.0,
+          "end_seconds": 3000.0,
+          "confidence": "certain",
+          "note": "Four stars from 48:25 through 49:55, truck theft to hillside.",
+          "state": {
+            "wanted_level": 4
+          }
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2905.0,
+          "end_seconds": 2970.0,
+          "confidence": "certain",
+          "note": "Four-star freeway run in the stolen canopy truck 48:25-49:30: Del Perro Fwy to Vinewood Hills past cones, wrecks and an armoured truck.",
+          "event_type": "chase"
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 2915.0,
+          "end_seconds": 2965.0,
+          "confidence": "opinion",
+          "note": "The middle of that run is monotone dark freeway with no police in frame; an editor keeps the theft and the bail-out, not the minute between."
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 2975.0,
+          "end_seconds": 3000.0,
+          "confidence": "opinion",
+          "note": "Bail-out on the freeway at 49:35, scramble up the hillside, burning wrecks on the lanes below, firing down by 49:50. The window ends mid-standoff.",
+          "moment_type": "chaos"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 2988.0,
+          "end_seconds": 3000.0,
+          "confidence": "opinion",
+          "note": "Firing down at the freeway 49:50-49:55; the fight continues past the window.",
+          "event_type": "combat"
+        }
+      ]
+    }
+  ]
+}

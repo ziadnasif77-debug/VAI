@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "name": "grounded-2026-06-14-w1200",
+  "description": "Minutes 20:00-30:00 of a Grounded session, labelled from contact sheets on a fixed 5-second grid (120 frames), by Claude, before consulting any pipeline output for this window. Read from pixels and on-screen text only: the audio was never heard, so anything that announces itself by sound alone (voice reactions, off-screen cues) is systematically under-labelled. Written as part of expanding the golden set beyond its 16-span seed (SPEC 118).",
+  "recordings": [
+    {
+      "source_path": "D:\\Gaming 2026\\2026-06-14 20-40-43.mkv",
+      "size_bytes": 3655547346,
+      "duration_seconds": 4607.584,
+      "game": "grounded",
+      "annotated_from_seconds": 1200.0,
+      "annotated_to_seconds": 1800.0,
+      "note": "Base-building and exploration on foot and buggy-back. The window has two deaths, two named-creature fights and long calm stretches; survival-game pacing, nothing like the GTA windows. HUD shows hunger/thirst dials bottom-left and a hotbar bottom-centre.",
+      "spans": [
+        {
+          "kind": "event",
+          "start_seconds": 1241.0,
+          "end_seconds": 1247.0,
+          "confidence": "certain",
+          "note": "The buggy mount is knocked out: an on-screen countdown runs 43->3 and then 'Your Buggy returned to the nest to recover' at 20:47.",
+          "event_type": "fail"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 1277.0,
+          "end_seconds": 1284.0,
+          "confidence": "certain",
+          "note": "YOU DIED -- 'Hoops succumbed to poison.' WOOZY debuff visible from 20:45; respawn room by 21:25.",
+          "event_type": "death"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 1225.0,
+          "end_seconds": 1284.0,
+          "confidence": "opinion",
+          "note": "The whole poison arc: woozy setback, the buggy lost, then the death screen. Reads as one story beat a video would keep.",
+          "moment_type": "fail"
+        },
+        {
+          "kind": "game_state",
+          "start_seconds": 1300.0,
+          "end_seconds": 1322.0,
+          "confidence": "certain",
+          "note": "Build UI: ANT NEST placement ghost 21:40-22:02, then the BUGGIES radial wheel.",
+          "state": {
+            "screen": "menu"
+          }
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 1325.0,
+          "end_seconds": 1388.0,
+          "confidence": "certain",
+          "note": "Mounted traversal 22:05-23:08. Riding through the yard, nothing contested."
+        },
+        {
+          "kind": "event",
+          "start_seconds": 1392.0,
+          "end_seconds": 1420.0,
+          "confidence": "certain",
+          "note": "BOMBARDIER BEETLE health bar on screen 23:12-23:40 with a dodge tip toast; WOOZY overlaps the start of the fight.",
+          "event_type": "combat"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 1390.0,
+          "end_seconds": 1422.0,
+          "confidence": "opinion",
+          "note": "The bombardier fight while still woozy. A person might trim it, not cut it.",
+          "moment_type": "tension"
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 1425.0,
+          "end_seconds": 1530.0,
+          "confidence": "certain",
+          "note": "Foraging and trash runs 23:45-25:30. Inventory housekeeping on foot."
+        },
+        {
+          "kind": "game_state",
+          "start_seconds": 1540.0,
+          "end_seconds": 1550.0,
+          "confidence": "opinion",
+          "note": "Creature-card menus (PEEP CREATURE, RED SOLDIER ANT) around 25:40-25:50; tile scale makes the exact bounds a judgement call.",
+          "state": {
+            "screen": "menu"
+          }
+        },
+        {
+          "kind": "event",
+          "start_seconds": 1588.0,
+          "end_seconds": 1593.0,
+          "confidence": "certain",
+          "note": "A 500 RAW SCIENCE pickup banner at 26:28-26:33.",
+          "event_type": "rare_loot"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 1596.0,
+          "end_seconds": 1602.0,
+          "confidence": "certain",
+          "note": "YOU DIED -- 'died by misadventure' at 26:36-26:42, seconds after the science.",
+          "event_type": "death"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 1585.0,
+          "end_seconds": 1605.0,
+          "confidence": "opinion",
+          "note": "500 Raw Science, then dead by misadventure within ten seconds. The comedy is the cut itself.",
+          "moment_type": "funny"
+        },
+        {
+          "kind": "event",
+          "start_seconds": 1678.0,
+          "end_seconds": 1700.0,
+          "confidence": "certain",
+          "note": "ORB WEAVER health bar 27:58-28:20; bar gone by 28:25.",
+          "event_type": "combat"
+        },
+        {
+          "kind": "highlight",
+          "start_seconds": 1675.0,
+          "end_seconds": 1705.0,
+          "confidence": "opinion",
+          "note": "The orb weaver ambush, entry to disengage.",
+          "moment_type": "tension"
+        },
+        {
+          "kind": "boring",
+          "start_seconds": 1750.0,
+          "end_seconds": 1795.0,
+          "confidence": "certain",
+          "note": "Climbing back up 29:10-29:55; 'Auto-saving' toast at 29:45."
+        }
+      ]
+    }
+  ]
+}
