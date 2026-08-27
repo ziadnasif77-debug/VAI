@@ -38,6 +38,16 @@ render:
   libx264:
     preset: medium
     crf: 19
+  # J-cuts and L-cuts: the audio leads (J) or trails (L) the picture at a cut,
+  # instead of both switching on the same frame. OFF by default -- this changes
+  # the sound of every join, and turning it on is a product decision. When on,
+  # only boundaries where speech opens the incoming clip (J) or tails the
+  # outgoing one (L) are offset; everything else stays a hard cut.
+  jl_cuts:
+    enabled: false
+    max_lead_seconds: 0.6
+    crossfade_ms: 120
+    speech_window_seconds: 1.0
 
 # YouTube preset (§75). Exposed as a single selectable target.
 youtube_preset:
@@ -127,6 +137,20 @@ remotion:
   # Skip the Remotion pass entirely when the timeline has no overlay elements,
   # so a caption-free video never pays the Chromium cost.
   skip_when_no_overlays: true
+
+  # The card is read once before Chromium starts, because nothing else on the
+  # machine promises to leave it empty: on 2026-08-15 a model another program
+  # left resident held 4.7 GB of 8 with an expiry in the year 2318, and every
+  # browser connection timed out 25 slow seconds at a time. Below
+  # min_free_vram_mb the overlay renders with a single page; below
+  # skip_overlay_below_mb it is not attempted at all and the render ships the
+  # plain cut with a note naming what holds the memory (§95). A machine that
+  # cannot report its VRAM is left alone. 0 disables either check.
+  min_free_vram_mb: 1500
+  skip_overlay_below_mb: 500
+  # Rough cost of one Chromium page at 1080p, used to cap concurrency on a
+  # card that is above the floor but still tight.
+  vram_per_page_mb: 250
 
   # And the same idea one level finer: when the timeline *does* have overlay
   # elements, only the stretches carrying them go through Chromium. The

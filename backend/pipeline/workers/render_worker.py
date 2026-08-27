@@ -33,15 +33,16 @@ from backend.core.models.enums import EffectEngine, EffectType, JobStage
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.renders import RenderRepository
 from backend.database.repositories.timeline import TimelineRepository
+from backend.database.repositories.transcript import TranscriptRepository
 from backend.effects.models import EffectInstance
 from backend.pipeline.workers.base import WorkerContext
-from backend.rendering import audio_mix
+from backend.rendering import audio_mix, jl
 from backend.rendering.composite import composite
 from backend.rendering.composition import build_composition, resolution_for
 from backend.rendering.encoder import EncodeTarget, select_encoder
 from backend.rendering.ffmpeg_renderer import clear_segments, render_programme
 from backend.rendering.remotion import render_overlay
-from backend.timeline.models import Timeline
+from backend.timeline.models import Timeline, TimelineClip
 
 logger = get_logger("pipeline.workers.render", LogChannel.RENDERING)
 
@@ -536,6 +537,10 @@ class RenderWorker:
         if not clips:
             return None
 
+        offset = self._jl_audio(context, timeline, clips, sources, work_dir)
+        if offset is not None:
+            return offset
+
         inputs: list[str] = []
         chains: list[str] = []
         labels: list[str] = []
@@ -562,6 +567,72 @@ class RenderWorker:
             error_code=ErrorCode.AUDIO_MIX_FAILED,
             error_type=RenderError,
             error_message="Could not assemble the programme audio.",
+            details={"clips": len(clips)},
+        )
+        return destination
+
+    def _jl_audio(
+        self,
+        context: WorkerContext,
+        timeline: Timeline,
+        clips: Sequence[TimelineClip],
+        sources: dict[str, Path],
+        work_dir: Path,
+    ) -> Path | None:
+        """The gameplay track with J/L offsets, or ``None`` for the plain path.
+
+        ``None`` is the common answer and costs nothing: with the feature off
+        (its shipped default) or with no boundary earning an offset, this
+        neither reads the transcript nor runs FFmpeg, and the concat path
+        behaves byte-for-byte as it always has.
+        """
+        jl_config = context.config.render.jl_cuts
+        if not jl_config.enabled or len(clips) < 2:
+            return None
+
+        repository = TranscriptRepository(context.database)
+        transcript_by_media = {
+            media_id: [
+                (segment.start, segment.end)
+                for segment in repository.list_for_media(media_id)
+            ]
+            for media_id in timeline.media_ids()
+        }
+        durations = {
+            item.id: float(item.metadata.duration_seconds)
+            for item in MediaRepository(context.database).list_for_project(
+                context.project_id
+            )
+            if item.metadata.duration_seconds
+        }
+        boundaries = jl.plan_boundaries(
+            timeline, transcript_by_media, jl_config, source_durations=durations
+        )
+        if all(plan.is_hard for plan in boundaries):
+            return None
+
+        destination = work_dir / "programme_audio.wav"
+        argv = jl.assembly_arguments(
+            clips,
+            boundaries,
+            sources=sources,
+            destination=destination,
+            config=jl_config,
+        )
+        logger.info(
+            "Assembling the gameplay audio with J/L offsets at the cuts",
+            extra={
+                "boundaries": len(boundaries),
+                "j_cuts": sum(1 for plan in boundaries if plan.kind == "j"),
+                "l_cuts": sum(1 for plan in boundaries if plan.kind == "l"),
+            },
+        )
+        context.ffmpeg.run(
+            [*context.ffmpeg.base_arguments(), *argv],
+            timeout_seconds=context.config.ffmpeg.timeout_seconds,
+            error_code=ErrorCode.AUDIO_MIX_FAILED,
+            error_type=RenderError,
+            error_message="Could not assemble the programme audio with J/L cuts.",
             details={"clips": len(clips)},
         )
         return destination

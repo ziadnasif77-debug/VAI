@@ -864,6 +864,38 @@ class X264Config(_Section):
     crf: int = Field(default=19, ge=0, le=51)
 
 
+class JLCutsConfig(_Section):
+    """J-cuts and L-cuts: audio that leads or trails the picture cut.
+
+    The standard alternative to hard A/V cuts (PLAN open decision, researched
+    2026-08-14). A J-cut lets the incoming clip's speech be heard a fraction
+    of a second before its picture arrives; an L-cut lets the outgoing clip's
+    speech finish over the incoming picture. Both need audio that overlaps a
+    segment boundary, which the plain cut-and-concat audio pass cannot
+    express -- so :mod:`backend.rendering.jl` assembles the gameplay track as
+    one placed-and-mixed graph instead when any boundary earns an offset.
+
+    Off by default on purpose: this changes the sound of every finished video
+    at its cuts, and flipping it on is a product decision, not a code one.
+    """
+
+    enabled: bool = False
+    #: The furthest the audio may lead (J) or trail (L) the picture cut. 0.6 s
+    #: is the low end of the editing-literature convention (half a second to a
+    #: couple of seconds); it is also clamped per boundary to the material the
+    #: recording actually has and to half of each neighbouring clip.
+    max_lead_seconds: float = Field(default=0.6, gt=0)
+    #: The fade at each side of an offset handoff, so neither stream starts or
+    #: stops mid-waveform. Short on purpose: the overlap is the effect, the
+    #: fade only removes the click.
+    crossfade_ms: int = Field(default=120, ge=0)
+    #: How close to a clip's edge speech must sit to earn the boundary an
+    #: offset: a segment starting within this window of the incoming clip's
+    #: in-point makes a J, one still running this close to the outgoing
+    #: clip's out-point makes an L.
+    speech_window_seconds: float = Field(default=1.0, gt=0)
+
+
 class RenderConfig(_Section):
     container: Literal["mp4", "mkv", "mov"] = "mp4"
     video_codec: Literal["h264", "hevc"] = "h264"
@@ -876,6 +908,7 @@ class RenderConfig(_Section):
     max_bitrate_multiplier: float = Field(default=1.35, ge=1.0)
     nvenc: NvencConfig = Field(default_factory=NvencConfig)
     libx264: X264Config = Field(default_factory=X264Config)
+    jl_cuts: JLCutsConfig = Field(default_factory=JLCutsConfig)
 
     def bitrate_for(self, resolution: int, fps: int) -> str | None:
         """Return the configured bitrate for a resolution/fps pair."""
@@ -979,15 +1012,21 @@ class RemotionConfig(_Section):
     overlay_format: str = "webm_vp9_alpha"
     overlay_codec_options: dict[str, dict[str, Any]] = Field(default_factory=dict)
     skip_when_no_overlays: bool = True
-    #: Below this much free VRAM, refuse to start Chromium instead of letting
-    #: it time out. Measured on the 3070: with 509 MB free (a 4.7 GB model
-    #: another program had left resident) every browser connection timed out
-    #: after 25 s, failing nineteen render-dependent tests twenty minutes into
-    #: each run. An estimate from one measurement, not a specification --
+    #: Below this much free VRAM, render with a single Chromium page instead
+    #: of a full complement. Measured on the 3070: with 509 MB free (a 4.7 GB
+    #: model another program had left resident) every browser connection timed
+    #: out after 25 s, failing nineteen render-dependent tests twenty minutes
+    #: into each run. An estimate from one measurement, not a specification --
     #: which is why it is a knob and why 0 disables the check entirely.
-    min_free_vram_mb: int = Field(default=1200, ge=0)
+    min_free_vram_mb: int = Field(default=1500, ge=0)
+    #: Below this much free VRAM, do not start Chromium at all: the overlay is
+    #: skipped and the render ships the plain cut with a §95 note naming the
+    #: free megabytes and whatever is resident on the card. One page still
+    #: needs somewhere to put its surfaces, and a launch that cannot get even
+    #: that fails twenty-five slow seconds at a time. 0 disables the skip.
+    skip_overlay_below_mb: int = Field(default=500, ge=0)
     #: Rough VRAM cost of one Chromium page at 1080p, used to cap concurrency
-    #: when the card is tight rather than fail outright. Ten pages ran fine
+    #: when the card is above the floor but still tight. Ten pages ran fine
     #: with 5.2 GB free, which is where this number comes from.
     vram_per_page_mb: int = Field(default=250, ge=1)
 

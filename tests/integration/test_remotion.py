@@ -26,7 +26,6 @@ from pathlib import Path
 
 import pytest
 
-from backend.core.errors import RenderError
 from backend.core.models.enums import TrackKind
 from backend.rendering.composite import _placed_segments
 from backend.rendering.composition import build_composition
@@ -325,23 +324,30 @@ class TestItLooksAtTheCardFirst:
     2026-08-15 a model *another program* had left resident held 4.7 GB of 8,
     with an expiry in the year 2318; Chromium could not connect, timed out
     after 25 s, and nineteen render-dependent tests failed twenty minutes into
-    each of two full runs.
+    each of two full runs. So the card is read once before Chromium starts,
+    and the pass adapts — fewer pages, one page, or §95's plain cut with a
+    note — instead of failing at the end of a render.
     """
 
     @staticmethod
-    def _fitted(config, free_mb, monkeypatch):
+    def _fitted(config, free_mb, monkeypatch, resident=()):
+        from backend.core.gpu import ResidentModel
         from backend.rendering import remotion as module
 
         monkeypatch.setattr(module, "free_vram_mb", lambda *_, **__: free_mb)
-        monkeypatch.setattr(module, "resident_models", list)
+        monkeypatch.setattr(
+            module,
+            "resident_models",
+            lambda: [ResidentModel(name=name, vram_mb=mb) for name, mb in resident],
+        )
         monkeypatch.setattr(module, "_VRAM_SETTLE_SECONDS", 0.0)
         return module._fitted_to_the_card(config)
 
     def test_a_card_that_frees_itself_is_not_refused(self, config, monkeypatch) -> None:
         # The render before this one has finished and its Chromium has not
         # handed the memory back yet. That resolves in seconds; a model
-        # another program holds does not. Refusing the first would fail every
-        # second render on a busy machine.
+        # another program holds does not. Refusing the first would take the
+        # overlay away from every second render on a busy machine.
         from backend.rendering import remotion as module
 
         readings = iter([600, 4000])
@@ -349,66 +355,129 @@ class TestItLooksAtTheCardFirst:
         monkeypatch.setattr(module, "resident_models", list)
         monkeypatch.setattr(module, "_VRAM_SETTLE_SECONDS", 0.0)
 
-        fitted = module._fitted_to_the_card(config.remotion.model_copy(update={"concurrency": 4}))
+        fitted, skip = module._fitted_to_the_card(
+            config.remotion.model_copy(update={"concurrency": 4})
+        )
 
+        assert skip == ""
         assert fitted.concurrency == 4
 
-    def test_a_full_card_fails_now_rather_than_in_twenty_minutes(self, config, monkeypatch) -> None:
-        with pytest.raises(RenderError) as raised:
-            self._fitted(config.remotion, 509, monkeypatch)
-
-        assert "video memory" in str(raised.value)
-        assert raised.value.recoverable, "closing something and retrying is the fix"
-
-    def test_the_message_names_what_is_holding_the_memory(self, config, monkeypatch) -> None:
-        # An operator told which model holds four gigabytes acts in seconds.
-        # "Out of memory" sends them hunting.
+    def test_a_full_card_skips_the_overlay_and_ships_the_cut(
+        self, composition, config, repo_root: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        # The §95 shape, end to end: not an exception, a result whose reason
+        # a person can act on. Chromium is never started — the patched runner
+        # would fail the test if it were.
         from backend.core.gpu import ResidentModel
         from backend.rendering import remotion as module
 
-        monkeypatch.setattr(module, "free_vram_mb", lambda *_, **__: 400)
+        monkeypatch.setattr(module, "is_available", lambda *_: (True, "ready"))
+        monkeypatch.setattr(module, "free_vram_mb", lambda *_, **__: 412)
         monkeypatch.setattr(
             module,
             "resident_models",
-            lambda: [ResidentModel(name="qwen2.5-coder:7b", vram_mb=4528)],
+            lambda: [ResidentModel(name="qwen2.5-coder:7b", vram_mb=4700)],
         )
-        monkeypatch.setattr(
-            module, "describe_pressure", lambda free: f"{free} MB free; qwen2.5-coder:7b"
+        monkeypatch.setattr(module, "_VRAM_SETTLE_SECONDS", 0.0)
+
+        def chromium_must_not_start(*_args, **_kwargs):
+            raise AssertionError("the full card must keep Chromium from launching")
+
+        monkeypatch.setattr(module, "_run", chromium_must_not_start)
+
+        result = render_overlay(
+            composition,
+            output_path=tmp_path / "unused.webm",
+            config=config.remotion,
+            repo_root=repo_root,
         )
 
-        with pytest.raises(RenderError) as raised:
-            module._fitted_to_the_card(config.remotion)
+        assert result.skipped
+        assert not result.exists
+        assert "412 MB free" in result.reason
+        assert "qwen2.5-coder:7b" in result.reason
+        assert not (tmp_path / "unused.webm").exists()
 
-        assert "qwen2.5-coder:7b" in str(raised.value)
-        assert "qwen2.5-coder:7b (4528 MB)" in raised.value.details["resident_models"]
+    def test_the_reason_names_what_is_holding_the_memory(self, config, monkeypatch) -> None:
+        # An operator told which model holds four gigabytes acts in seconds.
+        # "Out of memory" sends them hunting.
+        fitted, skip = self._fitted(
+            config.remotion, 400, monkeypatch, resident=[("qwen2.5-coder:7b", 4528)]
+        )
 
-    def test_a_tight_card_renders_with_fewer_pages(self, config, monkeypatch) -> None:
+        assert fitted is config.remotion
+        assert "400 MB free" in skip
+        assert "qwen2.5-coder:7b (4528 MB)" in skip
+
+    def test_an_empty_ollama_still_produces_a_reason_that_reads(self, config, monkeypatch) -> None:
+        # A full card with nothing resident means some non-Ollama process has
+        # it; the note must still explain itself rather than trail off.
+        _, skip = self._fitted(config.remotion, 300, monkeypatch)
+
+        assert "300 MB free" in skip
+        assert "something else holds the memory" in skip
+
+    def test_a_nearly_full_card_renders_one_page_at_a_time(self, config, monkeypatch) -> None:
         # Slower is a result. A timeout is not.
         remotion = config.remotion.model_copy(update={"concurrency": 10})
 
-        fitted = self._fitted(remotion, 1500, monkeypatch)
+        fitted, skip = self._fitted(remotion, 900, monkeypatch)
 
-        assert fitted.concurrency == 6, "1500 MB at 250 MB a page"
+        assert skip == ""
+        assert fitted.concurrency == 1
+
+    def test_a_tight_card_renders_with_fewer_pages(self, config, monkeypatch) -> None:
+        remotion = config.remotion.model_copy(update={"concurrency": 10})
+
+        fitted, skip = self._fitted(remotion, 2000, monkeypatch)
+
+        assert skip == ""
+        assert fitted.concurrency == 8, "2000 MB at 250 MB a page"
 
     def test_a_roomy_card_is_left_alone(self, config, monkeypatch) -> None:
         remotion = config.remotion.model_copy(update={"concurrency": 4})
 
-        fitted = self._fitted(remotion, 6000, monkeypatch)
+        fitted, skip = self._fitted(remotion, 6000, monkeypatch)
 
+        assert skip == ""
         assert fitted.concurrency == 4
 
     def test_a_machine_that_cannot_say_is_not_second_guessed(self, config, monkeypatch) -> None:
         # No NVIDIA card, no driver tool, a query that timed out. Reading
         # "unknown" as "empty" is the assumption that caused this defect;
-        # reading it as "full" would break every machine without the card.
-        fitted = self._fitted(config.remotion, None, monkeypatch)
+        # reading it as "full" would take the overlay away from every machine
+        # without the card.
+        fitted, skip = self._fitted(config.remotion, None, monkeypatch)
 
+        assert skip == ""
         assert fitted is config.remotion
 
-    def test_the_check_can_be_turned_off(self, config, monkeypatch) -> None:
-        remotion = config.remotion.model_copy(update={"min_free_vram_mb": 0})
+    def test_a_nonsense_reading_counts_as_unknown(self, config, monkeypatch) -> None:
+        fitted, skip = self._fitted(config.remotion, -1, monkeypatch)
 
-        assert self._fitted(remotion, 10, monkeypatch) is remotion
+        assert skip == ""
+        assert fitted is config.remotion
+
+    def test_the_skip_alone_can_be_turned_off(self, config, monkeypatch) -> None:
+        # 0 disables the skip; the one-page floor still applies.
+        remotion = config.remotion.model_copy(
+            update={"skip_overlay_below_mb": 0, "concurrency": 10}
+        )
+
+        fitted, skip = self._fitted(remotion, 100, monkeypatch)
+
+        assert skip == ""
+        assert fitted.concurrency == 1
+
+    def test_the_whole_check_can_be_turned_off(self, config, monkeypatch) -> None:
+        remotion = config.remotion.model_copy(
+            update={"min_free_vram_mb": 0, "skip_overlay_below_mb": 0}
+        )
+
+        fitted, skip = self._fitted(remotion, 10, monkeypatch)
+
+        assert skip == ""
+        assert fitted is remotion
 
 
 class TestTheDescription:
