@@ -163,6 +163,57 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### Fragmentation was the metric's problem, and the metric now speaks situations (2026-08-27)
+
+The expansion's central finding — 20 of the GTA window's 26 event claims sat
+inside or beside labelled spans and were penalised anyway — pointed at a
+granularity mismatch, not a detector defect. The product already reads the
+correlator's rows through `backend/gaming/episodes.py` (the Critic's
+evidence, the metadata description); the labels are written about
+*situations*; only the evaluator was still scoring raw sightings, so every
+extra sighting of a found firefight counted as a false positive.
+
+**The fix is one reader used one more time.** `read_as_episodes` in
+`backend/quality/metrics.py` runs predictions through the same episode
+reader with its measured 20-second knee: same-type runs become one
+prediction spanning what the run covered at the run's best confidence;
+generic types (`unexpected_event`, `rare_event` — the correlator saying it
+could not name this) pass through unchanged, and so do labels the enum does
+not know, because hiding a claim is not merging it. `scripts/evaluate.py`
+buckets per media (a run must never span recordings), headlines the
+situation-level score and prints the as-stored line beside it — the distance
+between the two *is* the fragmentation, measured.
+
+**Merging found a second bug at the window's edge.** The Grounded collision
+episode now ran 19:53–20:48, straddling the watched window's start, and
+`within_window`'s containment rule discarded it whole — turning the buggy
+fail at 20:41, which its raw part had been finding, into a miss. The rule
+now matches first and judges after: a straddler that finds a label inside
+the window is a true positive (the label sits in watched footage); one that
+finds nothing is discarded as out-of-window rather than counted wrong,
+because its claim may live in the part nobody watched. `boring_overlap`
+likewise counts a straddling moment's in-window boring seconds (Grounded:
+139 s was really 155 s).
+
+Events at situation granularity, every-label, against as-stored:
+
+| window | precision | recall | f1 | as stored |
+| --- | --- | --- | --- | --- |
+| GTA 30:00–40:00 (seed) | **0.35** | 1.00 | 0.52 | 0.26 / 1.00 |
+| GTA 40:00–50:00 (out-of-sample) | **0.53** | 0.82 | 0.64 | 0.35 / 0.82 |
+| Grounded 20:00–30:00 | **0.56** | 0.83 | 0.67 | 0.42 / 0.83 |
+
+No recall was paid anywhere, and what remains on the claimed-not-labelled
+lists is now mostly real: the 41:42–42:24 collision run is the chase
+crashing into Playa Vista (the label ended too early), the 45:34 collision
+is the Surano carjack, the 46:09 `escape` is semantically correct. The
+genuine detector frontier, unchanged by any scoring: the misadventure death
+at 26:36, the night freeway chase whose star row OCR never read, fire, and
+Grounded's invented action on quiet footage — `outplay` during
+base-building, `combat` during foraging — which is where the 155 boring
+seconds come from too. 54 quality tests, two of them written from the
+boundary incident.
+
 ### The golden set triples — two windows, two games, out-of-sample (2026-08-27)
 
 The precision numbers had a documented excuse: 16 labelled spans in one
@@ -1437,3 +1488,4 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-15 | **Phase 0.3 — the profile that never loaded, and the game nobody checked.** `projects.detected_game` had existed since the schema was written with nothing to fill it, so every project resolved to the generic profile and `profiles/gta_v` had never once been used. Worse, the footage is not GTA: the OCR says *Milk Molar*, *Lean-To*, *Dandelion Tuft*, *Soldier Ant Egg* — Grounded, in both real projects. Shipped: a deterministic game recogniser (three signatures and a clear margin, or it stays silent), a `grounded` profile written from measured on-screen text, profile-level fusion rules, and the correction that mattered most — `\bdefeat\b` had been reading the quest tracker *"Defeat the O.R.C. guards at the Milk Molar stash"* as a defeat **19 times in one recording**, making it the most common named event in the project and every one of them wrong. Honest named-event ratio on سبي: **0.22 → 0.55**. Also found: the renderer was starting `node` from `C:\Program Files` rather than the bundled `tools/node`, against the standing rule that nothing depends on the system drive. |
 | 2026-08-14 | **Engineering review of the pass** (8-angle finder fleet, 25 candidates). Fixed: Remotion effects on disabled/trimmed clips now filtered by the same single-owner rule as the FFmpeg half (they previously drew at placeholder positions over unrelated footage); moment event types plumbed from the moments table into the planner (every `events:` trigger list was dead input); text_pop labels only from trigger-listed events (never `UNEXPECTED EVENT`); kill_counter needs ≥2 countable events and carries its tally; stingers obey the effects/realisation switches; legacy `strength` popped, not read; filter chain orders camera moves before frame furniture (a zoom after bars visibly thickened them); letterbox skipped on portrait targets (would cover 76%); realisers are a registry the realisable set derives from; `min_trailing_seconds` floor made honest (0.2) and sub-clearance gaps yield no pause candidate at any `min_pause`; caption RTL decided by UAX#9 first-strong letter, so code-switched Latin-first lines stay LTR. |
 | 2026-08-27 | **Golden set 16 → 53 spans** across three windows and two games; GTA window labelled before analysis (out-of-sample). GTA events P 0.35 / R 0.82 with fragmentation, not hallucination, as the dominant penalty; Grounded first-ever numbers P 0.42 / R 0.83 with 139 s of moments over boring stretches. `scripts/analyse_cut.py` added; dataset tests parametrised over `datasets/*`. |
+| 2026-08-27 | **Evaluation moves to situation granularity.** `read_as_episodes` scores events through the product's own episode reader (generics pass through); straddling predictions match first, judged after (a boundary episode had turned a found label into a miss). Seed 0.26→0.35, GTA out-of-sample 0.35→0.53, Grounded 0.42→0.56 precision, recall unpaid everywhere. |

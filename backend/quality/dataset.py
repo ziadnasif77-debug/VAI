@@ -204,6 +204,17 @@ class AnnotatedRecording(_Model):
         window_start, window_end = self.window
         return start >= window_start - 1e-6 and end <= window_end + 1e-6
 
+    def overlaps_window(self, start: float, end: float) -> bool:
+        """Whether any of a prediction covers footage that was watched.
+
+        Weaker than :meth:`within_window`, and needed at the boundary: a
+        situation that began before the window and ran into it is a claim
+        about watched footage too. What lies entirely outside stays neither
+        right nor wrong.
+        """
+        window_start, window_end = self.window
+        return end > window_start - 1e-6 and start < window_end + 1e-6
+
 
 class GoldenDataset(_Model):
     """The benchmark: several recordings, each annotated (§117)."""

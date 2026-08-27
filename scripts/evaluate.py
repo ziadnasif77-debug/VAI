@@ -26,7 +26,7 @@ from backend.config.loader import load_config
 from backend.config.paths import build_paths
 from backend.database.connection import Database
 from backend.quality.dataset import AnnotatedRecording, load_dataset
-from backend.quality.metrics import Prediction, evaluate
+from backend.quality.metrics import Prediction, evaluate, read_as_episodes
 from backend.quality.user_edits import measure_project
 
 
@@ -37,25 +37,48 @@ def timecode(seconds: float) -> str:
 
 def predictions_from(
     database: Database, project_id: str, table: str, offset: float
-) -> list[Prediction]:
+) -> list[tuple[str, Prediction]]:
+    """(media_id, prediction) pairs -- the media id so episode grouping never
+    reaches across recordings: the same seconds on two recordings are
+    different footage."""
     label_column = "event_type" if table == "game_events" else "moment_type"
     rows = database.fetch_all(
-        f"SELECT start_seconds, end_seconds, {label_column} AS label, confidence "
+        f"SELECT media_id, start_seconds, end_seconds, {label_column} AS label, confidence "
         f"FROM {table} WHERE project_id = ? ORDER BY start_seconds",
         (project_id,),
     )
     return [
-        Prediction(
-            start_seconds=float(row["start_seconds"]) + offset,
-            end_seconds=float(row["end_seconds"]) + offset,
-            label=str(row["label"]),
-            confidence=float(row["confidence"] or 0.0),
+        (
+            str(row["media_id"]),
+            Prediction(
+                start_seconds=float(row["start_seconds"]) + offset,
+                end_seconds=float(row["end_seconds"]) + offset,
+                label=str(row["label"]),
+                confidence=float(row["confidence"] or 0.0),
+            ),
         )
         for row in rows
     ]
 
 
-def report(recording: AnnotatedRecording, evaluation, *, certain_only: bool) -> None:
+def as_situations(pairs: list[tuple[str, Prediction]]) -> list[Prediction]:
+    """Every recording's events through the episode reader, then together."""
+    by_media: dict[str, list[Prediction]] = {}
+    for media_id, prediction in pairs:
+        by_media.setdefault(media_id, []).append(prediction)
+    merged: list[Prediction] = []
+    for bucket in by_media.values():
+        merged.extend(read_as_episodes(bucket))
+    return sorted(merged, key=lambda item: item.start_seconds)
+
+
+def report(
+    recording: AnnotatedRecording, evaluation, raw_events=None, *, certain_only: bool
+) -> None:
+    """``evaluation`` is scored at situation granularity (events through the
+    episode reader); ``raw_events`` is the same window scored on the stored
+    rows, printed as the diagnostic line -- the distance between the two is
+    the fragmentation, measured."""
     scope = "certain labels only" if certain_only else "every label"
     print(f"\n--- {Path(recording.source_path).name}  ({scope}) ---")
     print(f"    watched {timecode(recording.window[0])} to {timecode(recording.window[1])}")
@@ -74,6 +97,13 @@ def report(recording: AnnotatedRecording, evaluation, *, certain_only: bool) -> 
             print(f"           {score.out_of_window} discarded: outside the watched window")
         if score.excluded:
             print(f"           {score.excluded} labels excluded as opinion")
+        if name == "events" and raw_events is not None:
+            raw = raw_events.as_dict()
+            print(
+                f"           as stored, pre-episode: precision {raw['precision']:.2f}"
+                f"  recall {raw['recall']:.2f}"
+                f"  ({raw_events.false_positives} extra sightings penalised)"
+            )
 
     print(
         f"\n  boring   {evaluation.boring_selected} selected moment(s) overlap a stretch "
@@ -132,11 +162,16 @@ def main() -> int:
 
     database = Database(paths.database_path, config.application.database)
     try:
-        events = predictions_from(database, args.project, "game_events", args.offset)
-        moments = predictions_from(database, args.project, "moments", args.offset)
+        event_pairs = predictions_from(database, args.project, "game_events", args.offset)
+        moments = [
+            prediction
+            for _, prediction in predictions_from(database, args.project, "moments", args.offset)
+        ]
+        events = [prediction for _, prediction in event_pairs]
+        situations = as_situations(event_pairs)
         print(
-            f"stored:  {len(events)} game events, {len(moments)} moments "
-            f"(offset {args.offset:g}s)"
+            f"stored:  {len(events)} game events read as {len(situations)} situations, "
+            f"{len(moments)} moments (offset {args.offset:g}s)"
         )
         if not events and not moments:
             print("FAILED: this project has nothing stored. Has it been analysed?")
@@ -145,7 +180,12 @@ def main() -> int:
         for certain_only in (False, True):
             report(
                 recording,
-                evaluate(recording, events=events, moments=moments, certain_only=certain_only),
+                evaluate(
+                    recording, events=situations, moments=moments, certain_only=certain_only
+                ),
+                evaluate(
+                    recording, events=events, moments=moments, certain_only=certain_only
+                ).events,
                 certain_only=certain_only,
             )
 

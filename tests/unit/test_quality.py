@@ -37,6 +37,7 @@ from backend.quality.metrics import (
     boring_overlap,
     duration_error,
     evaluate,
+    read_as_episodes,
     render_failure_rate,
     score_events,
     score_moments,
@@ -229,12 +230,38 @@ class TestTheWindow:
         assert score.false_positives == 0
         assert score.out_of_window == 1
 
-    def test_a_prediction_straddling_the_edge_is_discarded_too(self) -> None:
+    def test_a_straddler_that_finds_nothing_is_discarded_too(self) -> None:
+        # Its claim may live in the twenty seconds nobody watched.
         score, _, _ = score_events(
             [Prediction(590.0, 620.0)], recording(event(100.0, 110.0), watched=(0.0, 600.0))
         )
 
         assert score.out_of_window == 1
+        assert score.false_positives == 0
+
+    def test_a_straddler_covering_an_inside_label_is_a_find(self) -> None:
+        # An episode that began before the window and ran into it covers
+        # watched footage. Discarding it turned a found label into a miss the
+        # day episode merging reached the boundary: the Grounded collision
+        # running 19:53-20:48 against the buggy fail labelled at 20:41.
+        score, _, _ = score_events(
+            [Prediction(590.0, 620.0)],
+            recording(event(600.0, 608.0), watched=(595.0, 1200.0)),
+        )
+
+        assert score.true_positives == 1
+        assert score.out_of_window == 0
+
+    def test_a_straddling_moment_still_answers_for_its_boring_seconds(self) -> None:
+        subject = recording(
+            Span(kind=SpanKind.BORING, start_seconds=100.0, end_seconds=200.0),
+            watched=(50.0, 600.0),
+        )
+
+        count, seconds = boring_overlap([Prediction(40.0, 130.0)], subject)
+
+        assert count == 1
+        assert seconds == pytest.approx(30.0)
 
 
 class TestOpinions:
@@ -338,6 +365,62 @@ class TestEvaluatingOneRecording:
 
         assert len(result.misses) == 1
         assert result.misses[0].start_seconds == 300.0
+
+
+class TestReadAsEpisodes:
+    """Scoring speaks the product's granularity, through the product's reader."""
+
+    def test_a_same_type_run_becomes_one_prediction(self) -> None:
+        merged = read_as_episodes(
+            [
+                Prediction(10.0, 11.0, "combat", 0.8),
+                Prediction(18.0, 19.0, "combat", 0.9),
+                Prediction(25.0, 26.0, "combat", 0.7),
+            ]
+        )
+
+        assert len(merged) == 1
+        assert (merged[0].start_seconds, merged[0].end_seconds) == (10.0, 26.0)
+        # An episode is as certain as its clearest sighting, not the average.
+        assert merged[0].confidence == 0.9
+
+    def test_a_gap_beyond_the_knee_splits_the_run(self) -> None:
+        merged = read_as_episodes(
+            [Prediction(10.0, 11.0, "combat"), Prediction(40.0, 41.0, "combat")]
+        )
+
+        assert len(merged) == 2
+
+    def test_different_types_never_merge(self) -> None:
+        merged = read_as_episodes(
+            [Prediction(10.0, 11.0, "combat"), Prediction(12.0, 13.0, "collision")]
+        )
+
+        assert {item.label for item in merged} == {"combat", "collision"}
+
+    def test_generic_claims_pass_through_and_do_not_break_a_run(self) -> None:
+        # `unexpected_event` is the correlator saying it could not name this.
+        # It stays on the table as its own claim -- hiding it would flatter
+        # precision -- and the named run continues across it, exactly as the
+        # product's own reading does.
+        merged = read_as_episodes(
+            [
+                Prediction(10.0, 11.0, "combat"),
+                Prediction(14.0, 15.0, "unexpected_event"),
+                Prediction(18.0, 19.0, "combat"),
+            ]
+        )
+
+        assert [item.label for item in merged] == ["combat", "unexpected_event"]
+        assert (merged[0].start_seconds, merged[0].end_seconds) == (10.0, 19.0)
+
+    def test_a_label_the_enum_does_not_know_passes_through(self) -> None:
+        merged = read_as_episodes([Prediction(10.0, 11.0, "not_a_type", 0.5)])
+
+        assert merged == [Prediction(10.0, 11.0, "not_a_type", 0.5)]
+
+    def test_empty_in_empty_out(self) -> None:
+        assert read_as_episodes([]) == []
 
 
 _DATASETS = sorted(

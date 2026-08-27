@@ -246,7 +246,7 @@ def boring_overlap(
     count = 0
     seconds = 0.0
     for prediction in predictions:
-        if not recording.within_window(prediction.start_seconds, prediction.end_seconds):
+        if not recording.overlaps_window(prediction.start_seconds, prediction.end_seconds):
             continue
         overlap = sum(
             span.overlaps(prediction.start_seconds, prediction.end_seconds) for span in boring
@@ -357,15 +357,26 @@ def _match(
     making the result harder to explain than the thing it measures.
     """
     inside: list[Prediction] = []
+    boundary: list[Prediction] = []
     out_of_window = 0
     for prediction in predictions:
         if recording.within_window(prediction.start_seconds, prediction.end_seconds):
             inside.append(prediction)
+        elif recording.overlaps_window(prediction.start_seconds, prediction.end_seconds):
+            boundary.append(prediction)
         else:
             out_of_window += 1
 
+    # A prediction straddling the window's edge is matched first and judged
+    # after. One that finds a label inside is a true positive -- the label
+    # sits in watched footage, and discarding its finder turned a found label
+    # into a miss the day episodes reached the boundary (the Grounded
+    # collision running 19:53-20:48 against the buggy fail at 20:41). One
+    # that finds nothing is discarded rather than counted wrong, because its
+    # claim may live in the part nobody watched.
+    pool = inside + boundary
     candidates: list[tuple[float, int, int]] = []
-    for prediction_index, prediction in enumerate(inside):
+    for prediction_index, prediction in enumerate(pool):
         for label_index, span in enumerate(labels):
             score = distance(prediction, span)
             if score is not None:
@@ -382,10 +393,10 @@ def _match(
 
     matches = tuple(
         Match(
-            prediction=inside[prediction_index],
+            prediction=pool[prediction_index],
             span=labels[label_index],
             overlap_seconds=labels[label_index].overlaps(
-                inside[prediction_index].start_seconds, inside[prediction_index].end_seconds
+                pool[prediction_index].start_seconds, pool[prediction_index].end_seconds
             ),
         )
         for prediction_index, (label_index, _) in sorted(paired_predictions.items())
@@ -397,14 +408,80 @@ def _match(
     )
     misses = tuple(span for index, span in enumerate(labels) if index not in paired_labels)
 
+    unmatched_boundary = sum(
+        1 for index in range(len(inside), len(pool)) if index not in paired_predictions
+    )
     score = Score(
         true_positives=len(paired_labels),
-        false_positives=len(inside) - len(paired_predictions),
+        false_positives=len(unmatched),
         false_negatives=len(misses),
         excluded=excluded,
-        out_of_window=out_of_window,
+        out_of_window=out_of_window + unmatched_boundary,
     )
     return score, matches + unmatched, misses
+
+
+def read_as_episodes(predictions: Sequence[Prediction]) -> list[Prediction]:
+    """The stored events, re-read at the granularity the labels are written at.
+
+    The correlator's rows are working notes: "links not merges" deliberately
+    kept every sighting, so one firefight is stored as however many times it
+    was seen. The product already reads those notes through
+    :mod:`backend.gaming.episodes` (the Critic's evidence, the metadata), and
+    a labelled span is a claim about a *situation*, not a sighting — scoring
+    raw rows against it counts each extra sighting of a found situation as a
+    false positive, which measures the granularity mismatch rather than the
+    detector. Measured where this was built: 20 of the GTA window's 26
+    predictions sat inside or beside labelled spans and were penalised anyway.
+
+    So: the same reader, the same measured knee. Same-type runs become one
+    prediction spanning what the run covered, at the run's best confidence
+    (an episode is as certain as its clearest sighting). Generic types — the
+    correlator saying it could not name this — pass through unchanged, and so
+    does any label the enum does not know: merging is for situations, and
+    hiding a claim is not merging it.
+
+    Callers with more than one recording in hand must bucket first: seconds on
+    two different recordings are different footage, and a run must never span
+    them.
+    """
+    from types import SimpleNamespace
+
+    from backend.core.models.enums import GameEventType
+    from backend.gaming import episodes as episode_reader
+    from backend.gaming.correlation import GENERIC_TYPES
+
+    named: list[SimpleNamespace] = []
+    passthrough: list[Prediction] = []
+    for prediction in predictions:
+        try:
+            kind = GameEventType(prediction.label)
+        except ValueError:
+            passthrough.append(prediction)
+            continue
+        if kind in GENERIC_TYPES:
+            passthrough.append(prediction)
+            continue
+        named.append(
+            SimpleNamespace(
+                event_type=kind,
+                start_seconds=prediction.start_seconds,
+                end_seconds=prediction.end_seconds,
+                confidence=prediction.confidence,
+                sources=(),
+            )
+        )
+
+    merged = [
+        Prediction(
+            start_seconds=episode.start_seconds,
+            end_seconds=episode.end_seconds,
+            label=episode.event_type.value,
+            confidence=episode.confidence,
+        )
+        for episode in episode_reader.read(named, media_id="").episodes
+    ]
+    return sorted(merged + passthrough, key=lambda item: item.start_seconds)
 
 
 __all__ = [
@@ -417,6 +494,7 @@ __all__ = [
     "boring_overlap",
     "duration_error",
     "evaluate",
+    "read_as_episodes",
     "render_failure_rate",
     "score_events",
     "score_moments",
