@@ -473,9 +473,7 @@ class InteractionService:
             )
         return InteractionResult(
             interaction_type=InteractionType.EDITING_INSTRUCTION,
-            message=phrases.say(
-                "brief_updated", summary=self._resolver.describe(intent, phrases)
-            ),
+            message=phrases.say("brief_updated", summary=self._resolver.describe(intent, phrases)),
             intent=intent,
             # The intent feeds the STORY stage onward; the analysis is untouched.
             requires_rerender=True,
@@ -570,6 +568,16 @@ class InteractionService:
                 recoverable=False,
             )
         return seconds
+
+    def snapshot(self, project_id: str, *, reason: str) -> EditVersion:
+        """Record the edit as it stands, so the next change is undoable (§78).
+
+        Public because two doors lead to the same timeline: the chat commands
+        (which always snapshotted) and the timeline screen's buttons (which
+        did not, so "undo" silently could not cover exactly the edits people
+        make most). One snapshot path, whoever asks.
+        """
+        return self._snapshot(project_id, reason=reason)
 
     def _snapshot(self, project_id: str, *, reason: str) -> EditVersion:
         clips = [

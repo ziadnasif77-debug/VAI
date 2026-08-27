@@ -327,6 +327,9 @@ export const api = {
       post<Timeline>(`/projects/${projectId}/timeline/operations`, operation),
     regenerate: (projectId: string) =>
       post<{queued: string[]; message: string}>(`/projects/${projectId}/generate-edit`),
+    /** Undo: restore the most recent snapshot (every operation makes one). */
+    revert: (projectId: string, version?: number) =>
+      post<Timeline>(`/projects/${projectId}/timeline/revert`, {version: version ?? null}),
   },
 
   render: {

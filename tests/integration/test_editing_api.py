@@ -355,3 +355,60 @@ class TestServingFiles:
         response = api_client.get(f"/api/projects/{project['id']}/files/renders/whole.bin")
 
         assert response.headers.get("accept-ranges") == "bytes"
+
+
+class TestUndo:
+    """§78's "remove that bit has to be undoable", finally true for the screen.
+
+    The chat commands always snapshotted before changing the timeline; the
+    screen's operation endpoint reached the same timeline without doing so, so
+    edit-versions silently could not cover exactly the edits people make most.
+    Every operation now snapshots the state *before* it, and one revert route
+    serves both doors.
+    """
+
+    def _first_clip(self, api_client, project_id: str) -> dict:
+        return api_client.get(f"/api/projects/{project_id}/timeline").json()["clips"][0]
+
+    def test_an_operation_snapshots_the_state_before_it(
+        self, api_client, project, timeline
+    ) -> None:
+        project_id = project["id"]
+        before = api_client.get(f"/api/projects/{project_id}/edit-versions").json()
+        clip = self._first_clip(api_client, project_id)
+
+        api_client.post(
+            f"/api/projects/{project_id}/timeline/operations",
+            json={"action": "delete", "clip_id": clip["id"]},
+        )
+
+        after = api_client.get(f"/api/projects/{project_id}/edit-versions").json()
+        assert len(after["items"]) == len(before["items"]) + 1
+
+    def test_revert_restores_what_the_last_operation_changed(
+        self, api_client, project, timeline
+    ) -> None:
+        project_id = project["id"]
+        clip = self._first_clip(api_client, project_id)
+        api_client.post(
+            f"/api/projects/{project_id}/timeline/operations",
+            json={"action": "delete", "clip_id": clip["id"]},
+        )
+
+        response = api_client.post(
+            f"/api/projects/{project_id}/timeline/revert", json={"version": None}
+        )
+
+        assert response.status_code == 200
+        restored = next(item for item in response.json()["clips"] if item["id"] == clip["id"])
+        assert restored["enabled"] is True
+
+    def test_revert_with_nothing_to_revert_is_a_clear_answer(
+        self, api_client, project, timeline
+    ) -> None:
+        response = api_client.post(
+            f"/api/projects/{project['id']}/timeline/revert", json={"version": 999}
+        )
+
+        assert response.status_code == 404
+        assert "version" in response.json()["message"].lower()

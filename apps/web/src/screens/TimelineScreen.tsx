@@ -165,6 +165,24 @@ export function TimelineScreen({
 
       <section className="panel">
         <div className="row">
+          <button
+            type="button"
+            onClick={() => void (async () => {
+              setBusy(true);
+              setRefusal(null);
+              try {
+                await api.timeline.revert(project.id);
+                timeline.refresh();
+              } catch (failure) {
+                fail(null, failure);
+              } finally {
+                setBusy(false);
+              }
+            })()}
+            disabled={busy}
+          >
+            Undo last edit
+          </button>
           <button type="button" onClick={() => void regenerate()} disabled={busy}>
             Rebuild edit
           </button>

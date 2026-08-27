@@ -38,6 +38,8 @@ from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.qa import QaRepository
 from backend.database.repositories.renders import RenderRepository
 from backend.database.repositories.timeline import TimelineRepository
+from backend.interaction.models import CommandKind, EditCommand
+from backend.interaction.service import InteractionService
 from backend.services.job_manager import JobManager
 from backend.services.project_manager import ProjectManager
 from backend.timeline import operations, validation
@@ -229,9 +231,7 @@ def list_moments(
     repository = MomentRepository(state.database)
     media = MediaRepository(state.database).list_for_project(project_id)
 
-    collected = [
-        moment for item in media for moment in repository.list_for_media(item.id)
-    ]
+    collected = [moment for item in media for moment in repository.list_for_media(item.id)]
     by_type: dict[str, int] = {}
     for moment in collected:
         by_type[moment.moment_type.value] = by_type.get(moment.moment_type.value, 0) + 1
@@ -239,8 +239,7 @@ def list_moments(
     filtered = [
         moment
         for moment in collected
-        if (moment_type is None or moment.moment_type is moment_type)
-        and moment.score >= min_score
+        if (moment_type is None or moment.moment_type is moment_type) and moment.score >= min_score
     ]
     filtered.sort(key=lambda moment: -moment.score)
     page = filtered[:limit]
@@ -290,8 +289,56 @@ def apply_operation(
             detail=f"No clip {operation.clip_id!r} on this timeline.",
         )
 
+    # The state *before* the change is what "undo" must return to. The chat
+    # commands always snapshotted; the screen's buttons reach the same
+    # timeline, so they carry the same obligation (§78) -- without this,
+    # edit-versions silently could not cover exactly the edits people make
+    # most.
+    interaction = InteractionService(state.database, state.config)
+    interaction.snapshot(project_id, reason=f"before {operation.action} on {operation.clip_id}")
     edited = _apply(timeline, operation)
     repository.save_edit(project_id, edited)
+    return _timeline_response(project_id, state)
+
+
+class RevertBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: A specific version, or nothing for the most recent snapshot.
+    version: int | None = Field(default=None, ge=1)
+
+
+@router.post("/projects/{project_id}/timeline/revert", response_model=TimelineResponse)
+def revert_timeline(
+    project_id: str,
+    body: RevertBody,
+    projects: ProjectManager = Depends(get_projects),
+    state=Depends(get_state),
+) -> TimelineResponse:
+    """Undo: restore a snapshot and hand back the timeline as it now stands.
+
+    The same restore the chat's "revert" command uses -- one path, two doors.
+    No version means the most recent snapshot, which after any operation is
+    the state just before it.
+    """
+    projects.get(project_id)
+    interaction = InteractionService(state.database, state.config)
+    version = body.version
+    if version is None:
+        # "Undo" with no argument means the most recent snapshot -- resolved
+        # here because the command model rightly refuses a version-less
+        # revert: at the command layer, vagueness is how the wrong edit
+        # gets restored.
+        recorded = interaction.versions(project_id)
+        if not recorded:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="There is no recorded version to undo to yet.",
+            )
+        version = max(item.version for item in recorded)
+    interaction.apply_command(
+        project_id, EditCommand(kind=CommandKind.REVERT_VERSION, version=version)
+    )
     return _timeline_response(project_id, state)
 
 
@@ -354,9 +401,7 @@ def render_status(
         None,
     )
     latest = RenderRepository(state.database).latest(project_id)
-    qa_job = next(
-        (item for item in jobs.list_jobs(project_id) if item.stage is JobStage.QA), None
-    )
+    qa_job = next((item for item in jobs.list_jobs(project_id) if item.stage is JobStage.QA), None)
     blocked = bool((qa_job.result or {}).get("blocks_export")) if qa_job else False
     return RenderStatusResponse(
         project_id=project_id,
@@ -392,9 +437,7 @@ def get_qa(
     ]
     failures = [item for item in findings if item.qa_status is QAStatus.FAILED]
     warnings = [item for item in findings if item.qa_status is QAStatus.WARNING]
-    overall = (
-        QAStatus.FAILED if failures else QAStatus.WARNING if warnings else QAStatus.PASSED
-    )
+    overall = QAStatus.FAILED if failures else QAStatus.WARNING if warnings else QAStatus.PASSED
     return QaResponse(
         project_id=project_id,
         render_id=render_id,
@@ -422,11 +465,7 @@ def list_events(
     repository = GameEventRepository(state.database)
     media = MediaRepository(state.database).list_for_project(project_id)
 
-    collected = [
-        (item.id, event)
-        for item in media
-        for event in repository.list_for_media(item.id)
-    ]
+    collected = [(item.id, event) for item in media for event in repository.list_for_media(item.id)]
     by_type: dict[str, int] = {}
     for _, event in collected:
         name = event.event_type.value
@@ -470,9 +509,7 @@ def _moment_view(moment) -> MomentView:
         duration_seconds=round(moment.context_duration, 3),
         score=round(moment.score, 4),
         confidence=round(moment.confidence, 4),
-        score_breakdown={
-            name: round(value, 4) for name, value in moment.score_breakdown.items()
-        },
+        score_breakdown={name: round(value, 4) for name, value in moment.score_breakdown.items()},
         explanation=list(moment.explanation),
         needs_review=bool(moment.metadata.get("needs_review", False)),
         user_state=str(moment.metadata.get("user_state", "auto")),
@@ -541,9 +578,7 @@ def _apply(timeline, operation: TimelineOperation):
     except ValidationError as error:
         # A refused edit is the user asking for something impossible, not a
         # server fault: 422 with the reason the operation gave.
-        raise HTTPException(
-            status_code=_UNPROCESSABLE, detail=str(error)
-        ) from error
+        raise HTTPException(status_code=_UNPROCESSABLE, detail=str(error)) from error
 
 
 def _missing(action: str, field: str) -> ValidationError:
