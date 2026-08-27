@@ -202,3 +202,7 @@ the system temp directory. Both are gitignored.
 
 Tests never touch the real `projects/` directory or database — every fixture is
 rooted in a temporary directory.
+
+## License
+
+[MIT](LICENSE).
