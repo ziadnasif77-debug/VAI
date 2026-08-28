@@ -434,7 +434,13 @@ class JobManager:
         through a project's media rather than finishing one file completely.
         """
         completed = self._jobs.completed_stages(project_id)
-        ready = set(runnable_stages(completed))
+        # include_manual: SS51 forbids QUEUEING a delivery uninvited, and that
+        # rule lives at queue time. A delivery job that exists in the queue
+        # was asked for -- the Export screen's button, or the project's own
+        # auto-publish flag -- and a worker that refuses to run it strands an
+        # explicit instruction forever. Found live: the first real upload sat
+        # queued four minutes behind a healthy idle worker.
+        ready = set(runnable_stages(completed, include_manual=True))
         for job in self._jobs.list_for_project(project_id):
             if job.status is not JobStatus.QUEUED:
                 continue

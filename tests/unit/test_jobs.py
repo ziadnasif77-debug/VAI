@@ -573,6 +573,29 @@ class TestBackfillOfStagesTheGraphGainedLater:
 
 
 class TestScheduling:
+    def test_an_explicitly_queued_delivery_is_runnable(
+        self, job_manager: JobManager, project_id: str, media_id: str
+    ) -> None:
+        # §51 lives at queue time: nothing queues a delivery uninvited. But a
+        # PUBLISH job that exists was asked for -- the button or the project's
+        # auto-publish flag -- and the worker must run it. Found live: the
+        # first real upload sat queued behind a healthy idle worker, because
+        # the frontier was computed without manual stages.
+        from backend.services.job_manager import PER_MEDIA_STAGES
+
+        for stage in automatic_stages():
+            per_media = stage in PER_MEDIA_STAGES
+            job = job_manager.queue(
+                project_id, stage, media_id=media_id if per_media else None
+            )
+            job_manager.start(job.id)
+            job_manager.complete(job.id, result={})
+        queued = job_manager.queue(project_id, JobStage.PUBLISH)
+
+        nxt = job_manager.next_runnable(project_id)
+
+        assert nxt is not None and nxt.id == queued.id
+
     def test_next_runnable_starts_with_import(
         self, job_manager: JobManager, project_id: str, media_id: str
     ) -> None:
