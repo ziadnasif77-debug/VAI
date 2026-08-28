@@ -31,33 +31,34 @@ from backend.core.models.enums import FrameState
 
 logger = get_logger("analysis.recorder_probe", LogChannel.PIPELINE)
 
-#: Words the recorder writes on itself and no game writes on a frame.
-#: Arabic first: this machine's OBS runs in Arabic.
-RECORDER_WORDS: Final[re.Pattern[str]] = re.compile(
-    "|".join(
-        (
-            r"\bOBS\b",
-            "بدء البث",
-            "إيقاف التسجيل",
-            "بدء التسجيل",
-            "المشاهد",
-            "المصادر",
-            "خالط الصوتيات",
-            "طور الاستوديو",
-            r"\bStart Streaming\b",
-            r"\bStop Recording\b",
-            r"\bStart Recording\b",
-            r"\bScenes\b",
-            r"\bSources\b",
-            r"\bAudio Mixer\b",
-            r"\bStudio Mode\b",
-        )
-    )
+#: Signature classes, matched against what this machine's OCR *actually*
+#: emits on an OBS frame -- measured, not imagined. The first draft looked
+#: for OBS's Arabic chrome and found nothing: the shipped EasyOCR carries no
+#: Arabic, reads that chrome as mangled Latin, and scores the title-bar
+#: "OBS 32.1.1" at 0.22. What it reads reliably (0.7-1.0) is the *status*
+#: chrome: the FPS readout, CPU percentage, dB meters, "0 hidden",
+#: "Options". Any one of those can appear in a game overlay, so a frame is
+#: called a recorder only when **two different classes** agree.
+RECORDER_SIGNATURES: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"OBS[\s\d.]", re.IGNORECASE),
+    re.compile(r"\d+\.\d+\s*/\s*\d+\.\d+\s*FPS", re.IGNORECASE),
+    re.compile(r"CPU:?\s*\d", re.IGNORECASE),
+    re.compile(r"-?\d+(?:\.\d+)?\s*dB\b"),
+    re.compile(r"\b\d+\s*hidden\b", re.IGNORECASE),
+    re.compile(r"\bOptions\b"),
+    re.compile(r"\bStudio Mode\b|\bAudio Mixer\b|\bSources\b|\bScenes\b"),
+    re.compile("بدء البث|إيقاف التسجيل|بدء التسجيل|خالط الصوتيات|طور الاستوديو"),
 )
 
+#: How many distinct signature classes make the verdict.
+_REQUIRED_CLASSES: Final[int] = 2
+
 #: Where the probe looks, in seconds. Dense where recorders live, thinning
-#: out; past half a minute the vision model's own samples carry the watch.
-PROBE_OFFSETS: Final[tuple[float, ...]] = (0.5, 2.0, 4.0, 6.5, 9.0, 12.0, 16.0, 21.0, 27.0)
+#: out. Reaches a full minute because the owner alt-tabs back: OBS was on
+#: screen again at 22 seconds of a real recording.
+PROBE_OFFSETS: Final[tuple[float, ...]] = (
+    0.5, 2.0, 4.0, 6.5, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 28.0, 33.0, 40.0, 50.0, 60.0
+)
 
 #: A hit at ``t`` condemns this much around it; merged when they touch.
 _BACK_SECONDS: Final[float] = 2.5
@@ -94,8 +95,9 @@ def recorder_spans(
                         str(source),
                         "-frames:v",
                         "1",
-                        "-vf",
-                        "scale=960:-2",
+                        # Native resolution on purpose: at 960 wide the
+                        # recorder's status text OCRed to nothing (3
+                        # detections, 0 classes); at source size, 27 and 6.
                         str(frame),
                     ],
                     timeout_seconds=60,
@@ -105,13 +107,14 @@ def recorder_spans(
             if not frame.is_file():
                 continue
             try:
-                detections = ocr.read(frame, min_confidence=0.3)
+                detections = ocr.read(frame, min_confidence=0.15)
             except Exception:
                 continue
             finally:
                 frame.unlink(missing_ok=True)
             joined = " ".join(str(item.text) for item in detections)
-            if RECORDER_WORDS.search(joined):
+            classes = sum(1 for pattern in RECORDER_SIGNATURES if pattern.search(joined))
+            if classes >= _REQUIRED_CLASSES:
                 hits.append(offset)
     except Exception:
         logger.exception("The recorder probe could not run; sampled detectors stand alone")
@@ -136,4 +139,4 @@ def recorder_spans(
     return spans
 
 
-__all__ = ["PROBE_OFFSETS", "RECORDER_WORDS", "recorder_spans"]
+__all__ = ["PROBE_OFFSETS", "RECORDER_SIGNATURES", "recorder_spans"]

@@ -57,3 +57,11 @@ not a review.
 An empty list of notes is a real answer and often the right one. A review that
 finds a problem with everything is as useless as one that finds a problem with
 nothing — and here it is worse, because each note costs the viewer footage.
+
+The owner's filter, which is also yours: every second that survives your
+review must hold the viewer, be understandable, carry emotional weight,
+emphasise something real, keep the pace, or serve the story. A clip that
+does none of these is what `drop` is for; an opening that wastes the first
+seconds is what `trim_start` is for. The viewer should feel
+SETUP → TENSION → PAYOFF, and boredom in the first fifteen seconds costs
+more than anywhere else.

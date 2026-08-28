@@ -181,7 +181,7 @@ class TestRecorderProbe:
         from ai.ocr.fake_provider import FakeOcrProvider
         from backend.analysis.recorder_probe import recorder_spans
 
-        ocr = FakeOcrProvider(default=[("بدء البث", 0.9), ("المشاهد", 0.8)])
+        ocr = FakeOcrProvider(default=[("60.00 / 60.00 FPS", 0.9), ("CPU: 3.8%", 0.8)])
 
         spans = recorder_spans(
             tmp_path / "recording.mkv",
@@ -200,7 +200,10 @@ class TestRecorderProbe:
         from ai.ocr.fake_provider import FakeOcrProvider
         from backend.analysis.recorder_probe import recorder_spans
 
-        ocr = FakeOcrProvider(default=[("Purchase the Omni Shovel upgrade", 0.9)])
+        # One class alone -- a game's own FPS overlay -- must not condemn.
+        ocr = FakeOcrProvider(
+            default=[("Purchase the Omni Shovel upgrade", 0.9), ("60.00 / 60.00 FPS", 0.9)]
+        )
 
         spans = recorder_spans(
             tmp_path / "recording.mkv",
@@ -236,3 +239,49 @@ class TestRecorderProbe:
         )
 
         assert guarded[0].source_start == pytest.approx(12.4)
+
+
+class TestDeadInteriors:
+    """A dead span inside a clip splits it; the opening guard alone let the
+    recorder sail through mid-clip on a real rerun."""
+
+    def test_a_mid_clip_dead_span_is_excised(self) -> None:
+        states = [StateSpan(FrameState.DESKTOP, 18.5, 24.5)]
+
+        guarded = guard_clips(
+            [_clip(12.9, 41.6)],
+            states_by_media={"media-1": states},
+            scenes_by_media={},
+            dead_state_pad_seconds=0.4,
+            min_piece_seconds=5.0,
+        )
+
+        bounds = [(clip.source_start, clip.source_end) for clip in guarded]
+        assert bounds == [
+            (12.9, 18.5),
+            (pytest.approx(24.9), 41.6),
+        ]
+
+    def test_a_short_stub_before_the_dead_span_is_dropped(self) -> None:
+        states = [StateSpan(FrameState.DESKTOP, 15.0, 30.0)]
+
+        guarded = guard_clips(
+            [_clip(12.9, 60.0)],
+            states_by_media={"media-1": states},
+            scenes_by_media={},
+            min_piece_seconds=8.0,
+        )
+
+        bounds = [(clip.source_start, clip.source_end) for clip in guarded]
+        assert bounds == [(pytest.approx(30.4), 60.0)]
+
+    def test_a_clip_entirely_dead_disappears(self) -> None:
+        states = [StateSpan(FrameState.DESKTOP, 10.0, 60.0)]
+
+        guarded = guard_clips(
+            [_clip(15.0, 40.0)],
+            states_by_media={"media-1": states},
+            scenes_by_media={},
+        )
+
+        assert guarded == []

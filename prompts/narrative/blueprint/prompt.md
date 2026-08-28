@@ -34,3 +34,10 @@ Rules:
   to earn itself.
 - `reason` is read by a person asking why the video opens where it does. Write
   it for them.
+- **The owner's filter.** Every choice you make must answer at least one:
+  does it hold the viewer, improve understanding, raise emotional impact,
+  emphasise a real event, improve pacing, or strengthen the story? A beat
+  that answers none of these does not belong in the order. The grammar you
+  are building is SETUP → BUILDUP → TENSION → PAYOFF → REACTION — a viewer
+  should feel progression, and the strongest opening you can honestly make
+  is the one the first fifteen seconds get.

@@ -64,8 +64,8 @@ PROMPT_VERSIONS: Final[dict[str, int]] = {
     # each -- by index, so a name it invented cannot be matched back to
     # footage by guessing. A blueprint naming a moment that does not exist is
     # rejected rather than repaired.
-    "narrative.blueprint": 2,
-    "critique.edit_review": 5,
+    "narrative.blueprint": 3,
+    "critique.edit_review": 6,
 }
 
 

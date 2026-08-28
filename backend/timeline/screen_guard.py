@@ -66,8 +66,14 @@ def guard_clips(
         pad=dead_state_pad_seconds,
         min_piece=min_piece_seconds,
     )
-    return _split_long_clips(
+    excised = _excise_dead_interiors(
         opened,
+        states_by_media,
+        pad=dead_state_pad_seconds,
+        min_piece=min_piece_seconds,
+    )
+    return _split_long_clips(
+        excised,
         scenes_by_media,
         max_seconds=max_clip_seconds,
         min_piece=min_piece_seconds,
@@ -112,6 +118,69 @@ def _avoid_dead_openings(
             )
             clip = replace(clip, source_start=start)
         refined.append(clip)
+    return refined
+
+
+def _excise_dead_interiors(
+    clips: Sequence[PlannedClip],
+    states_by_media: Mapping[str, Sequence[StateSpan]],
+    *,
+    pad: float,
+    min_piece: float,
+) -> list[PlannedClip]:
+    """Cut the dead stretches out of a clip's middle, not only its opening.
+
+    Found on the second live rerun of the same recording: the opening guard
+    moved the first clip to 12.9 s -- past the first OBS visit -- and the
+    clip then sailed straight through the second visit at 18.5-24.5. A
+    viewer was shown the recorder mid-clip. A dead span inside a clip splits
+    it: the stretch before, the stretch after, each kept only if it clears
+    the piece floor.
+    """
+    refined: list[PlannedClip] = []
+    for clip in clips:
+        dead = sorted(
+            (
+                span
+                for span in states_by_media.get(clip.media_id, ())
+                if span.state not in _OPENABLE
+                and span.start_seconds < clip.source_end
+                and span.end_seconds > clip.source_start
+            ),
+            key=lambda span: span.start_seconds,
+        )
+        if not dead:
+            refined.append(clip)
+            continue
+        cursor = clip.source_start
+        pieces: list[tuple[float, float]] = []
+        for span in dead:
+            if span.start_seconds - cursor >= min_piece:
+                pieces.append((cursor, span.start_seconds))
+            cursor = max(cursor, span.end_seconds + pad)
+        if clip.source_end - cursor >= min_piece:
+            pieces.append((cursor, clip.source_end))
+        if not pieces:
+            logger.info(
+                "Dropped a clip that was mostly dead screen",
+                extra={"media_id": clip.media_id, "start": round(clip.source_start, 1)},
+            )
+            continue
+        if pieces != [(clip.source_start, clip.source_end)]:
+            logger.info(
+                "Excised dead screen from a clip's interior",
+                extra={
+                    "media_id": clip.media_id,
+                    "pieces": len(pieces),
+                    "removed": round(
+                        (clip.source_end - clip.source_start)
+                        - sum(end - start for start, end in pieces),
+                        1,
+                    ),
+                },
+            )
+        for start, end in pieces:
+            refined.append(replace(clip, source_start=start, source_end=end))
     return refined
 
 

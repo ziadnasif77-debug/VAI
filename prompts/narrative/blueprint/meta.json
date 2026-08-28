@@ -1,7 +1,7 @@
 {
   "id": "narrative.blueprint",
-  "version": 2,
-  "purpose": "Propose the shape of one edit -- theme, beat order and roles -- from moments the pipeline already found (Phase C). The model decides structure; deterministic code selects, orders and cuts. It may never name a moment that is not in the list it was shown.",
+  "version": 3,
+  "purpose": "v3 carries the owner's doctrine (docs/DIRECTION.md): the six-question decision filter and the SETUP-to-PAYOFF grammar, distilled to a rule the model can hold. Propose the shape of one edit -- theme, beat order and roles -- from moments the pipeline already found (Phase C). The model decides structure; deterministic code selects, orders and cuts. It may never name a moment that is not in the list it was shown.",
   "input_schema": {
     "type": "object",
     "required": [
