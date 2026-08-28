@@ -300,3 +300,19 @@ class TestUpload:
         assert not publisher.is_configured()
         store.save({"access_token": "a", "refresh_token": "rt", "expires_at": 9e12})
         assert publisher.is_configured()
+
+
+class TestCategoryTranslation:
+    def test_a_named_category_becomes_the_gaming_id(self) -> None:
+        from backend.core.models.publishing import VideoMetadata
+        from backend.publishing.youtube import GAMING_CATEGORY_ID, _snippet
+
+        snippet = _snippet(VideoMetadata(title="x", category="Gaming"))["snippet"]
+
+        assert snippet["categoryId"] == GAMING_CATEGORY_ID
+
+    def test_a_numeric_category_passes_through(self) -> None:
+        from backend.core.models.publishing import VideoMetadata
+        from backend.publishing.youtube import _snippet
+
+        assert _snippet(VideoMetadata(title="x", category="22"))["snippet"]["categoryId"] == "22"

@@ -120,9 +120,22 @@ class PublishWorker:
             min_chapter_seconds=defaults.min_chapter_seconds,
         )
         # The owner's standing visibility, not the model's cautious default:
-        # auto-publish means "publish the way I always publish".
+        # auto-publish means "publish the way I always publish" -- hooked
+        # thumbnail included, the same one the Suggest button would build.
+        from backend.metadata.thumbnail import render_thumbnail
+
+        thumbnail = render_thumbnail(
+            database=database,
+            config=context.config,
+            assets_dir=context.paths.assets,
+            moments=moments,
+            language=detect_transcript_language(segments),
+        )
         return written.model_copy(
-            update={"visibility": context.config.publishing.youtube.default_visibility}
+            update={
+                "visibility": context.config.publishing.youtube.default_visibility,
+                **({"thumbnail_path": thumbnail} if thumbnail else {}),
+            }
         )
 
     def _request(self, context: WorkerContext, payload: dict[str, Any]) -> PublishRequest:

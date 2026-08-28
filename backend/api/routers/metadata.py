@@ -14,12 +14,9 @@ fail it, mirroring §79's remedy rule for delivery extras.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi import APIRouter, Depends
 
 from backend.api.dependencies import AppState, get_state
-from backend.core.errors import ErrorCode, GamingEditorError
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import JobStage
 from backend.core.models.publishing import VideoMetadata
@@ -28,20 +25,13 @@ from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.transcript import TranscriptRepository
-from backend.media.ffmpeg import FFmpegRunner
-from backend.metadata.generation import (
-    detect_transcript_language,
-    suggest,
-    thumbnail_arguments,
-    thumbnail_peak,
-)
+from backend.metadata.generation import detect_transcript_language, suggest
+from backend.metadata.thumbnail import render_thumbnail
 from backend.moments.formation import Moment
 
 router = APIRouter(tags=["metadata"])
 
 logger = get_logger("api.metadata", LogChannel.APPLICATION)
-
-THUMBNAIL_FILENAME = "thumbnail.jpg"
 
 
 @router.post("/projects/{project_id}/metadata/suggest", response_model=VideoMetadata)
@@ -94,48 +84,14 @@ def suggest_metadata(project_id: str, state: AppState = Depends(get_state)) -> V
 def _render_thumbnail(
     state: AppState, project_id: str, moments: list[Moment], language: str | None = None
 ) -> str | None:
-    """One frame at the best moment's peak, or ``None`` -- never an error.
-
-    Written into the project's assets directory (§43: user-facing artefacts
-    live with the project), so the export screen and a later publication find
-    it at a stable path. Regeneration overwrites: the suggestion is derived
-    state, and two thumbnails for one project would only raise which one is
-    real.
-    """
-    peak = thumbnail_peak(moments)
-    if peak is None:
-        return None
-    media_id, at_seconds = peak
-    media = MediaRepository(state.database).get(media_id)
-    if media is None or not media.source_path:
-        return None
-    source = Path(media.source_path)
-    if not source.is_file():
-        return None
-
-    destination = state.paths.project(project_id).assets / THUMBNAIL_FILENAME
-    try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.unlink(missing_ok=True)  # deterministic regardless of the overwrite policy
-        runner = FFmpegRunner(state.config.ffmpeg)
-        runner.run(
-            [*runner.base_arguments(), *thumbnail_arguments(source, at_seconds, destination)],
-            error_code=ErrorCode.FRAME_EXTRACTION_FAILED,
-            details={"project_id": project_id, "media_id": media_id},
-        )
-    except (GamingEditorError, OSError) as error:
-        logger.warning(
-            "Thumbnail extraction failed; the metadata is suggested without one",
-            extra={"project_id": project_id, "media_id": media_id, "error": str(error)},
-        )
-        return None
-
-    if state.config.publishing.defaults.thumbnail_hook:
-        from backend.metadata.hooks import burn_hook, hook_phrase
-
-        phrase, emoji = hook_phrase(moments, language)
-        burn_hook(destination, phrase, emoji)
-    return str(destination)
+    """The shared recipe, fed from this route's own plumbing."""
+    return render_thumbnail(
+        database=state.database,
+        config=state.config,
+        assets_dir=state.paths.project(project_id).assets,
+        moments=moments,
+        language=language,
+    )
 
 
 __all__ = ["router"]

@@ -327,7 +327,15 @@ def _snippet(metadata: VideoMetadata) -> dict[str, Any]:
     snippet: dict[str, Any] = {
         "title": metadata.title or "Untitled",
         "description": metadata.description,
-        "categoryId": metadata.category or GAMING_CATEGORY_ID,
+        # YouTube wants the numeric id; the metadata model speaks names
+        # ("Gaming") because category is destination-specific. Translating is
+        # this publisher's job -- found live when the first autonomous publish
+        # sent the word and YouTube refused the upload.
+        "categoryId": (
+            metadata.category
+            if metadata.category and metadata.category.strip().isdigit()
+            else GAMING_CATEGORY_ID
+        ),
     }
     if metadata.tags:
         snippet["tags"] = metadata.tags
