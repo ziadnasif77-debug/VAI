@@ -339,3 +339,43 @@ class TestDoctrineSummary:
 
         assert quality == 100
         assert uncertainties == []
+
+
+class TestDoctrineEndpoints:
+    """§27 and §34 as views over stored results, graceful on empty projects."""
+
+    def test_the_edit_plan_answers_even_before_any_edit(self, api_client) -> None:
+        project = api_client.post(
+            "/api/projects",
+            json={"name": "PlanView", "target_duration_seconds": 900, "mode": "story"},
+        ).json()
+
+        response = api_client.get(f"/api/projects/{project['id']}/edit-plan")
+
+        assert response.status_code == 200
+        plan = response.json()
+        assert plan["project"]["target_duration"] == 900
+        assert plan["segments"] == []
+
+    def test_the_report_carries_the_doctrine_contract(self, api_client) -> None:
+        project = api_client.post(
+            "/api/projects",
+            json={"name": "ReportView", "target_duration_seconds": 900, "mode": "story"},
+        ).json()
+
+        response = api_client.get(f"/api/projects/{project['id']}/report")
+
+        assert response.status_code == 200
+        report = response.json()
+        for key in (
+            "analysis",
+            "highlight_ranking",
+            "hook",
+            "cut_plan",
+            "edit_plan",
+            "quality_score",
+            "uncertainties",
+            "youtube",
+        ):
+            assert key in report
+        assert "UNCERTAIN" in str(report["youtube"])

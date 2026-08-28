@@ -557,7 +557,10 @@ def _apply_hook(
         if remainder is not None:
             body.append(remainder)
     opening = replace_moment(hook.moment, metadata={**hook.moment.metadata, "role": "hook"})
-    return [opening, *body]
+    # §19: the rapid flashes precede the fitted hook, weakest first, so the
+    # cold open escalates. Their full moments stay in the body untouched --
+    # a 2.8-second flash replayed in place is the cold-open convention.
+    return [*hook.extras, opening, *body]
 
 
 def _without_hooked_span(moment: Moment, hook: Moment, config: NarrativeConfig) -> Moment | None:

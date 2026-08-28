@@ -674,6 +674,14 @@ class HookConfig(_Section):
     min_seconds: float = Field(default=5.0, gt=0)
     sources: list[str] = Field(default_factory=list)
     allow_replay_in_body: bool = True
+    #: The doctrine's rapid-highlights cold open (§19): up to this many
+    #: moments flash before the sequence begins, weakest first so the open
+    #: escalates into the strongest. 1 keeps the single-moment hook.
+    montage_clips: int = Field(default=3, ge=1, le=4)
+    montage_slice_seconds: float = Field(default=2.8, gt=0)
+    #: A flash must be a real highlight; below this score the montage simply
+    #: has fewer flashes rather than weaker ones.
+    montage_min_score: float = Field(default=0.55, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _ordered(self) -> HookConfig:
@@ -834,8 +842,11 @@ class ScreenGuardConfig(_Section):
     recording_start_guard_seconds: float = Field(default=4.0, ge=0)
     #: Breathing room after a dead span before the clip opens.
     dead_state_pad_seconds: float = Field(default=0.4, ge=0)
-    #: A clip longer than this is split at stored scene seams.
+    #: A clip longer than this is split at stored scene seams. The doctrine's
+    #: pacing tiers (§7) tighten or relax it by the clip's own score tier.
     max_clip_seconds: float = Field(default=75.0, gt=0)
+    high_tier_max_seconds: float = Field(default=45.0, gt=0)
+    low_tier_max_seconds: float = Field(default=100.0, gt=0)
     #: No piece -- and no guarded remainder -- may be shorter than this.
     min_piece_seconds: float = Field(default=8.0, gt=0)
 
@@ -1112,6 +1123,12 @@ class EffectLimits(_Section):
     max_per_minute: float = Field(default=2.0, ge=0)
     max_per_video: int = Field(default=20, ge=0)
     min_gap_seconds: float = Field(default=5.0, ge=0)
+    #: Doctrine §9: an effect that just fired may not fire again inside this
+    #: window, and a candidate it silences is *recorded* as rejected with the
+    #: reason "cooldown" -- unlike ``min_gap_seconds``, which the planner walks
+    #: in priority order and so only measures against the most recent
+    #: acceptance. Zero keeps the pre-doctrine behaviour.
+    cooldown_seconds: float = Field(default=0.0, ge=0)
 
 
 class EffectSpecConfig(_Section):
@@ -1126,6 +1143,24 @@ class EffectSpecConfig(_Section):
     params: dict[str, Any] = Field(default_factory=dict)
     triggers: EffectTriggers = Field(default_factory=EffectTriggers)
     limits: EffectLimits = Field(default_factory=EffectLimits)
+    #: Doctrine §9's escalation ladder: intensity multipliers by position in a
+    #: run of same-type firings. ``[0.0, 0.5, 0.75, 1.0]`` reads "the first
+    #: firing stays quiet, the second is subtle, the fourth lands full".
+    #: Runs past the ladder's end hold its last rung. Omitted means every
+    #: firing keeps its full intensity -- the pre-doctrine behaviour.
+    escalation: list[float] | None = None
+    #: Two firings further apart than this start separate runs: an isolated
+    #: kill a minute later is a first kill again, not a fifth.
+    escalation_window_seconds: float = Field(default=30.0, gt=0)
+
+    @model_validator(mode="after")
+    def _ladder_is_usable(self) -> EffectSpecConfig:
+        if self.escalation is not None:
+            if not self.escalation:
+                raise ValueError("an empty escalation ladder means nothing; omit the key instead")
+            if any(step < 0 for step in self.escalation):
+                raise ValueError("escalation multipliers cannot be negative")
+        return self
 
 
 class EffectGlobalLimits(_Section):

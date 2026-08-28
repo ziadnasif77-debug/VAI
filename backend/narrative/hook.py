@@ -65,6 +65,10 @@ class HookSelection:
     #: True when the same moment also appears in the body, in its own place.
     replayed_in_body: bool = False
     considered: int = 0
+    #: The doctrine's rapid flashes (§19): short slices of *other* strong
+    #: moments shown before ``moment``, weakest first, so the cold open
+    #: escalates into the strongest thing the session produced.
+    extras: tuple[Moment, ...] = ()
 
     @property
     def exists(self) -> bool:
@@ -113,6 +117,7 @@ def choose_hook(
         )
 
     best = max(candidates, key=lambda moment: _hook_value(moment))
+    extras = _montage_extras(candidates, best, config)
     trimmed, was_trimmed = _fit(best, config)
     reason = (
         f"strongest {best.moment_type.value} moment "
@@ -122,6 +127,7 @@ def choose_hook(
         reason += f"; trimmed to {config.max_seconds:.0f}s for the opening"
 
     selection = HookSelection(
+        extras=extras,
         moment=trimmed,
         reason=reason,
         replayed_in_body=config.allow_replay_in_body,
@@ -147,6 +153,47 @@ def _allowed_types(config: HookConfig) -> set[MomentType]:
         except ValueError:
             logger.warning("Unknown hook source in configuration", extra={"source": name})
     return allowed or set(HOOK_STRENGTH)
+
+
+def _montage_extras(
+    candidates: Sequence[Moment], best: Moment, config: HookConfig
+) -> tuple[Moment, ...]:
+    """Short slices of the runner-up moments, weakest first (§19).
+
+    Distinct moments only, each strong on its own terms, each cut to the
+    flash length from where its action starts -- moments are formed to start
+    where the action starts, so the slice needs no search.
+    """
+    if config.montage_clips <= 1:
+        return ()
+    if not config.allow_replay_in_body:
+        # A flash is a replay by design; an edit that forbids replays keeps
+        # the single-moment hook rather than a montage that breaks the rule.
+        return ()
+    ranked = sorted(
+        (
+            moment
+            for moment in candidates
+            if moment is not best and moment.score >= config.montage_min_score
+        ),
+        key=lambda moment: -moment.score,
+    )[: config.montage_clips - 1]
+    slices = []
+    for moment in ranked:
+        end = min(moment.start_seconds + config.montage_slice_seconds, moment.end_seconds)
+        if end - moment.start_seconds < 1.0:
+            continue
+        slices.append(
+            replace_moment(
+                moment,
+                context_start=moment.start_seconds,
+                context_end=end,
+                end_seconds=end,
+                metadata={**moment.metadata, "role": "hook_flash"},
+            )
+        )
+    # Weakest first: the open escalates into the strongest.
+    return tuple(sorted(slices, key=lambda moment: moment.score))
 
 
 def _hook_value(moment: Moment) -> float:

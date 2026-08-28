@@ -6,13 +6,17 @@ the effects for it, validates the result and stores it.
 
 The order matters and is not arbitrary:
 
-    build → validate → captions → effects → persist
+    build → validate → effects → re-lay → captions → persist
 
-Captions come after validation because they are timed against clip positions,
-and timing them against a timeline that turns out to be invalid means doing it
-twice. Effects come after captions because the effects planner is given the
-finished clip positions and a budget measured in effects per minute — it needs
-the final duration, which only exists once the timeline is built.
+Effects come after validation because the planner is given the built clip
+positions and a budget measured in effects per minute — it needs a real
+timeline. The re-lay comes next because a time-warping effect (freeze_frame,
+speed_ramp) *changes clip durations*: a frozen clip occupies its source span
+plus the hold, and every clip after it shifts. Captions therefore come last —
+they are timed against clip positions, and timing them before the re-lay left
+every caption after a frozen clip late by the length of the hold. (They also
+come after validation for the original reason: timing them against a timeline
+that turns out to be invalid means doing it twice.)
 
 Nothing here decodes video. Every input is a database read and the output is
 rows, which is what makes §127's re-edit cheap: changing a clip re-runs this
@@ -38,7 +42,7 @@ from backend.effects.planner import EffectPlanner, PlannedMoment
 from backend.interaction.service import InteractionService
 from backend.pipeline.workers.base import WorkerContext
 from backend.timeline import captions as caption_builder
-from backend.timeline import validation
+from backend.timeline import retime, validation
 from backend.timeline.builder import build_timeline, clips_from_story_result
 from backend.timeline.models import Timeline
 
@@ -107,15 +111,41 @@ class EdlWorker:
                 details={"findings": [str(item) for item in report.findings]},
             )
 
-        context.report(0.6, "Timing captions against the transcript")
+        context.report(0.55, "Planning effects")
+        effects = self._effects(context, timeline)
+
+        instances = effects.instances
+        retimed = 0
+        if instances and context.config.effects.realisation.ffmpeg_filters:
+            # The re-lay happens only when the wire that realises time-warps
+            # is live: with it off the rows stay stored-but-unrealised, and a
+            # timeline promising seconds nothing will render would fail the
+            # §76 duration gate it exists to keep honest.
+            relaid = retime.relay_timeline(
+                timeline, instances, max_duration_seconds=policy.max_seconds
+            )
+            retimed = relaid.retimed_clips
+            if retimed:
+                context.report(0.65, f"Re-laid {retimed} clip(s) for time effects")
+                after = validation.validate(
+                    relaid.timeline, media_durations=durations, policy=policy
+                )
+                if not after.is_valid:
+                    raise ValidationError(
+                        "The re-laid timeline is not renderable: "
+                        + "; ".join(str(item) for item in after.errors),
+                        code=ErrorCode.INVALID_EDL,
+                        details={"findings": [str(item) for item in after.findings]},
+                    )
+                timeline = relaid.timeline
+                instances = relaid.effects
+
+        context.report(0.8, "Timing captions against the transcript")
         built_captions = self._captions(context, timeline)
         timeline = caption_builder.caption_track(timeline, built_captions)
 
-        context.report(0.8, "Planning effects")
-        effects = self._effects(context, timeline)
-
         written = TimelineRepository(context.database).replace(
-            context.project_id, timeline, captions=built_captions, effects=effects.instances
+            context.project_id, timeline, captions=built_captions, effects=instances
         )
         context.report(1.0, f"{written} clips on the timeline")
 
@@ -128,6 +158,7 @@ class EdlWorker:
             **timeline.summary(),
             "captions": len(built_captions),
             "effects": effects.count,
+            "retimed_clips": retimed,
             "effects_by_engine": {
                 engine.value: len(effects.for_engine(engine)) for engine in EffectEngine
             },
@@ -208,6 +239,8 @@ class EdlWorker:
             recording_start_guard_seconds=guard.recording_start_guard_seconds,
             dead_state_pad_seconds=guard.dead_state_pad_seconds,
             max_clip_seconds=guard.max_clip_seconds,
+            high_tier_max_seconds=guard.high_tier_max_seconds,
+            low_tier_max_seconds=guard.low_tier_max_seconds,
             min_piece_seconds=guard.min_piece_seconds,
         )
 

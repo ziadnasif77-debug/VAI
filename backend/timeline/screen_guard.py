@@ -51,6 +51,8 @@ def guard_clips(
     recording_start_guard_seconds: float = 4.0,
     dead_state_pad_seconds: float = 0.4,
     max_clip_seconds: float = 75.0,
+    high_tier_max_seconds: float = 45.0,
+    low_tier_max_seconds: float = 100.0,
     min_piece_seconds: float = 8.0,
 ) -> list[PlannedClip]:
     """Both refinements, in the order that keeps them honest.
@@ -76,6 +78,8 @@ def guard_clips(
         excised,
         scenes_by_media,
         max_seconds=max_clip_seconds,
+        high_tier_max_seconds=high_tier_max_seconds,
+        low_tier_max_seconds=low_tier_max_seconds,
         min_piece=min_piece_seconds,
     )
 
@@ -184,22 +188,54 @@ def _excise_dead_interiors(
     return refined
 
 
+def _cap_for(
+    clip: PlannedClip,
+    *,
+    max_seconds: float,
+    high_tier_max_seconds: float,
+    low_tier_max_seconds: float,
+) -> float:
+    """The doctrine's pacing rule (docs/DIRECTION.md §7) as a cut-length cap.
+
+    High intensity wants shorter cuts, low intensity longer shots -- so the
+    cap follows the clip's own tier: a master/major moment is held to the
+    tight cap, a supporting one may breathe past the base. The tier comes
+    from the same score every other layer reads.
+    """
+    from backend.moments.scoring import tier_for
+
+    tier = tier_for(float(clip.score or 0.0))
+    if tier in ("master", "major"):
+        return min(high_tier_max_seconds, max_seconds)
+    if tier == "good":
+        return max_seconds
+    return max(low_tier_max_seconds, max_seconds)
+
+
 def _split_long_clips(
     clips: Sequence[PlannedClip],
     scenes_by_media: Mapping[str, Sequence[Any]],
     *,
     max_seconds: float,
-    min_piece: float,
+    high_tier_max_seconds: float = 45.0,
+    low_tier_max_seconds: float = 100.0,
+    min_piece: float = 8.0,
 ) -> list[PlannedClip]:
     refined: list[PlannedClip] = []
     for clip in clips:
-        if clip.source_end - clip.source_start <= max_seconds:
+        cap = _cap_for(
+            clip,
+            max_seconds=max_seconds,
+            high_tier_max_seconds=high_tier_max_seconds,
+            low_tier_max_seconds=low_tier_max_seconds,
+        )
+        if clip.source_end - clip.source_start <= cap:
             refined.append(clip)
             continue
         cuts = _cut_points(
             clip,
             scenes_by_media.get(clip.media_id, ()),
-            max_seconds=max_seconds,
+            max_seconds=cap,
             min_piece=min_piece,
         )
         if not cuts:

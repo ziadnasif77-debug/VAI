@@ -32,6 +32,7 @@ from backend.api.routers import (
     profiles,
     projects,
     publishing,
+    report,
     system,
 )
 from backend.config.schema import AppConfig
@@ -156,6 +157,7 @@ def create_app(
     app.include_router(system.router, prefix=API_PREFIX)
     app.include_router(publishing.router, prefix=API_PREFIX)
     app.include_router(metadata.router, prefix=API_PREFIX)
+    app.include_router(report.router, prefix=API_PREFIX)
 
     _mount_interface(app)
     return app

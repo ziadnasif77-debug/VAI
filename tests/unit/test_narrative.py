@@ -590,7 +590,11 @@ class TestModes:
             config=config.narrative,
             policy=config.duration_policy,
         )
-        body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
+        body = [
+            m
+            for m in plan.moments
+            if m.metadata.get("role") not in ("hook", "hook_flash")
+        ]
         assert body[0].score >= body[-1].score
 
     def test_compilation_groups_by_type(self, config) -> None:
@@ -601,7 +605,11 @@ class TestModes:
             config=config.narrative,
             policy=config.duration_policy,
         )
-        body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
+        body = [
+            m
+            for m in plan.moments
+            if m.metadata.get("role") not in ("hook", "hook_flash")
+        ]
         # Types appear in contiguous runs rather than scattered.
         runs = sum(
             1
@@ -764,7 +772,11 @@ class TestStoryChronology:
             config=config.narrative,
             policy=config.duration_policy,
         )
-        body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
+        body = [
+            m
+            for m in plan.moments
+            if m.metadata.get("role") not in ("hook", "hook_flash")
+        ]
 
         for earlier, later in pairwise(body):
             if earlier.media_id != later.media_id:
@@ -809,7 +821,11 @@ class TestStoryChronology:
             config=config.narrative,
             policy=config.duration_policy,
         )
-        body = [m for m in plan.moments if m.metadata.get("role") != "hook"]
+        body = [
+            m
+            for m in plan.moments
+            if m.metadata.get("role") not in ("hook", "hook_flash")
+        ]
 
         for earlier, later in pairwise(body):
             assert later.context_start >= earlier.context_start
@@ -825,5 +841,7 @@ class TestStoryChronology:
         if not plan.hook.exists:
             pytest.skip("this pool produced no hook")
 
-        first = plan.moments[0]
-        assert first.metadata.get("role") == "hook"
+        # §19: the opening may be a run of flashes escalating into the hook;
+        # everything in that run is labelled, and nothing after it jumps.
+        opening_roles = {"hook", "hook_flash"}
+        assert plan.moments[0].metadata.get("role") in opening_roles
