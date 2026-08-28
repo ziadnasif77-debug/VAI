@@ -71,6 +71,10 @@ class EffectCandidate(_Base):
     #: Ranking score: moment score adjusted by the style's boost/suppress.
     priority: float = Field(ge=0.0)
     matched_events: list[GameEventType] = Field(default_factory=list)
+    #: Doctrine §9: this candidate's rung on its effect's escalation ladder,
+    #: as a multiplier on the plan's intensity. 1.0 outside any ladder; 0.0
+    #: means the run's opening firing, which stays quiet.
+    intensity_multiplier: float = Field(default=1.0, ge=0.0)
     reason: str = ""
 
 

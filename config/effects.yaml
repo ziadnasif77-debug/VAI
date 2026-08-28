@@ -23,7 +23,10 @@ effects:
   # finished video. One switch per engine, so a misbehaving realiser can be
   # turned off without silencing the planner or the other engine.
   realisation:
-    ffmpeg_filters: true    # bake zoom/punch_in/bars/flash/shake into segments
+    # ffmpeg_filters also governs the time-warps (freeze_frame, speed_ramp):
+    # with it off the EDL never re-lays clip durations for them, so the rows
+    # stay stored-but-unrealised instead of promising seconds nothing renders.
+    ffmpeg_filters: true    # bake zoom/punch_in/bars/flash/shake/freeze/ramp into segments
     remotion_overlay: true  # pass remotion-engine effects to the overlay
 
   # Rank a moment against this video's own scores before testing a trigger's
@@ -88,6 +91,10 @@ effects:
         max_per_minute: 2
         max_per_video: 20
         min_gap_seconds: 10.0
+        cooldown_seconds: 8.0
+      # Doctrine §9: a run of punches escalates instead of repeating -- the
+      # first firing of a run stays quiet, the fourth lands at full strength.
+      escalation: [0.0, 0.5, 0.75, 1.0]
 
     camera_shake:
       enabled: true
@@ -107,6 +114,8 @@ effects:
         max_per_minute: 2
         max_per_video: 24
         min_gap_seconds: 8.0
+        cooldown_seconds: 8.0
+      escalation: [0.0, 0.5, 0.75, 1.0]
 
     crop:
       enabled: false
@@ -125,8 +134,15 @@ effects:
         min_gap_seconds: 30.0
 
     # -- time ------------------------------------------------------------
+    # Time effects change how long a clip takes, so the EDL re-lays clip
+    # durations for them (backend/timeline/retime.py) before anything is cut.
     slow_motion:
-      enabled: true
+      # Off until a renderer realises it: it warps a *whole* clip rather than
+      # a window inside one, which the re-lay does not express. Enabled, it
+      # sat first in the library and won the one-time-effect-per-moment slot
+      # from the two warps that do render -- a stored row nobody would ever
+      # see, crowding out a freeze the viewer would.
+      enabled: false
       engine: ffmpeg
       category: time
       description: "Sustained slow section over a decisive beat."
@@ -149,21 +165,25 @@ effects:
       enabled: true
       engine: ffmpeg
       category: time
-      description: "Ramp into and out of a beat. Selective use only (§69)."
+      description: "Slow to a crawl over the beat, back to speed after (§69)."
       params:
-        entry_rate: 1.6
-        peak_rate: 0.45
-        exit_rate: 1.3
-        ramp_seconds: 0.4
-        hold_seconds: 0.8
+        # The doctrine's shape: 1.0 into the anchor, slow_factor across the
+        # window (duration_seconds of *source*, the doctrine's slow_seconds),
+        # 1.0 after. The clip gains duration_seconds * (1/slow_factor - 1)
+        # on the timeline, which the EDL re-lay accounts for.
+        slow_factor: 0.4
+        duration_seconds: 0.8
       triggers:
-        moment_types: [epic, clutch, skill, outplay, boss]
+        # High-importance impact events only: a ramp on an ordinary kill
+        # teaches the viewer to ignore ramps.
+        moment_types: [epic, clutch]
         events: [multi_kill, clutch, boss_defeat]
-        min_score: 0.75
+        min_score: 0.8
       limits:
         max_per_minute: 1
-        max_per_video: 8
+        max_per_video: 4
         min_gap_seconds: 25.0
+        cooldown_seconds: 20.0
 
     freeze_frame:
       enabled: true
@@ -172,16 +192,24 @@ effects:
       description: "Hold on the decisive frame, often with a caption."
       params:
         duration_seconds: 0.8
+        # Must stay under qa.technical.thresholds.max_frozen_run_seconds
+        # (3.0): §76's frozen-frames check treats any longer still run as a
+        # broken render and asks the recording, which was moving.
         max_duration_seconds: 1.5
+        # Silence under the hold: a freeze with looping audio is worse than
+        # quiet, and stingers are a later layer (§72).
         hold_audio: false
       triggers:
-        moment_types: [epic, funny, fail, victory, surprise]
-        events: [multi_kill, victory, defeat, rare_event]
-        min_score: 0.68
+        # The single strongest moment shapes only, at a threshold the ranked
+        # scores reserve for the top of a video: one or two per edit.
+        moment_types: [clutch, epic]
+        events: []
+        min_score: 0.85
       limits:
         max_per_minute: 1
-        max_per_video: 6
+        max_per_video: 2
         min_gap_seconds: 30.0
+        cooldown_seconds: 30.0
 
     # -- light and focus --------------------------------------------------
     flash:
@@ -201,6 +229,8 @@ effects:
         max_per_minute: 2
         max_per_video: 16
         min_gap_seconds: 12.0
+        cooldown_seconds: 8.0
+      escalation: [0.0, 0.5, 0.75, 1.0]
 
     blur:
       enabled: true

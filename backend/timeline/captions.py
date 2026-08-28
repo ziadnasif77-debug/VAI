@@ -34,6 +34,7 @@ from ai.providers.base import TranscriptSegment
 from backend.config.schema import CaptionsConfig
 from backend.core.ids import derived_id
 from backend.core.logging import LogChannel, get_logger
+from backend.timeline import retime
 from backend.timeline.models import Timeline, TimelineClip
 
 logger = get_logger("timeline.captions", LogChannel.PIPELINE)
@@ -280,8 +281,16 @@ def _text_for(
 
 
 def _to_timeline(clip: TimelineClip, source_seconds: float) -> float:
-    """Source time to timeline time -- the mapping §71 requires captions to use."""
-    return clip.timeline_start + (source_seconds - clip.source_in) / clip.speed
+    """Source time to timeline time -- the mapping §71 requires captions to use.
+
+    Through the clip's warp mapping rather than a straight division: a clip
+    the EDL re-laid for a freeze or a ramp shows its later source seconds
+    later, and a caption timed linearly appeared up to the hold's length
+    before its words were heard. A frozen extension adds no speech of its own
+    -- there are no transcript timestamps inside invented time -- so mapping
+    the real timestamps piecewise is the whole adjustment.
+    """
+    return clip.timeline_start + retime.output_offset(clip, source_seconds - clip.source_in)
 
 
 def _apply_timing(start: float, end: float, config: CaptionsConfig) -> tuple[float, float]:

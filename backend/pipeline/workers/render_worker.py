@@ -42,6 +42,7 @@ from backend.rendering.composition import build_composition, resolution_for
 from backend.rendering.encoder import EncodeTarget, select_encoder
 from backend.rendering.ffmpeg_renderer import clear_segments, render_programme
 from backend.rendering.remotion import render_overlay
+from backend.timeline import retime
 from backend.timeline.models import Timeline, TimelineClip
 
 logger = get_logger("pipeline.workers.render", LogChannel.RENDERING)
@@ -528,7 +529,7 @@ class RenderWorker:
         if not rows:
             return []
 
-        starts = {clip.id: clip.timeline_start for clip in timeline.video_clips()}
+        by_id = {clip.id: clip for clip in timeline.video_clips()}
         assets = context.paths.assets / "sfx"
         stingers: list[audio_mix.Stinger] = []
         for row in rows:
@@ -543,7 +544,16 @@ class RenderWorker:
                     extra={"asset": str(asset), "project_id": context.project_id},
                 )
                 continue
-            at = starts.get(row["clip_id"] or "", 0.0) + float(row["start_seconds"])
+            clip = by_id.get(row["clip_id"] or "")
+            if clip is None:
+                at = float(row["start_seconds"])
+            else:
+                # Through the clip's warp mapping, not a straight addition: a
+                # stinger anchored after a freeze point belongs after the
+                # hold, where the frame it decorates is actually seen.
+                at = clip.timeline_start + retime.output_offset(
+                    clip, float(row["start_seconds"])
+                )
             if at >= duration_seconds:
                 continue
             stingers.append(
@@ -583,7 +593,25 @@ class RenderWorker:
         for position, clip in enumerate(clips):
             source = sources[clip.media_id]
             inputs += ["-i", str(source)]
-            chains.append(_audio_span_filter(position, clip.source_in, clip.source_out))
+            warp = retime.clip_retime(clip)
+            if warp is None:
+                chains.append(_audio_span_filter(position, clip.source_in, clip.source_out))
+            else:
+                # A re-laid clip's audio must occupy its re-laid seconds:
+                # silence under a freeze, a pitch-preserving stretch under a
+                # ramp -- the same shape the picture's segment carries, or
+                # every later clip's sound lands early by the added time.
+                fade = min(_JOIN_FADE_SECONDS, clip.duration / 4)
+                chains.append(
+                    audio_mix.warped_clip_audio(
+                        position,
+                        clip,
+                        warp,
+                        out_label=f"a{position}",
+                        fade_in=fade,
+                        fade_out=fade,
+                    )
+                )
             labels.append(f"[a{position}]")
 
         destination = work_dir / "programme_audio.wav"

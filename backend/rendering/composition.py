@@ -34,6 +34,7 @@ from backend.config.schema import CaptionsConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import EffectEngine
 from backend.effects.models import EffectInstance
+from backend.timeline import retime
 from backend.timeline.captions import Caption, wrap
 from backend.timeline.models import Timeline
 
@@ -273,14 +274,18 @@ def _describe_effect(
 
     Effects are stored relative to their clip, so the clip's position is added
     back here: the overlay is drawn on the finished video, and the finished
-    video is where the clip now sits.
+    video is where the clip now sits. The addition goes through the clip's
+    warp mapping -- a graphic anchored after a freeze point belongs after the
+    hold, where the frame it decorates is actually on screen.
     """
-    offset = 0.0
+    start_seconds = effect.start_seconds
     if effect.clip_id:
         clip = timeline.clip(effect.clip_id)
         if clip is not None:
-            offset = clip.timeline_start
-    start = _to_frames(effect.start_seconds + offset, fps)
+            start_seconds = clip.timeline_start + retime.output_offset(
+                clip, effect.start_seconds
+            )
+    start = _to_frames(start_seconds, fps)
     duration = max(1, _to_frames(effect.duration_seconds, fps))
     return {
         "id": f"{effect.effect.value}-{index:03d}",

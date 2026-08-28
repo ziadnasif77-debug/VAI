@@ -11,6 +11,12 @@ a specific moment, and three budgets stop them accumulating:
 * per effect  -- its own ``max_per_minute`` / ``max_per_video`` / ``min_gap``
 * per moment  -- ``max_effects_per_moment``, and one per category
 * per video   -- ``max_effects_per_minute`` and a minimum gap between any two
+
+The direction doctrine's §9 adds two rules about *repetition*: an effect that
+just fired sits out its ``cooldown_seconds`` (recorded as a "cooldown"
+rejection, not silently), and an entry with an ``escalation`` ladder treats a
+run of same-type firings as a crescendo -- the first stays quiet, later ones
+step up -- instead of stamping the same decoration on every kill of a spree.
 """
 
 from __future__ import annotations
@@ -125,6 +131,7 @@ class EffectPlanner:
         candidates = self._collect(
             moments, style, intensity, ranked=self._ranked_scores(moments)
         )
+        candidates = self._escalated(candidates)
         instances, rejected = self._enforce_budgets(
             candidates, intensity=intensity, video_duration_seconds=video_duration_seconds
         )
@@ -285,6 +292,44 @@ class EffectPlanner:
             return 0.0
         return max(min(scaled, remaining), 0.05)
 
+    def _escalated(self, candidates: Sequence[EffectCandidate]) -> list[EffectCandidate]:
+        """Give each candidate its rung on its effect's escalation ladder (§9).
+
+        The doctrine's example: kill one earns nothing, kill two a subtle
+        punch, kill four a major impact. Generically, when the same effect is
+        triggered repeatedly within ``escalation_window_seconds``, each firing
+        climbs one rung of the entry's ``escalation`` multipliers; a gap wider
+        than the window starts a fresh run at the bottom.
+
+        Rungs are assigned from the *time-ordered* candidates, before budgets
+        run, because the run is a property of the events -- four kills are four
+        kills whether the video budget admits every effect or not. A candidate
+        the budgets later reject still advanced its run: demoting the survivors
+        would replay the repetition the ladder exists to prevent.
+        """
+        by_type: dict[EffectType, list[int]] = {}
+        for index, candidate in enumerate(candidates):
+            by_type.setdefault(candidate.effect, []).append(index)
+
+        updated = list(candidates)
+        for effect, indices in by_type.items():
+            spec = self._effects.spec(effect)
+            if spec is None or not spec.escalation:
+                continue
+            ladder = spec.escalation
+            window = spec.escalation_window_seconds
+            rung = 0
+            previous: float | None = None
+            for index in sorted(indices, key=lambda i: candidates[i].start_seconds):
+                start = candidates[index].start_seconds
+                rung = rung + 1 if previous is not None and start - previous <= window else 0
+                previous = start
+                multiplier = float(ladder[min(rung, len(ladder) - 1)])
+                updated[index] = candidates[index].model_copy(
+                    update={"intensity_multiplier": multiplier}
+                )
+        return updated
+
     def _reason(self, definition: EffectDefinition, moment: PlannedMoment) -> str:
         events = ", ".join(event.value for event in moment.events[:3])
         detail = f" after {events}" if events else ""
@@ -319,6 +364,14 @@ class EffectPlanner:
 
         for candidate in candidates:
             definition = self._library.definition(candidate.effect)
+            if candidate.intensity_multiplier <= 0.0:
+                # The bottom rung of the escalation ladder (§9): the run's
+                # opening firing stays quiet, and the next one steps up.
+                rejected.append(
+                    f"{candidate.effect.value} @ {candidate.start_seconds:.1f}s: "
+                    "escalation holds back the first firing of a run"
+                )
+                continue
             verdict = self._check(
                 candidate,
                 definition,
@@ -336,7 +389,10 @@ class EffectPlanner:
                 )
                 continue
 
-            params = self._library.params_for(candidate.effect, intensity)
+            # A ladder rung scales this one firing's strength; the cap keeps a
+            # "major impact" at full strength rather than beyond it.
+            effective = min(1.0, intensity * candidate.intensity_multiplier)
+            params = self._library.params_for(candidate.effect, effective)
             if candidate.effect is EffectType.TEXT_POP and not params.get("text"):
                 # The renderer draws nothing without text, and the library has
                 # no way to know what happened. A detected event label -- or
@@ -361,7 +417,7 @@ class EffectPlanner:
                 clip_id=candidate.clip_id,
                 moment_id=candidate.moment_id,
                 params=params,
-                strength=intensity,
+                strength=effective,
                 reason=candidate.reason,
             )
             budget.record(instance)
@@ -401,6 +457,21 @@ class EffectPlanner:
             return "effect reached its per-video limit"
         if budget.count(candidate.effect) >= own.max_per_minute * minutes * intensity:
             return "effect reached its per-minute rate"
+
+        if own.cooldown_seconds > 0:
+            # §9's cooldown, measured against *every* accepted firing rather
+            # than the most recently recorded one: candidates arrive in
+            # priority order, so "the last time this fired" can sit later on
+            # the timeline than the candidate being judged.
+            for placed in budget.placed:
+                if placed.effect is not candidate.effect:
+                    continue
+                gap = abs(candidate.start_seconds - placed.start_seconds)
+                if gap < own.cooldown_seconds:
+                    return (
+                        f"cooldown ({gap:.1f}s from the one at "
+                        f"{placed.start_seconds:.1f}s, minimum {own.cooldown_seconds:.0f}s)"
+                    )
 
         last = budget.last_effect_time.get(candidate.effect)
         if last is not None and candidate.start_seconds - last < own.min_gap_seconds:

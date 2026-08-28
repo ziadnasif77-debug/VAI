@@ -134,6 +134,28 @@ class TestWhichCutItIs:
 
         assert plan_boundaries(timeline, {MEDIA_A: [(10.0, 18.0)]}, _config()) == []
 
+    def test_a_frozen_neighbour_stays_hard(self) -> None:
+        # A freeze/ramp the EDL re-laid bends the source-to-timeline mapping
+        # exactly the way a speed warp does; the offset arithmetic is wrong in
+        # the same way, so the boundary is planned hard for the same reason.
+        frozen = TimelineClip(
+            id="clip-0000jlfroze",
+            media_id=MEDIA_B,
+            clip_index=1,
+            source_in=30.0,
+            source_out=38.0,
+            timeline_start=8.0,
+            timeline_end=17.5,
+            metadata={"retime": {"effect": "freeze_frame", "at": 4.0, "extra_seconds": 1.5}},
+        )
+        timeline = _timeline(
+            _clip(0, MEDIA_A, source_in=10.0, seconds=8.0, at=0.0), frozen
+        )
+
+        plans = plan_boundaries(timeline, {MEDIA_B: [(30.2, 32.0)]}, _config())
+
+        assert [plan.kind for plan in plans] == ["hard"]
+
 
 class TestHowFarTheAudioMayReach:
     def test_the_lead_is_clamped_to_the_material_before_the_in_point(self) -> None:
@@ -309,3 +331,33 @@ class TestTheAssemblyGraph:
         assert argv[-1] == str(tmp_path / "programme_audio.wav")
         assert argv[argv.index("-c:a") + 1] == "pcm_s16le"
         assert argv[argv.index("-map") + 1] == "[jl]"
+
+    def test_a_frozen_clip_enters_the_graph_through_the_warped_body(
+        self, tmp_path: Path
+    ) -> None:
+        # Its boundaries are hard, but its *body* still occupies more timeline
+        # than its source span: a linear extract ended 1.5 s early and every
+        # second of it after the anchor played early by the hold.
+        frozen = TimelineClip(
+            id="clip-000jlwarped",
+            media_id=MEDIA_B,
+            clip_index=1,
+            source_in=30.0,
+            source_out=38.0,
+            timeline_start=8.0,
+            timeline_end=17.5,
+            metadata={"retime": {"effect": "freeze_frame", "at": 4.0, "extra_seconds": 1.5}},
+        )
+        timeline = _timeline(
+            _clip(0, MEDIA_A, source_in=10.0, seconds=8.0, at=0.0), frozen
+        )
+        plans = plan_boundaries(timeline, {MEDIA_B: [(30.2, 32.0)]}, _config())
+        assert [plan.kind for plan in plans] == ["hard"]
+
+        argv = self._argv(timeline, plans, tmp_path)
+        graph = argv[argv.index("-filter_complex") + 1]
+
+        assert "apad=pad_dur=1.500000" in graph, "the hold is silence, in place"
+        assert "concat=n=2:v=0:a=1" in graph
+        assert "adelay=8000|8000" in graph, "the body is still placed at its own start"
+        assert "[c1]" in graph, "the warped chain feeds the same mixer slot"

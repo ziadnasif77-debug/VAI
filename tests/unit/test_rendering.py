@@ -411,6 +411,99 @@ class TestAudioJoinFades:
         assert chain.index("aformat") < chain.index("afade")
 
 
+class TestWarpedClipAudio:
+    """The audio half of a freeze/ramp: same shape as the picture, as strings.
+
+    Tested as filter-graph strings for the same reason every argv builder in
+    this layer is -- and because the one truth that matters (the durations
+    coming out of FFmpeg) has its own integration test with a real decode.
+    """
+
+    def _clip(self, *, end: float, meta: dict):
+        from backend.timeline.models import TimelineClip
+
+        return TimelineClip(
+            id="clip-00warpaudio",
+            media_id="media-aaaaaaaaaaaa",
+            clip_index=0,
+            source_in=10.0,
+            source_out=16.0,
+            timeline_start=0.0,
+            timeline_end=end,
+            metadata={"retime": meta},
+        )
+
+    def test_atempo_below_a_half_is_chained(self) -> None:
+        # atempo refuses factors under 0.5, and the doctrine's slowdown is 0.4.
+        assert audio_mix.atempo_steps(0.4) == "atempo=0.500000,atempo=0.800000"
+        assert audio_mix.atempo_steps(0.25) == "atempo=0.500000,atempo=0.500000"
+        assert audio_mix.atempo_steps(0.5) == "atempo=0.500000"
+        assert audio_mix.atempo_steps(1.0) == "atempo=1.000000"
+        with pytest.raises(ValueError, match="positive"):
+            audio_mix.atempo_steps(0.0)
+
+    def test_a_freeze_pads_silence_at_the_anchor(self) -> None:
+        from backend.timeline import retime
+
+        clip = self._clip(
+            end=7.5, meta={"effect": "freeze_frame", "at": 2.5, "extra_seconds": 1.5}
+        )
+        graph = audio_mix.warped_clip_audio(
+            0, clip, retime.clip_retime(clip), out_label="a0", fade_in=0.03, fade_out=0.03
+        )
+
+        assert "atrim=start=10.000000:end=16.000000" in graph, "the source span"
+        assert "apad=pad_dur=1.500000" in graph, "the hold is silence, not looped sound"
+        assert "atrim=end=2.500000" in graph, "split at the clip-relative anchor"
+        assert "concat=n=2:v=0:a=1" in graph
+        assert "afade=t=out:st=7.470:d=0.030" in graph, "the edge fade on the output clock"
+        assert graph.endswith("[a0]")
+
+    def test_a_ramp_is_pinned_to_its_arithmetic_length(self) -> None:
+        # atempo's WSOLA measured 30 ms short on a 2 s stretch, and the concat
+        # assembly hands that drift to every later clip; the slow piece is
+        # padded up and trimmed down to exactly window + extra.
+        from backend.timeline import retime
+
+        clip = self._clip(
+            end=7.2,
+            meta={
+                "effect": "speed_ramp",
+                "at": 2.0,
+                "extra_seconds": 1.2,
+                "window_seconds": 0.8,
+                "factor": 0.4,
+            },
+        )
+        graph = audio_mix.warped_clip_audio(
+            0, clip, retime.clip_retime(clip), out_label="a0", fade_in=0.03, fade_out=0.03
+        )
+
+        assert "atempo=0.500000,atempo=0.800000" in graph
+        assert "apad=whole_dur=2.000000,atrim=end=2.000000" in graph
+        assert "concat=n=3:v=0:a=1" in graph
+        assert "areverse" in graph, "the true tail is faded, wherever atempo left it"
+
+    def test_the_jl_delay_rides_the_same_chain(self) -> None:
+        from backend.timeline import retime
+
+        clip = self._clip(
+            end=7.5, meta={"effect": "freeze_frame", "at": 2.5, "extra_seconds": 1.5}
+        )
+        graph = audio_mix.warped_clip_audio(
+            2,
+            clip,
+            retime.clip_retime(clip),
+            out_label="c2",
+            fade_in=0.03,
+            fade_out=0.03,
+            delay_ms=8000,
+        )
+
+        assert graph.endswith("adelay=8000|8000[c2]")
+        assert "[2:a:0]" in graph, "the input index names the caller's -i position"
+
+
 class TestSoundEffects:
     """sound_effect has had triggers and budgets since Phase 1; nothing read
     the rows. The planner rationed an effect and then discarded it."""

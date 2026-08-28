@@ -31,9 +31,15 @@ from backend.core.models.enums import (
 )
 from backend.effects.models import EffectInstance
 from backend.rendering.encoder import EncodeTarget
-from backend.rendering.ffmpeg_renderer import _effect_filters, _effects_token, _realised
+from backend.rendering.ffmpeg_renderer import (
+    _effect_filters,
+    _effects_token,
+    _realised,
+    _retime_token,
+    _warp_graph,
+)
 from backend.timeline import captions as caption_builder
-from backend.timeline import operations, validation
+from backend.timeline import operations, retime, validation
 from backend.timeline.builder import (
     MIN_CLIP_SECONDS,
     PlannedClip,
@@ -977,6 +983,38 @@ class TestPersistence:
         assert repository.clip_count(project.id) == 4
         assert repository.load(project.id).clip(clip.id) is None
 
+    def test_a_relaid_timeline_survives_the_round_trip(self, stored) -> None:
+        # The whole EDL-side of the warp: plan a freeze on a stored timeline,
+        # re-lay, persist, reload. The reloaded clip must carry its extended
+        # span, its warp metadata, and an effect row whose clip-relative time
+        # is the anchor -- because the renderer reads all three from the rows,
+        # not from the objects that wrote them.
+        project, repository, timeline = stored
+        target = timeline.video_clips()[1]
+        freeze = EffectInstance(
+            effect=EffectType.FREEZE_FRAME,
+            engine=EffectEngine.FFMPEG,
+            category=EffectCategory.TIME,
+            start_seconds=target.timeline_start + 12.0,
+            duration_seconds=1.5,
+            clip_id=target.id,
+            params={"max_duration_seconds": 1.5},
+        )
+        relaid = retime.relay_timeline(timeline, [freeze])
+        repository.replace(project.id, relaid.timeline, effects=relaid.effects)
+
+        loaded = repository.load(project.id)
+        clip = loaded.clip(target.id)
+        assert clip is not None
+        assert clip.duration == pytest.approx(target.duration + 1.5)
+        assert retime.clip_retime(clip) is not None
+        assert loaded.duration == pytest.approx(timeline.duration + 1.5)
+
+        rows = repository.list_effects(project.id)
+        assert len(rows) == 1
+        assert rows[0].start_seconds == pytest.approx(12.0), "stored clip-relative"
+        assert retime.clip_retime(clip).at_seconds == pytest.approx(12.0)
+
 
 class TestSourceExclusivity:
     """Each second of source appears at most once (§42, and a real viewer).
@@ -1455,6 +1493,386 @@ class TestBakedEffects:
         assert _effects_token(zoomed) != _effects_token(stronger), (
             "a parameter change must re-cut the segment"
         )
+
+
+class TestTimeWarpRelay:
+    """Doctrine §11/§12: a time-warp's seconds exist on the timeline first.
+
+    The renderer refused freeze_frame and speed_ramp for a stated reason --
+    baking them into a segment without the EDL knowing would falsify every
+    duration in the system. The re-lay is the fix: the clip's timeline span
+    grows by the warp's added seconds, everything after it shifts, and the
+    warp's shape rides in clip metadata for the renderer and the audio graph
+    to read back.
+    """
+
+    def _clips(self) -> list[TimelineClip]:
+        return [
+            TimelineClip(
+                id=f"clip-relay{index:06d}",
+                media_id=MEDIA,
+                clip_index=index,
+                source_in=index * 100.0,
+                source_out=index * 100.0 + 10.0,
+                timeline_start=index * 10.0,
+                timeline_end=index * 10.0 + 10.0,
+            )
+            for index in range(3)
+        ]
+
+    def _timeline(self, clips) -> Timeline:
+        return Timeline(project_id="proj-aaaaaaaaaaaa").with_track(
+            Track(kind=TrackKind.VIDEO, clips=tuple(clips))
+        )
+
+    @staticmethod
+    def _freeze(clip: TimelineClip, at: float = 4.0, hold: float = 1.5) -> EffectInstance:
+        return EffectInstance(
+            effect=EffectType.FREEZE_FRAME,
+            engine=EffectEngine.FFMPEG,
+            category=EffectCategory.TIME,
+            start_seconds=clip.timeline_start + at,
+            duration_seconds=hold,
+            clip_id=clip.id,
+            params={"max_duration_seconds": 1.5},
+        )
+
+    @staticmethod
+    def _ramp(
+        clip: TimelineClip, at: float = 3.0, window: float = 0.8, factor: float = 0.4
+    ) -> EffectInstance:
+        return EffectInstance(
+            effect=EffectType.SPEED_RAMP,
+            engine=EffectEngine.FFMPEG,
+            category=EffectCategory.TIME,
+            start_seconds=clip.timeline_start + at,
+            duration_seconds=window,
+            clip_id=clip.id,
+            params={"slow_factor": factor},
+        )
+
+    def test_a_frozen_clip_occupies_its_source_span_plus_the_hold(self) -> None:
+        clips = self._clips()
+        relaid = retime.relay_timeline(self._timeline(clips), [self._freeze(clips[1])])
+
+        frozen = relaid.timeline.video_clips()[1]
+        assert frozen.duration == pytest.approx(11.5)
+        assert frozen.source_duration == pytest.approx(10.0), "the source span never moves"
+        assert frozen.metadata["retime"]["extra_seconds"] == pytest.approx(1.5)
+
+    def test_clips_after_the_warp_shift_and_the_track_stays_contiguous(self) -> None:
+        clips = self._clips()
+        relaid = retime.relay_timeline(self._timeline(clips), [self._freeze(clips[1])])
+
+        laid = relaid.timeline.video_clips()
+        assert laid[0].timeline_start == 0.0
+        assert laid[2].timeline_start == pytest.approx(21.5)
+        assert relaid.timeline.duration == pytest.approx(31.5)
+        assert validation.validate(relaid.timeline).is_valid
+
+    def test_a_ramp_occupies_the_sum_of_its_phases(self) -> None:
+        # 0.8 s of source at 0.4 plays for 2.0 s: the clip gains 1.2 s.
+        clips = self._clips()
+        relaid = retime.relay_timeline(self._timeline(clips), [self._ramp(clips[0])])
+
+        ramped = relaid.timeline.video_clips()[0]
+        assert ramped.duration == pytest.approx(11.2)
+        assert ramped.metadata["retime"]["factor"] == pytest.approx(0.4)
+        assert relaid.timeline.duration == pytest.approx(31.2)
+
+    def test_effect_anchors_stay_clip_relative_across_the_shift(self) -> None:
+        # The repository stores times relative to the clip; a shifted clip's
+        # effects must shift with it or the subtraction stores garbage.
+        clips = self._clips()
+        zoom = EffectInstance(
+            effect=EffectType.ZOOM,
+            engine=EffectEngine.FFMPEG,
+            category=EffectCategory.CAMERA,
+            start_seconds=clips[2].timeline_start + 2.0,
+            duration_seconds=1.0,
+            clip_id=clips[2].id,
+        )
+        relaid = retime.relay_timeline(
+            self._timeline(clips), [self._freeze(clips[1]), zoom]
+        )
+
+        moved = next(item for item in relaid.effects if item.effect is EffectType.ZOOM)
+        new_start = relaid.timeline.video_clips()[2].timeline_start
+        assert moved.start_seconds - new_start == pytest.approx(2.0)
+
+    def test_markers_move_with_the_footage_they_point_at(self) -> None:
+        from backend.timeline.models import Marker
+
+        clips = self._clips()
+        timeline = self._timeline(clips).with_markers(
+            [
+                Marker(id="marker-00000early", timeline_seconds=5.0, label="hook"),
+                Marker(id="marker-0000climax", timeline_seconds=20.0, label="climax"),
+            ]
+        )
+        relaid = retime.relay_timeline(timeline, [self._freeze(clips[1])])
+
+        by_label = {marker.label: marker for marker in relaid.timeline.markers}
+        assert by_label["hook"].timeline_seconds == pytest.approx(5.0)
+        assert by_label["climax"].timeline_seconds == pytest.approx(21.5)
+
+    def test_the_six_band_cap_skips_a_warp_rather_than_crossing_it(self) -> None:
+        clips = self._clips()
+        relaid = retime.relay_timeline(
+            self._timeline(clips), [self._freeze(clips[1])], max_duration_seconds=30.5
+        )
+
+        assert relaid.retimed_clips == 0
+        assert relaid.timeline.duration == pytest.approx(30.0)
+        assert any("§6" in note for note in relaid.notes)
+
+    def test_a_second_warp_on_one_clip_is_refused(self) -> None:
+        clips = self._clips()
+        relaid = retime.relay_timeline(
+            self._timeline(clips), [self._freeze(clips[1]), self._ramp(clips[1])]
+        )
+
+        assert relaid.retimed_clips == 1
+        assert relaid.timeline.video_clips()[1].duration == pytest.approx(11.5)
+        assert any("already carries" in note for note in relaid.notes)
+
+    def test_the_clip_model_accepts_a_warped_span_and_rejects_a_drifted_one(self) -> None:
+        warped = TimelineClip(
+            id="clip-model-warp0",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=6.0,
+            timeline_start=0.0,
+            timeline_end=7.5,
+            metadata={"retime": {"effect": "freeze_frame", "at": 2.5, "extra_seconds": 1.5}},
+        )
+        assert warped.duration == pytest.approx(7.5)
+
+        with pytest.raises(Exception, match="cannot fill"):
+            warped.model_copy(update={"timeline_end": 9.0}).model_validate(
+                warped.model_copy(update={"timeline_end": 9.0}).model_dump()
+            )
+        with pytest.raises(Exception, match="cannot fill"):
+            TimelineClip(
+                id="clip-model-plain",
+                media_id=MEDIA,
+                clip_index=0,
+                source_in=0.0,
+                source_out=6.0,
+                timeline_start=0.0,
+                timeline_end=7.5,
+            )
+
+    def test_output_offset_maps_piecewise_around_the_warp(self) -> None:
+        frozen = TimelineClip(
+            id="clip-offset-frz0",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=6.0,
+            timeline_start=0.0,
+            timeline_end=7.5,
+            metadata={"retime": {"effect": "freeze_frame", "at": 2.5, "extra_seconds": 1.5}},
+        )
+        assert retime.output_offset(frozen, 1.0) == pytest.approx(1.0)
+        assert retime.output_offset(frozen, 4.0) == pytest.approx(5.5)
+
+        ramped = TimelineClip(
+            id="clip-offset-rmp0",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=6.0,
+            timeline_start=0.0,
+            timeline_end=7.0,
+            metadata={
+                "retime": {
+                    "effect": "speed_ramp",
+                    "at": 2.0,
+                    "extra_seconds": 1.0,
+                    "window_seconds": 1.0,
+                    "factor": 0.5,
+                }
+            },
+        )
+        assert retime.output_offset(ramped, 1.0) == pytest.approx(1.0)
+        assert retime.output_offset(ramped, 2.5) == pytest.approx(3.0), "inside: stretched"
+        assert retime.output_offset(ramped, 4.0) == pytest.approx(5.0), "after: late by extra"
+
+    def test_source_at_answers_through_the_warp(self) -> None:
+        # "What was happening at 4:12" and a §127 split both go through this;
+        # the linear form returned source positions past the recording's end
+        # for the warp-extended tail, and a split there refused to load.
+        frozen = TimelineClip(
+            id="clip-srcat-frz0",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=10.0,
+            source_out=16.0,
+            timeline_start=0.0,
+            timeline_end=7.5,
+            metadata={"retime": {"effect": "freeze_frame", "at": 2.5, "extra_seconds": 1.5}},
+        )
+        assert frozen.source_at(1.0) == pytest.approx(11.0)
+        assert frozen.source_at(3.0) == pytest.approx(12.5), "during the hold: the held instant"
+        assert frozen.source_at(7.0) == pytest.approx(15.5)
+        assert frozen.source_at(7.5) <= 16.0
+
+    def test_clip_retime_reconciles_the_shape_against_the_spans(self) -> None:
+        # A §127 trim rewrites spans without understanding warps; the spans
+        # win, so the renderer always emits a segment of clip.duration.
+        drifted = TimelineClip(
+            id="clip-recon-drft",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=6.0,
+            timeline_start=0.0,
+            timeline_end=7.0,
+            metadata={"retime": {"effect": "freeze_frame", "at": 2.5, "extra_seconds": 1.5}},
+        )
+        warp = retime.clip_retime(drifted)
+        assert warp is not None
+        assert warp.extra_seconds == pytest.approx(1.0), "the spans outvote the metadata"
+
+        junk_ramp = TimelineClip(
+            id="clip-recon-junk",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=6.0,
+            timeline_start=0.0,
+            timeline_end=7.0,
+            metadata={"retime": {"effect": "speed_ramp", "at": 2.0, "extra_seconds": 1.0}},
+        )
+        degraded = retime.clip_retime(junk_ramp)
+        assert degraded is not None
+        assert degraded.effect is EffectType.FREEZE_FRAME, (
+            "a ramp whose shape cannot be honoured holds the frame rather than "
+            "shipping a wrong-length segment"
+        )
+
+    def test_captions_after_a_freeze_land_after_the_hold(self, config) -> None:
+        clips = self._clips()
+        relaid = retime.relay_timeline(self._timeline(clips), [self._freeze(clips[0])])
+        segment = TranscriptSegment(start=6.0, end=8.0, text="what a save", language="en")
+
+        captions = caption_builder.build_captions(
+            relaid.timeline, {MEDIA: [segment]}, config.captions
+        )
+
+        lead_in = config.captions.timing.lead_in_ms / 1000.0
+        assert captions, "speech inside the used span must still caption"
+        assert captions[0].timeline_start == pytest.approx(7.5 - lead_in, abs=0.01), (
+            "spoken at source 6.0, seen at 7.5: the 1.5s hold sits before it"
+        )
+
+
+class TestTimeWarpSegments:
+    """The renderer's half: one segment file of exactly the re-laid duration."""
+
+    def _frozen_clip(self, at: float = 2.5, hold: float = 1.5) -> TimelineClip:
+        return TimelineClip(
+            id="clip-00000segfrz",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=10.0,
+            source_out=16.0,
+            timeline_start=0.0,
+            timeline_end=6.0 + hold,
+            metadata={"retime": {"effect": "freeze_frame", "at": at, "extra_seconds": hold}},
+        )
+
+    def _target(self) -> EncodeTarget:
+        return EncodeTarget(width=1920, height=1080, fps=60)
+
+    def test_a_mid_clip_freeze_splits_pads_and_concatenates(self) -> None:
+        clip = self._frozen_clip()
+        graph = _warp_graph(clip, retime.clip_retime(clip), [], self._target())
+
+        assert "split=2" in graph
+        assert "tpad=stop_mode=clone:stop_duration=1.500000" in graph
+        assert "concat=n=2:v=1:a=0" in graph
+        assert graph.endswith("[vout]")
+
+    def test_a_freeze_at_the_clip_edge_needs_no_split(self) -> None:
+        clip = self._frozen_clip(at=6.0)
+        graph = _warp_graph(clip, retime.clip_retime(clip), [], self._target())
+
+        assert "split" not in graph
+        assert "tpad=stop_mode=clone" in graph
+
+    def test_the_edge_fades_land_after_the_warp_on_the_output_clock(self) -> None:
+        # A fade-out timed on the source clock would end 1.5 s before the
+        # extended clip does; it must sit after the concat, at final-duration
+        # arithmetic.
+        clip = self._frozen_clip().model_copy(
+            update={"transition_out": TransitionType.FADE}
+        )
+        graph = _warp_graph(clip, retime.clip_retime(clip), [], self._target())
+
+        assert graph.index("concat=") < graph.index("fade=t=out")
+        assert "fade=t=out:st=7.100" in graph, "0.4s default fade against the 7.5s clip"
+
+    def test_a_ramp_keeps_the_promised_extra_when_its_window_snaps(self) -> None:
+        # The slow window runs into the clip's end; the window shrinks to fit
+        # and the factor is re-derived so the *added seconds* -- the number
+        # the timeline promised -- survive exactly.
+        clip = TimelineClip(
+            id="clip-00000segrmp",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=0.0,
+            source_out=6.0,
+            timeline_start=0.0,
+            timeline_end=7.2,
+            metadata={
+                "retime": {
+                    "effect": "speed_ramp",
+                    "at": 5.3,
+                    "extra_seconds": 1.2,
+                    "window_seconds": 0.8,
+                    "factor": 0.4,
+                }
+            },
+        )
+        warp = retime.clip_retime(clip)
+        assert warp is not None
+        assert warp.window_seconds == pytest.approx(0.7)
+        graph = _warp_graph(clip, warp, [], self._target())
+
+        assert "concat=n=2:v=1:a=0" in graph, "the snapped window leaves no tail piece"
+        assert f"/{0.7 / 1.9:.6f}" in graph, "the factor bends; the duration does not"
+
+    def test_the_segment_name_carries_the_warp(self) -> None:
+        # §47's reuse compares durations, and two different anchors produce
+        # same-length files with different frames in them.
+        clip = self._frozen_clip(at=2.5)
+        moved = self._frozen_clip(at=4.0)
+
+        assert _retime_token(None) == ""
+        assert _retime_token(retime.clip_retime(clip)) != ""
+        assert _retime_token(retime.clip_retime(clip)) != _retime_token(
+            retime.clip_retime(moved)
+        )
+
+    def test_neutral_effects_ride_the_source_clock_before_the_warp(self) -> None:
+        # A zoom's stored window is a source-clock position; it must be baked
+        # before the timebase bends, so the held frame freezes *zoomed*.
+        clip = self._frozen_clip()
+        zoom = EffectInstance(
+            effect=EffectType.ZOOM,
+            engine=EffectEngine.FFMPEG,
+            category=EffectCategory.CAMERA,
+            start_seconds=2.0,
+            duration_seconds=1.0,
+            clip_id=clip.id,
+            params={"scale": 1.2},
+        )
+        graph = _warp_graph(clip, retime.clip_retime(clip), _realised(clip, [zoom]), self._target())
+
+        assert graph.index("zoompan=") < graph.index("split=2")
 
 
 class TestEffectPlacementRules:

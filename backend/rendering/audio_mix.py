@@ -37,6 +37,9 @@ import numpy as np
 
 from backend.config.schema import AudioConfig
 from backend.core.logging import LogChannel, get_logger
+from backend.core.models.enums import EffectType
+from backend.timeline.models import TimelineClip
+from backend.timeline.retime import ClipRetime
 
 logger = get_logger("rendering.audio_mix", LogChannel.RENDERING)
 
@@ -467,6 +470,182 @@ def _db_to_gain(db: float) -> float:
     return float(10.0 ** (db / 20.0))
 
 
+# ---------------------------------------------------------------------------
+# time-warped clip audio (doctrine §11, §12)
+# ---------------------------------------------------------------------------
+#
+# When the EDL re-lays a clip for a freeze or a ramp, the *audio* for that clip
+# must occupy the same re-laid seconds as the picture, or every later clip's
+# sound lands early by the added time. Both audio assemblies -- the render
+# worker's concat graph and the J/L amix graph -- build one chain per clip, so
+# the warped construction lives here, once, where MIX_FORMAT already does.
+
+#: Seam fade inside a warped clip: enough to take the waveform through zero at
+#: the silence boundary of a freeze and the tempo joins of a ramp, mirroring
+#: the concat path's join fade.
+_WARP_SEAM_FADE_SECONDS: Final[float] = 0.03
+
+
+def atempo_steps(factor: float) -> str:
+    """``atempo`` filters realising one tempo factor, chained when needed.
+
+    ``atempo`` refuses factors below 0.5, and the doctrine's default slowdown
+    is 0.4 -- so a single filter cannot express the shape the config asks for.
+    Factors halve out of the chain until the remainder is legal: 0.4 becomes
+    ``atempo=0.5,atempo=0.8`` (0.5 x 0.8 = 0.4). The symmetric clamp at 2.0
+    is handled the same way, although nothing in the library speeds audio up
+    today.
+    """
+    if factor <= 0.0:
+        raise ValueError(f"an atempo factor must be positive, not {factor}")
+    steps: list[float] = []
+    remaining = factor
+    while remaining < 0.5:
+        steps.append(0.5)
+        remaining /= 0.5
+    while remaining > 2.0:
+        steps.append(2.0)
+        remaining /= 2.0
+    if not steps or abs(remaining - 1.0) > 1e-9:
+        steps.append(remaining)
+    return ",".join(f"atempo={step:.6f}" for step in steps)
+
+
+def warped_clip_audio(
+    input_index: int,
+    clip: TimelineClip,
+    warp: ClipRetime,
+    *,
+    out_label: str,
+    fade_in: float,
+    fade_out: float,
+    delay_ms: int = 0,
+) -> str:
+    """One retimed clip's audio as ``;``-joined filtergraph statements.
+
+    Mirrors the picture's construction piece for piece so the two cannot
+    disagree about where the added seconds sit. Under a freeze the added time
+    is **silence** (``apad``): a hold with looping audio is worse than quiet,
+    and stingers are a later layer (§72). Under a ramp the slow window is
+    stretched with :func:`atempo_steps`, pitch-preserved, exactly as long as
+    the slowed picture.
+
+    Args:
+        input_index: the clip's ``-i`` position in the caller's command.
+        clip: the timeline clip (``source_in``/``source_out``/``duration``).
+        warp: the clip's :class:`~backend.timeline.retime.ClipRetime`.
+        out_label: label the final statement ends with, without brackets.
+        fade_in / fade_out: the caller's edge fades, applied on the *output*
+            clock -- the fade-out belongs at the end of the extended clip.
+        delay_ms: placement delay for amix-style callers (the J/L graph); the
+            concat caller leaves it zero.
+    """
+    source_in, source_out = clip.source_in, clip.source_out
+    source = source_out - source_in
+    total = clip.duration
+    at = min(max(warp.at_seconds, 0.0), source)
+    seam = min(_WARP_SEAM_FADE_SECONDS, source / 4)
+    prefix = f"aw{input_index}"
+
+    base = (
+        f"[{input_index}:a:0]atrim=start={source_in:.6f}:end={source_out:.6f},"
+        f"asetpts=N/SR/TB,{MIX_FORMAT}"
+    )
+    statements: list[str] = []
+
+    if warp.effect is EffectType.SPEED_RAMP:
+        start = at
+        end = min(at + warp.window_seconds, source)
+        # The same edge collapse and factor re-derivation as the picture: a
+        # sub-frame piece is dropped into the window, and the factor bends so
+        # the stretched length still equals window + extra exactly.
+        if start <= 0.05:
+            start = 0.0
+        if end >= source - 0.05:
+            end = source
+        window = max(end - start, 1e-3)
+        factor = window / (window + warp.extra_seconds)
+        slow_length = window + warp.extra_seconds
+        # atempo's WSOLA loses a window or two at the stream's end -- measured
+        # 30 ms short on a 2 s stretch -- and the concat assembly would hand
+        # that drift to every later clip. The true tail is faded through
+        # ``areverse`` (a stamped st would fade padding, not sound), then the
+        # piece is pinned to its exact arithmetic length: padded up, trimmed
+        # down, whichever the build's atempo produced.
+        slow = (
+            f"atrim=start={start:.6f}:end={end:.6f},asetpts=N/SR/TB,{atempo_steps(factor)}"
+            f",areverse,afade=t=in:st=0:d={seam:.3f},areverse"
+            f",apad=whole_dur={slow_length:.6f},atrim=end={slow_length:.6f},asetpts=N/SR/TB"
+        )
+        pieces: list[tuple[str, float, bool]] = []
+        if start > 0.0:
+            pieces.append((f"atrim=end={start:.6f},asetpts=N/SR/TB", start, False))
+        pieces.append((slow, slow_length, True))
+        if end < source:
+            pieces.append((f"atrim=start={end:.6f},asetpts=N/SR/TB", source - end, False))
+        if len(pieces) == 1:
+            joined = f"{base},{pieces[0][0]}"
+        else:
+            statements.append(f"{base}[{prefix}]")
+            labels = "".join(f"[{prefix}s{index}]" for index in range(len(pieces)))
+            statements.append(f"[{prefix}]asplit={len(pieces)}{labels}")
+            for index, (piece, length, faded) in enumerate(pieces):
+                fades = _seam_fades(index, len(pieces), length, seam, tail_handled=faded)
+                statements.append(f"[{prefix}s{index}]{piece}{fades}[{prefix}p{index}]")
+            inputs = "".join(f"[{prefix}p{index}]" for index in range(len(pieces)))
+            joined = f"{inputs}concat=n={len(pieces)}:v=0:a=1"
+    elif at <= 0.05:
+        # Freeze at the head: the silence leads, so the sound starts late by
+        # the hold -- adelay puts it there and the seam fade softens the entry.
+        joined = f"{base},afade=t=in:st=0:d={seam:.3f},adelay={round(warp.extra_seconds * 1000)}"
+        joined += f"|{round(warp.extra_seconds * 1000)}"
+    elif at >= source - 0.05:
+        joined = f"{base},afade=t=out:st={max(0.0, source - seam):.3f}:d={seam:.3f}"
+        joined += f",apad=pad_dur={warp.extra_seconds:.6f}"
+    else:
+        statements.append(f"{base}[{prefix}]")
+        statements.append(f"[{prefix}]asplit=2[{prefix}s0][{prefix}s1]")
+        statements.append(
+            f"[{prefix}s0]atrim=end={at:.6f},asetpts=N/SR/TB,"
+            f"afade=t=out:st={max(0.0, at - seam):.3f}:d={seam:.3f},"
+            f"apad=pad_dur={warp.extra_seconds:.6f}[{prefix}p0]"
+        )
+        statements.append(
+            f"[{prefix}s1]atrim=start={at:.6f},asetpts=N/SR/TB,"
+            f"afade=t=in:st=0:d={seam:.3f}[{prefix}p1]"
+        )
+        joined = f"[{prefix}p0][{prefix}p1]concat=n=2:v=0:a=1"
+
+    if fade_in > 0:
+        joined += f",afade=t=in:st=0:d={fade_in:.3f}"
+    if fade_out > 0:
+        joined += f",afade=t=out:st={max(0.0, total - fade_out):.3f}:d={fade_out:.3f}"
+    if delay_ms:
+        joined += f",adelay={delay_ms}|{delay_ms}"
+    statements.append(f"{joined}[{out_label}]")
+    return ";".join(statements)
+
+
+def _seam_fades(
+    index: int, count: int, length: float, seam: float, *, tail_handled: bool = False
+) -> str:
+    """Micro fades at a warped clip's internal joins, never at its outer edges.
+
+    ``atempo`` reassembles the waveform, so the samples either side of a piece
+    boundary no longer line up; an unfaded join clicks exactly the way the
+    concat path's joins did before its micro fades existed. ``length`` is the
+    piece's *post-filter* duration; a piece whose chain already faded its own
+    tail (the slow piece, through ``areverse``) says so via ``tail_handled``.
+    """
+    fade = min(seam, length / 4)
+    steps = ""
+    if index > 0:
+        steps += f",afade=t=in:st=0:d={fade:.3f}"
+    if index < count - 1 and not tail_handled:
+        steps += f",afade=t=out:st={max(0.0, length - fade):.3f}:d={fade:.3f}"
+    return steps
+
+
 __all__ = [
     "ENVELOPE_SAMPLE_RATE",
     "MIX_FORMAT",
@@ -474,6 +653,7 @@ __all__ = [
     "DuckSpan",
     "MixInput",
     "MixPlan",
+    "atempo_steps",
     "build_envelope",
     "event_spans",
     "find_music",
@@ -481,5 +661,6 @@ __all__ = [
     "merge_spans",
     "plan_mix",
     "speech_spans",
+    "warped_clip_audio",
     "write_envelope",
 ]

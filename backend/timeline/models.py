@@ -94,7 +94,17 @@ class TimelineClip(_Base):
                 f"timeline_start ({self.timeline_start})"
             )
         expected = (self.source_out - self.source_in) / self.speed
-        if abs(expected - (self.timeline_end - self.timeline_start)) > 1e-3:
+        span = self.timeline_end - self.timeline_start
+        # A time-warping effect adds timeline seconds a linear speed cannot
+        # express: a freeze holds one frame, a ramp slows a window. The re-lay
+        # (backend.timeline.retime) records the added seconds in metadata, and
+        # the invariant widens to a band rather than vanishing -- the span may
+        # sit anywhere between "no warp survived" and "the whole warp is here",
+        # because a §127 split copies the metadata to both halves while only
+        # one of them keeps the warp, and a strict equality made the *load* of
+        # such an edit fail rather than the edit itself.
+        extra = _retime_extra(self.metadata)
+        if not (expected - 1e-3 <= span <= expected + extra + 1e-3):
             # The two coordinate systems have drifted apart, which means the
             # renderer would either run out of source or repeat frames. Catching
             # it here is the whole reason both spans are stored.
@@ -121,10 +131,19 @@ class TimelineClip(_Base):
         """The source timestamp shown at a timeline position.
 
         The mapping the renderer needs, and the mapping a question like "what
-        was happening at 4:12 of the video" needs (§59).
+        was happening at 4:12 of the video" needs (§59). A time-warped clip
+        (``metadata["retime"]``, written by :mod:`backend.timeline.retime`)
+        maps piecewise: during a freeze the answer is the held instant, after
+        it everything is later by the hold. The linear form here would return
+        source positions past ``source_out`` for the warp-extended tail --
+        and a §127 split at such a position wrote a clip whose source span
+        ran backwards, which the model then refused to load.
         """
         offset = max(0.0, min(self.duration, timeline_seconds - self.timeline_start))
-        return self.source_in + offset * self.speed
+        raw = self.metadata.get("retime")
+        if isinstance(raw, dict) and _retime_extra(self.metadata) > 0.0:
+            offset = _source_offset_of_warped(raw, offset, self.source_duration)
+        return min(self.source_in + offset * self.speed, self.source_out)
 
     def moved_to(self, timeline_start: float) -> TimelineClip:
         """The same source span, placed at a different timeline position."""
@@ -134,6 +153,53 @@ class TimelineClip(_Base):
                 "timeline_end": timeline_start + self.duration,
             }
         )
+
+
+def _source_offset_of_warped(raw: dict[str, Any], offset: float, source_duration: float) -> float:
+    """Output-clock clip offset to source-clock clip offset, under a warp.
+
+    The inverse of ``backend.timeline.retime.output_offset``, expressed on the
+    stored metadata directly because that module imports this one. During a
+    freeze the source clock stands still at the anchor; inside a ramp's slow
+    window it advances at ``factor``; past either, it lags by the added time.
+    """
+
+    def _number(key: str, fallback: float) -> float:
+        value = raw.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        return fallback
+
+    at = min(max(_number("at", source_duration), 0.0), source_duration)
+    extra = max(_number("extra_seconds", 0.0), 0.0)
+    if offset <= at:
+        return offset
+    if str(raw.get("effect")) == "speed_ramp":
+        factor = _number("factor", 0.0)
+        window = _number("window_seconds", 0.0)
+        if 0.0 < factor < 1.0 and window > 0.0:
+            stretched_end = at + window / factor
+            if offset < stretched_end:
+                return at + (offset - at) * factor
+            return offset - (stretched_end - (at + window))
+    if offset < at + extra:
+        return at
+    return offset - extra
+
+
+def _retime_extra(metadata: dict[str, Any]) -> float:
+    """The timeline seconds a stored warp is allowed to add. Zero without one.
+
+    Read directly rather than through :mod:`backend.timeline.retime` because
+    that module imports this one; the key and shape are its contract.
+    """
+    raw = metadata.get("retime")
+    if not isinstance(raw, dict):
+        return 0.0
+    value = raw.get("extra_seconds")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return max(float(value), 0.0)
+    return 0.0
 
 
 class Marker(_Base):

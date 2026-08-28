@@ -491,6 +491,185 @@ class TestPlanModel:
         assert first.overlaps(separate) is False
 
 
+def _tuned(config: AppConfig, effect: EffectType, **updates) -> AppConfig:
+    """The shipped config with one library entry's fields replaced."""
+    spec = config.effects.library[effect].model_copy(update=updates)
+    library = {**config.effects.library, effect: spec}
+    effects = config.effects.model_copy(update={"library": library})
+    return config.model_copy(update={"effects": effects})
+
+
+def _loose_limits(config: AppConfig, effect: EffectType, **extra) -> AppConfig:
+    """Per-effect rate limits opened wide, so only the rule under test binds."""
+    limits = config.effects.library[effect].limits.model_copy(
+        update={
+            "min_gap_seconds": 0.0,
+            "cooldown_seconds": 0.0,
+            "max_per_minute": 60.0,
+            "max_per_video": 50,
+            **extra,
+        }
+    )
+    return _tuned(config, effect, limits=limits)
+
+
+class TestEscalationLadder:
+    """Doctrine §9: a run of same-type events escalates instead of repeating.
+
+    The doctrine's example is kill one -> nothing, kill two -> subtle punch,
+    kill four -> major impact. The generic form: an entry's ``escalation``
+    ladder multiplies each firing's intensity by its position in the run.
+    """
+
+    LADDER = (0.0, 0.4, 0.7, 1.0)
+
+    def _config(self, config: AppConfig) -> AppConfig:
+        tuned = _tuned(
+            _loose_limits(config, EffectType.CAMERA_SHAKE),
+            EffectType.CAMERA_SHAKE,
+            escalation=list(self.LADDER),
+            escalation_window_seconds=30.0,
+        )
+        # A roomy per-moment budget: chaos moments also earn flash and impact
+        # candidates, and the rule under test is the ladder, not the race for
+        # a moment's two slots.
+        limits = tuned.effects.global_limits.model_copy(update={"max_effects_per_moment": 12})
+        effects = tuned.effects.model_copy(update={"global_limits": limits})
+        return tuned.model_copy(update={"effects": effects})
+
+    def _chaos(self, index: int, start: float) -> PlannedMoment:
+        # NEAR_DEATH rather than HIGH_DAMAGE: the latter is also a zoom
+        # trigger, and zoom sits first in the library -- it took the camera
+        # slot on every moment and the shake under test never placed at all.
+        return moment(
+            index,
+            moment_type=MomentType.CHAOS,
+            start=start,
+            duration=6.0,
+            events=[GameEventType.NEAR_DEATH],
+        )
+
+    def _shakes(self, plan: EffectPlan) -> list[EffectInstance]:
+        return [item for item in plan.instances if item.effect is EffectType.CAMERA_SHAKE]
+
+    def test_a_run_of_four_same_type_events_produces_ascending_intensities(
+        self, config: AppConfig
+    ) -> None:
+        moments = [self._chaos(index, start=index * 8.0) for index in range(4)]
+        plan = EffectPlanner(self._config(config)).plan(
+            moments, intent(), video_duration_seconds=600
+        )
+
+        shakes = self._shakes(plan)
+        strengths = [item.strength for item in shakes]
+        assert len(shakes) == 3, "the run's opening firing stays quiet"
+        assert strengths == sorted(strengths)
+        assert len(set(strengths)) == 3, "each later firing steps UP, not sideways"
+        assert any("escalation" in reason for reason in plan.rejected)
+
+    def test_an_isolated_event_is_a_run_of_one_and_earns_nothing(
+        self, config: AppConfig
+    ) -> None:
+        # Kill one -> nothing is the doctrine's opening move, and an isolated
+        # event is exactly a run whose first firing never gets a second.
+        plan = EffectPlanner(self._config(config)).plan(
+            [self._chaos(0, start=0.0)], intent(), video_duration_seconds=600
+        )
+
+        assert self._shakes(plan) == []
+        assert any("escalation" in reason for reason in plan.rejected)
+
+    def test_a_gap_beyond_the_window_starts_a_fresh_run(self, config: AppConfig) -> None:
+        # Two events a hundred seconds apart are two first kills, not a spree.
+        moments = [self._chaos(0, start=0.0), self._chaos(1, start=100.0)]
+        plan = EffectPlanner(self._config(config)).plan(
+            moments, intent(), video_duration_seconds=600
+        )
+
+        assert self._shakes(plan) == []
+        held = [
+            reason
+            for reason in plan.rejected
+            if reason.startswith("camera_shake") and "escalation" in reason
+        ]
+        assert len(held) == 2, "each isolated firing opens its own run and stays quiet"
+
+    def test_a_run_past_the_ladder_holds_its_top_rung(self, config: AppConfig) -> None:
+        moments = [self._chaos(index, start=index * 8.0) for index in range(6)]
+        plan = EffectPlanner(self._config(config)).plan(
+            moments, intent(), video_duration_seconds=600
+        )
+
+        strengths = [item.strength for item in self._shakes(plan)]
+        assert len(strengths) == 5
+        assert strengths == sorted(strengths), "the crescendo never steps back down"
+        assert strengths[-1] == strengths[-2], "past the ladder's end the top rung holds"
+
+    def test_an_entry_without_a_ladder_behaves_exactly_as_before(
+        self, config: AppConfig
+    ) -> None:
+        # The new keys are opt-in: escalation None and cooldown zero must
+        # reproduce the pre-doctrine plan -- every firing at full intensity.
+        plain = _tuned(
+            _loose_limits(config, EffectType.CAMERA_SHAKE),
+            EffectType.CAMERA_SHAKE,
+            escalation=None,
+        )
+        moments = [self._chaos(index, start=index * 10.0) for index in range(2)]
+        plan = EffectPlanner(plain).plan(moments, intent(), video_duration_seconds=600)
+
+        shakes = self._shakes(plan)
+        assert len(shakes) == 2
+        assert all(item.strength == pytest.approx(plan.intensity) for item in shakes)
+        # Other entries (flash) keep their shipped ladders; the entry under
+        # test must be the one exempt from the new rules.
+        assert not any(
+            reason.startswith("camera_shake") and ("escalation" in reason or "cooldown" in reason)
+            for reason in plan.rejected
+        )
+
+
+class TestCooldown:
+    """Doctrine §9: an effect that just fired sits out its cooldown, on record."""
+
+    def _clutch(self, index: int, start: float) -> PlannedMoment:
+        return moment(
+            index,
+            moment_type=MomentType.CLUTCH,
+            start=start,
+            duration=6.0,
+            events=[GameEventType.KILL],
+        )
+
+    def test_a_cooldown_suppresses_and_records_the_rejection(
+        self, config: AppConfig
+    ) -> None:
+        limits = config.effects.library[EffectType.ZOOM].limits.model_copy(
+            update={"cooldown_seconds": 15.0}
+        )
+        cooled = _tuned(config, EffectType.ZOOM, limits=limits)
+        # 8 s apart: past zoom's own 6 s min_gap, inside the 15 s cooldown --
+        # so the cooldown is the rule doing the work, and the reason says so.
+        moments = [self._clutch(0, start=0.0), self._clutch(1, start=8.0)]
+        plan = EffectPlanner(cooled).plan(moments, intent(), video_duration_seconds=600)
+
+        zooms = [item for item in plan.instances if item.effect is EffectType.ZOOM]
+        assert len(zooms) == 1
+        assert any(
+            reason.startswith("zoom") and "cooldown" in reason for reason in plan.rejected
+        )
+
+    def test_zero_cooldown_keeps_the_old_behaviour(self, config: AppConfig) -> None:
+        # The shipped zoom entry has no cooldown; the same two moments place
+        # two zooms, exactly as they did before the key existed.
+        moments = [self._clutch(0, start=0.0), self._clutch(1, start=8.0)]
+        plan = EffectPlanner(config).plan(moments, intent(), video_duration_seconds=600)
+
+        zooms = [item for item in plan.instances if item.effect is EffectType.ZOOM]
+        assert len(zooms) == 2
+        assert not any("cooldown" in reason for reason in plan.rejected)
+
+
 class TestRelativeThresholds:
     """§23's promise reaching the effects engine.
 

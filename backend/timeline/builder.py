@@ -26,6 +26,13 @@ transitions; §69 says never apply an effect globally). The only automatic
 non-cut is a fade at the very start and end of the programme, which is a
 convention rather than an effect: a video that begins mid-frame reads as a
 mistake.
+
+One thing deliberately does *not* happen here: the re-lay for time-warping
+effects (a frozen clip occupies its source span plus the hold). Effects are
+planned against the built timeline -- the planner needs these positions to
+exist -- so the durations laid out below are re-laid afterwards by
+:func:`backend.timeline.retime.relay_timeline`, in the EDL worker, between
+planning and captions.
 """
 
 from __future__ import annotations

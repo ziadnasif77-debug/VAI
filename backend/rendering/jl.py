@@ -40,6 +40,13 @@ still maps ``[source_in, source_out]`` onto ``[timeline_start,
 timeline_end]`` exactly as the concat did, and only material from outside
 the body enters the overlap windows. Mid-clip sync is unchanged by
 construction, not by measurement.
+
+Retimed clips — a ``speed`` warp, or a freeze/ramp the EDL re-laid — keep
+their boundaries hard: their timeline seconds are not their source seconds,
+so an offset computed in one and extracted in the other would desync the
+very boundary it decorates. Their *bodies* still enter this graph through
+the same warped construction the concat path uses, because a linear extract
+of a re-laid clip ends short by exactly the warp's added seconds.
 """
 
 from __future__ import annotations
@@ -50,8 +57,9 @@ from pathlib import Path
 from typing import Final, Literal
 
 from backend.config.schema import JLCutsConfig
-from backend.rendering.audio_mix import MIX_FORMAT
+from backend.rendering.audio_mix import MIX_FORMAT, warped_clip_audio
 from backend.timeline.models import Timeline, TimelineClip
+from backend.timeline.retime import clip_retime, is_retimed
 
 BoundaryKind = Literal["j", "l", "hard"]
 
@@ -231,8 +239,9 @@ def _plan_one(
     hard = BoundaryPlan(index=index, kind="hard")
     if not config.enabled:
         return hard
-    if outgoing.speed != 1.0 or incoming.speed != 1.0:
-        # A speed-warped clip's timeline seconds are not its source seconds,
+    if is_retimed(outgoing) or is_retimed(incoming):
+        # A retimed clip's timeline seconds are not its source seconds --
+        # whether by a ``speed`` warp or by a freeze/ramp the EDL re-laid --
         # and an offset computed in one and extracted in the other would
         # desync the very boundary it decorates.
         return hard
@@ -314,7 +323,24 @@ def _clip_chain(
     mapping identical to the concat's: the lead shifts the start of the
     *extract* and the start of the *placement* by the same amount, so every
     source second inside the body still lands on its own timeline second.
+
+    A retimed clip (a freeze or a ramp the EDL re-laid) takes the shared
+    warped construction instead: its boundaries were planned hard, so it has
+    no lead or trail, but its *body* occupies more timeline than its source
+    span -- a linear extract here ended early and every second of it after
+    the warp anchor played early by the added time.
     """
+    warp = clip_retime(clip)
+    if warp is not None:
+        return warped_clip_audio(
+            position,
+            clip,
+            warp,
+            out_label=f"c{position}",
+            fade_in=min(fade_in, clip.duration / 4),
+            fade_out=min(fade_out, clip.duration / 4),
+            delay_ms=round(max(0.0, clip.timeline_start) * 1000),
+        )
     start = clip.source_in - lead
     end = clip.source_out + trail
     duration = end - start

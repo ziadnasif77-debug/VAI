@@ -39,6 +39,7 @@ from backend.media.ffmpeg import CancelledError, FFmpegRunner, format_seconds, p
 from backend.media.probe import probe_media
 from backend.rendering.encoder import EncoderChoice, EncodeTarget, intermediate_arguments
 from backend.timeline.models import TimelineClip
+from backend.timeline.retime import ClipRetime, clip_retime
 
 logger = get_logger("rendering.renderer", LogChannel.RENDERING)
 
@@ -142,13 +143,17 @@ def render_programme(
             )
 
         # The transition and the effects are part of the picture, so they are
-        # part of the name: a reused segment must carry the same fades and the
-        # same baked effects the plan now asks for, and a duration check alone
-        # cannot see a 0.3s dip -- or a zoom -- inside a same-length file.
+        # part of the name: a reused segment must carry the same fades, the
+        # same baked effects and the same time-warp the plan now asks for.
+        # A duration check alone cannot see a 0.3s dip -- or a zoom -- inside
+        # a same-length file, and a warp moved to a different anchor produces
+        # a same-length file with different frames in it.
         effects = _realised(clip, (effects_by_clip or {}).get(clip.id, ()))
-        baked_effects += len(effects)
+        warp = clip_retime(clip)
+        baked_effects += len(effects) + (1 if warp is not None else 0)
         segment = segments_dir / (
-            f"{position:05d}_{clip.id}{_fade_token(clip)}{_effects_token(effects)}.mp4"
+            f"{position:05d}_{clip.id}{_fade_token(clip)}"
+            f"{_effects_token(effects)}{_retime_token(warp)}.mp4"
         )
         if _is_complete(segment, clip.duration, runner):
             reused += 1
@@ -162,6 +167,7 @@ def render_programme(
                 encoder=encoder,
                 target=target,
                 effects=effects,
+                warp=warp,
                 should_cancel=should_cancel,
             )
         segments.append(segment)
@@ -226,6 +232,7 @@ def _cut(
     encoder: EncoderChoice,
     target: EncodeTarget,
     effects: Sequence[EffectInstance] = (),
+    warp: ClipRetime | None = None,
     should_cancel: CancelCheck | None,
 ) -> None:
     """Extract one clip, re-encoded so the cut lands on the requested frame.
@@ -235,23 +242,41 @@ def _cut(
     in-point to the nearest keyframe -- up to a couple of seconds away, which
     is the difference between a clip that opens on the kill and one that opens
     after it.
+
+    A time-warped clip takes the ``-filter_complex`` route instead of ``-vf``:
+    a freeze or a ramp splits the picture into sub-pieces, retimes one, and
+    concatenates them back inside this single invocation, so the rest of the
+    pipeline still sees one segment file of exactly ``clip.duration``.
     """
     partial = destination.with_suffix(".part.mp4")
     partial.unlink(missing_ok=True)
+
+    if warp is None:
+        picture = _scale_arguments(
+            clip, target, fades=_fade_filter(clip) + _effect_filters(clip, effects, target)
+        )
+        source_read: list[str] = []
+    else:
+        picture = ["-filter_complex", _warp_graph(clip, warp, effects, target), "-map", "[vout]"]
+        # Bound the read as well as the write: the graph stops passing frames
+        # at ``source_duration``, but without an input-side ``-t`` FFmpeg
+        # would keep decoding to the end of the recording feeding a finished
+        # trim. Half a second of margin keeps the last frame safe from the
+        # seek's keyframe rounding.
+        source_read = ["-t", format_seconds(clip.source_duration + 0.5)]
 
     argv = [
         *runner.base_arguments(),
         *progress_arguments(),
         "-ss", format_seconds(clip.source_in),
+        *source_read,
         "-i", str(source),
         "-t", format_seconds(clip.duration),
         # One video stream, no audio: the audio path builds the programme
         # separately, because the mix needs the tracks apart (§72).
-        "-map", "0:v:0",
+        *([] if warp is not None else ["-map", "0:v:0"]),
         "-an",
-        *_scale_arguments(
-            clip, target, fades=_fade_filter(clip) + _effect_filters(clip, effects, target)
-        ),
+        *picture,
         *intermediate_arguments(encoder, config.render),
         "-r", str(target.fps),
         # Every segment must start at zero for the concat demuxer, and a
@@ -283,14 +308,16 @@ def _scale_arguments(
     refuses streams that do not match. Padding rather than stretching keeps a
     4:3 capture from being distorted into 16:9; the bars are honest.
     """
-    return [
-        "-vf",
-        (
-            f"scale={target.width}:{target.height}:force_original_aspect_ratio=decrease,"
-            f"pad={target.width}:{target.height}:(ow-iw)/2:(oh-ih)/2:color=black,"
-            "setsar=1" + fades
-        ),
-    ]
+    return ["-vf", _frame_chain(target) + fades]
+
+
+def _frame_chain(target: EncodeTarget) -> str:
+    """The geometry every segment shares, whichever route cuts it."""
+    return (
+        f"scale={target.width}:{target.height}:force_original_aspect_ratio=decrease,"
+        f"pad={target.width}:{target.height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+        "setsar=1"
+    )
 
 
 #: Transitions the video renders as a fade through black. Until this existed
@@ -343,18 +370,31 @@ def _fade_token(clip: TimelineClip) -> str:
 # and no renderer ever read them: seventeen effects across three real projects,
 # none visible in any finished video. This is the FFmpeg half of the wire.
 #
-# Only duration-neutral effects are realised here. Nothing below changes the
-# frame count or a timestamp, which is what keeps every §76 QA gate untouched:
-# a letterbox covers 26% of the frame (blackdetect needs the whole picture),
-# a zoom re-samples pixels, a flash lifts brightness, a shake pans a padded
-# frame. Time-warping effects (slow_motion, speed_ramp, freeze_frame) need the
-# EDL to re-lay clip durations first and stay unrealised for now; blur/glow's
-# configured modes (background isolation, highlight lift) are not honest
-# one-filter jobs and a full-frame approximation would misrepresent the plan.
+# Two kinds of effect are realised here, and the difference is the frame count.
+# The duration-neutral kind (zoom, punch-in, bars, flash, shake) never changes
+# a timestamp: a letterbox covers 26% of the frame, a zoom re-samples pixels, a
+# flash lifts brightness, a shake pans a padded frame -- §76's QA gates cannot
+# tell a decorated segment from a plain one by length. The time-warping kind
+# (freeze_frame, speed_ramp) *does* change length, and is only honest because
+# the EDL re-laid the clip first (backend/timeline/retime.py): the clip's
+# timeline span already carries the added seconds, the warp's shape rides in
+# ``metadata["retime"]``, and the segment this file cuts is exactly
+# ``clip.duration`` long -- so §47's reuse check, the audio graph and the QA
+# duration gate all keep reading the numbers they always read. The warp is
+# driven by the clip, not by the effect row, because the timeline's duration is
+# a promise the picture must keep even if the rows are filtered or the
+# realisation switch is flipped between EDL and render.
+#
+# slow_motion stays unrealised: it warps a whole clip rather than a window
+# inside one, which is a ``speed`` change the re-lay does not express (and its
+# library entry is disabled so it cannot outbid the warps that do render).
+# blur/glow's configured modes (background isolation, highlight lift) are not
+# honest one-filter jobs and a full-frame approximation would misrepresent the
+# plan.
 
 #: Bumped when a filter formula changes, so segments baked with the old
 #: formula stop matching their name and §47's reuse re-cuts them.
-_EFFECT_FILTER_VERSION: Final[int] = 2
+_EFFECT_FILTER_VERSION: Final[int] = 3
 
 #: Shorter than this on the clip, an effect is a flicker, not an effect.
 _MIN_EFFECT_SECONDS: Final[float] = 0.05
@@ -546,6 +586,146 @@ def _numeric(value: object, fallback: float) -> float:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
     return fallback
+
+
+# ---------------------------------------------------------------------------
+# time warps: the duration-changing half (doctrine §11, §12)
+# ---------------------------------------------------------------------------
+
+#: Anchors closer to a clip edge than this collapse to the edge: a 30 ms head
+#: piece would be a single frame feeding a concat for nothing.
+_WARP_EDGE_SECONDS: Final[float] = 0.05
+
+
+def _retime_token(warp: ClipRetime | None) -> str:
+    """A filename fragment naming the warp baked into a segment (§47).
+
+    A moved anchor or a changed hold produces a file of the same length as a
+    differently-warped one -- the duration check cannot tell them apart, so
+    the shape goes into the name the same way the neutral effects' parameters
+    do, versioned by the same formula counter.
+    """
+    if warp is None:
+        return ""
+    digest = zlib.crc32(
+        repr(
+            (
+                _EFFECT_FILTER_VERSION,
+                warp.effect.value,
+                round(warp.at_seconds, 3),
+                round(warp.extra_seconds, 3),
+                round(warp.window_seconds, 3),
+                round(warp.factor, 4),
+            )
+        ).encode("utf-8")
+    )
+    return f"-rt{digest:08x}"
+
+
+def _warp_graph(
+    clip: TimelineClip,
+    warp: ClipRetime,
+    effects: Sequence[EffectInstance],
+    target: EncodeTarget,
+) -> str:
+    """The ``filter_complex`` that realises one clip's freeze or ramp.
+
+    The construction is trim/setpts pieces joined by the concat *filter*,
+    chosen over a select/setpts single chain because every piece's length is
+    plain arithmetic an ffprobe can be checked against: the head is ``at``
+    seconds, a freeze adds ``tpad``'s ``stop_duration`` exactly, a slow piece
+    is its window over its factor. A select expression that drops and re-times
+    frames in place has no such ledger -- when its output came up short there
+    was nothing to compare against but itself.
+
+    Order inside the graph: geometry and duration-neutral effects first, on
+    the clip's own source clock (their stored windows are source-clock
+    positions, and a zoom that lands on the held frame should freeze *zoomed*);
+    then the warp; then the edge fades, on the output clock, because a
+    fade-out belongs at the end of the clip the viewer gets, not the one the
+    recording had.
+    """
+    base = _frame_chain(target) + _effect_filters(clip, effects, target)
+    fades = _fade_filter(clip)
+    source = clip.source_duration
+    at = min(max(warp.at_seconds, 0.0), source)
+
+    if warp.effect is EffectType.SPEED_RAMP:
+        return _ramp_statements(base, fades, warp, at, source)
+    return _freeze_statements(base, fades, warp.extra_seconds, at, source)
+
+
+def _freeze_statements(base: str, fades: str, hold: float, at: float, source: float) -> str:
+    """Hold the frame at ``at`` for ``hold`` seconds.
+
+    ``tpad`` with ``stop_mode=clone`` repeats a stream's *last* frame, so
+    holding a mid-clip instant means cutting the clip there, padding the first
+    piece, and concatenating -- the padded piece's last frame is the anchor
+    frame by construction. At either edge the split degenerates to a single
+    chain with the pad at the matching end.
+    """
+    if at <= _WARP_EDGE_SECONDS:
+        return f"[0:v:0]{base},tpad=start_mode=clone:start_duration={hold:.6f}{fades}[vout]"
+    if at >= source - _WARP_EDGE_SECONDS:
+        return f"[0:v:0]{base},tpad=stop_mode=clone:stop_duration={hold:.6f}{fades}[vout]"
+    return ";".join(
+        [
+            f"[0:v:0]{base}[vw]",
+            "[vw]split=2[vwa][vwb]",
+            (
+                f"[vwa]trim=end={at:.6f},setpts=PTS-STARTPTS,"
+                f"tpad=stop_mode=clone:stop_duration={hold:.6f}[vp0]"
+            ),
+            f"[vwb]trim=start={at:.6f},setpts=PTS-STARTPTS[vp1]",
+            f"[vp0][vp1]concat=n=2:v=1:a=0{fades}[vout]",
+        ]
+    )
+
+
+def _ramp_statements(base: str, fades: str, warp: ClipRetime, at: float, source: float) -> str:
+    """Real time into the anchor, ``factor`` across the window, real time out.
+
+    Up to three pieces; a window touching either clip edge drops the empty
+    piece rather than feeding concat a zero-length stream. The slow piece's
+    ``setpts=(PTS-STARTPTS)/factor`` stretches timestamps and the segment's
+    output ``-r`` fills them by frame duplication -- honest slow motion
+    without inventing frames, the same trade every cutting tool makes without
+    optical flow.
+    """
+    start = at
+    end = min(at + warp.window_seconds, source)
+    # A window touching a clip edge swallows the sliver rather than leaving a
+    # sub-frame piece behind: a trim spanning less than one frame interval can
+    # yield an empty stream, and concat never finishes against one. The window
+    # grows by up to 50 ms, so the factor is re-derived to keep the *added*
+    # seconds exactly what the timeline re-lay promised -- the depth of the
+    # slowdown bends, the duration never does.
+    if start <= _WARP_EDGE_SECONDS:
+        start = 0.0
+    if end >= source - _WARP_EDGE_SECONDS:
+        end = source
+    window = max(end - start, 1e-3)
+    factor = window / (window + warp.extra_seconds)
+    chains: list[str] = []
+    if start > 0.0:
+        chains.append(f"trim=end={start:.6f},setpts=PTS-STARTPTS")
+    chains.append(
+        f"trim=start={start:.6f}:end={end:.6f},setpts=(PTS-STARTPTS)/{factor:.6f}"
+    )
+    if end < source:
+        chains.append(f"trim=start={end:.6f},setpts=PTS-STARTPTS")
+
+    if len(chains) == 1:
+        return f"[0:v:0]{base},{chains[0]}{fades}[vout]"
+    statements = [f"[0:v:0]{base}[vw]"]
+    split = "".join(f"[vw{index}]" for index in range(len(chains)))
+    statements.append(f"[vw]split={len(chains)}{split}")
+    statements.extend(
+        f"[vw{index}]{chain}[vp{index}]" for index, chain in enumerate(chains)
+    )
+    joined = "".join(f"[vp{index}]" for index in range(len(chains)))
+    statements.append(f"{joined}concat=n={len(chains)}:v=1:a=0{fades}[vout]")
+    return ";".join(statements)
 
 
 _StepBuilder = Callable[[EffectInstance, float, float, EncodeTarget], str]
