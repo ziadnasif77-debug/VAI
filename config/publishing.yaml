@@ -52,7 +52,7 @@ publishing:
     credential_id: null
     channel_id: null
     default_playlist: null
-    default_visibility: private
+    default_visibility: public
     # An upload is never started without the user confirming it.
     require_explicit_confirmation: true
     upload_chunk_bytes: 8388608

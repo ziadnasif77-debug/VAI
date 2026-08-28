@@ -25,7 +25,7 @@ export function ExportScreen({
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [thumbnail, setThumbnail] = useState<string | null>(null);
-  const [visibility, setVisibility] = useState<'private' | 'unlisted' | 'public'>('private');
+  const [visibility, setVisibility] = useState<'private' | 'unlisted' | 'public'>('public');
   const [authCode, setAuthCode] = useState<{url: string; code: string} | null>(null);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const targets = usePolling(() => api.publishing.targets(), {

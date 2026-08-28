@@ -111,13 +111,18 @@ class PublishWorker:
         clips = story.result.get("clips") if story is not None and story.result else None
         defaults = context.config.publishing.defaults
         segments = TranscriptRepository(database).list_for_project(context.project_id)
-        return suggest(
+        written = suggest(
             project,
             moments=moments,
             events_by_media=events_by_media,
             story_clips=clips if isinstance(clips, list) else (),
             transcript_language=detect_transcript_language(segments),
             min_chapter_seconds=defaults.min_chapter_seconds,
+        )
+        # The owner's standing visibility, not the model's cautious default:
+        # auto-publish means "publish the way I always publish".
+        return written.model_copy(
+            update={"visibility": context.config.publishing.youtube.default_visibility}
         )
 
     def _request(self, context: WorkerContext, payload: dict[str, Any]) -> PublishRequest:

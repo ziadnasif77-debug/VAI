@@ -114,6 +114,26 @@ def _build_web() -> None:
     )
 
 
+def _strip_owner_client(target: Path) -> None:
+    """The builder's OAuth client id must not ship.
+
+    The id is public by design -- but it is the *builder's* id, and a
+    distribution that carried it would bill every user's uploads against the
+    builder's daily quota. The person who installs this creates their own
+    client, exactly as the yaml's own comments instruct.
+    """
+    config = target / "config" / "publishing.yaml"
+    if not config.is_file():
+        return
+    lines = config.read_text(encoding="utf-8").splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("client_id:") and stripped != "client_id: null":
+            indent = line[: len(line) - len(line.lstrip())]
+            lines[index] = f"{indent}client_id: null" + "\n"
+    config.write_text("".join(lines), encoding="utf-8")
+
+
 def _write_install_note(target: Path, version: str) -> None:
     (target / "INSTALL.txt").write_text(
         f"""VAI {version} — AI Gaming Video Editor
@@ -168,6 +188,7 @@ def build(*, zip_output: bool) -> Path:
         (target / name).mkdir(exist_ok=True)
 
     _write_install_note(target, version)
+    _strip_owner_client(target)
 
     # The distribution must not inherit the builder's state. Belt braces:
     # the excludes above should have kept these out; verify rather than trust.

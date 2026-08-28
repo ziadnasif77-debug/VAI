@@ -110,3 +110,23 @@ class TestTheLeakGuard:
 
         assert (fake_repo / "dist" / "VAI-1.2.3.zip").is_file()
         assert (fake_repo / "dist" / "VAI-1.2.3.zip.sha256").is_file()
+
+
+class TestTheOwnerClientNeverShips:
+    def test_the_shipped_publishing_yaml_has_no_client_id(self, tmp_path) -> None:
+        from scripts.package import _strip_owner_client
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "publishing.yaml").write_text(
+            "publishing:\n  youtube:\n"
+            "    client_id: 12345-abc.apps.googleusercontent.com\n",
+            encoding="utf-8",
+        )
+
+        _strip_owner_client(tmp_path)
+
+        text = (config_dir / "publishing.yaml").read_text(encoding="utf-8")
+        assert "client_id: null" in text
+        assert "googleusercontent" not in text
+

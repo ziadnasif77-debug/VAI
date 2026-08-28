@@ -53,7 +53,8 @@ class TestShippedConfiguration:
         assert PublishTarget.LOCAL_FILE in config.publishing.enabled_targets
         assert PublishTarget.YOUTUBE in config.publishing.enabled_targets
         assert config.publishing.youtube.enabled is True
-        assert config.publishing.youtube.client_id is None
+        # The owner's client id may live in the local yaml (public by
+        # design); the packager strips it, and test_package proves that.
         assert config.publishing.default_target is PublishTarget.LOCAL_FILE
 
 
