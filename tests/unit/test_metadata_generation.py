@@ -297,18 +297,21 @@ class TestThumbnailHooks:
             self._moment("clutch", 0.9),
         ]
 
-        assert hook_phrase(moments, "en") == "IMPOSSIBLE CLUTCH!"
+        phrase, emoji = hook_phrase(moments, "en")
+        assert phrase == "IMPOSSIBLE CLUTCH!"
+        assert emoji == "🔥"
 
     def test_arabic_transcripts_get_the_arabic_phrase(self) -> None:
         from backend.metadata.hooks import hook_phrase
 
-        assert "!" in hook_phrase([self._moment("boss", 0.8)], "ar")
-        assert hook_phrase([self._moment("boss", 0.8)], "ar") == "معركة الزعيم!"
+        phrase, emoji = hook_phrase([self._moment("boss", 0.8)], "ar")
+        assert phrase == "معركة الزعيم!"
+        assert emoji == "⚔️"
 
     def test_no_moments_still_produces_a_phrase(self) -> None:
         from backend.metadata.hooks import hook_phrase
 
-        assert hook_phrase([], "en") == "UNMISSABLE MOMENTS!"
+        assert hook_phrase([], "en")[0] == "UNMISSABLE MOMENTS!"
 
     def test_burning_changes_the_image_and_never_raises(self, tmp_path) -> None:
         from PIL import Image
@@ -319,16 +322,22 @@ class TestThumbnailHooks:
         Image.new("RGB", (640, 360), (40, 90, 140)).save(image)
         before = image.read_bytes()
 
-        drawn = burn_hook(image, "معركة الزعيم!")
+        drawn = burn_hook(image, "معركة الزعيم!", "⚔️")
 
         after = image.read_bytes()
         if drawn:
             assert after != before
-            assert Image.open(image).size == (640, 360)
+            with Image.open(image) as final:
+                assert final.size == (640, 360)
+                pixels = final.getcolors(maxcolors=200000) or []
+                # The fill is thumbnail yellow; at least a few pixels must be.
+                assert any(
+                    r > 200 and g > 160 and b < 110 for _, (r, g, b) in pixels
+                )
         # ``False`` is the honest answer on a machine with no usable font;
         # the plain frame is already a thumbnail.
 
     def test_a_missing_file_is_a_false_not_a_crash(self, tmp_path) -> None:
         from backend.metadata.hooks import burn_hook
 
-        assert burn_hook(tmp_path / "nowhere.jpg", "TOTAL CHAOS!") is False
+        assert burn_hook(tmp_path / "nowhere.jpg", "TOTAL CHAOS!", "💥") is False

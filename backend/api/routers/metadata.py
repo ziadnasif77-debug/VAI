@@ -133,7 +133,8 @@ def _render_thumbnail(
     if state.config.publishing.defaults.thumbnail_hook:
         from backend.metadata.hooks import burn_hook, hook_phrase
 
-        burn_hook(destination, hook_phrase(moments, language))
+        phrase, emoji = hook_phrase(moments, language)
+        burn_hook(destination, phrase, emoji)
     return str(destination)
 
 
