@@ -118,6 +118,7 @@ class PublishWorker:
             story_clips=clips if isinstance(clips, list) else (),
             transcript_language=detect_transcript_language(segments),
             min_chapter_seconds=defaults.min_chapter_seconds,
+            title_language=defaults.title_language,
         )
         # The owner's standing visibility, not the model's cautious default:
         # auto-publish means "publish the way I always publish" -- hooked

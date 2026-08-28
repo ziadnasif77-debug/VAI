@@ -1422,6 +1422,11 @@ class PublishDefaultsConfig(_Section):
     min_chapter_seconds: float = Field(default=30.0, gt=0)
     #: Burn a hook phrase onto the suggested thumbnail (metadata/hooks.py).
     thumbnail_hook: bool = True
+    #: The language every generated title, description and tag list is
+    #: written in: "ar", "en", or "auto" to follow the transcript. The owner
+    #: publishes an Arabic channel; the footage's spoken language is a fact
+    #: about the recording, not about the channel.
+    title_language: str = "ar"
 
 
 class LocalFilePublishConfig(_Section):

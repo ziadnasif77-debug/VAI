@@ -73,6 +73,7 @@ def suggest_metadata(project_id: str, state: AppState = Depends(get_state)) -> V
         story_clips=clips if isinstance(clips, list) else (),
         transcript_language=language,
         min_chapter_seconds=defaults.min_chapter_seconds,
+        title_language=defaults.title_language,
     )
 
     thumbnail = _render_thumbnail(state, project_id, moments, language)

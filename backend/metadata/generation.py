@@ -75,6 +75,18 @@ _PHRASES: Final[dict[str, tuple[str, str]]] = {
     "combat": ("combat", "معارك"),
     "collision": ("collisions", "اصطدامات"),
     "low_health": ("close calls", "لحظات خطر"),
+    "near_death": ("near-death moments", "لحظات موت وشيك"),
+    "objective": ("objectives", "إنجاز مهام"),
+    "objective_failure": ("failed objectives", "مهام فاشلة"),
+    "high_damage": ("destruction", "دمار"),
+    "rare_loot": ("rare loot", "غنائم نادرة"),
+    "rare_event": ("rare events", "أحداث نادرة"),
+    "unexpected_event": ("surprises", "مفاجآت"),
+    "death": ("deaths", "لحظات موت"),
+    "kill": ("kills", "تصفيات"),
+    "multi_kill": ("multi-kills", "تصفيات متتالية"),
+    "comeback": ("comebacks", "عودات مستحيلة"),
+    "outplay": ("outplays", "تفوق ساحق"),
     # classic vocabulary (§21)
     "boss_fight": ("boss fights", "معارك Boss"),
     "boss_defeat": ("boss takedowns", "إسقاط Boss"),
@@ -104,6 +116,7 @@ def suggest(
     story_clips: Sequence[Mapping[str, Any]] = (),
     transcript_language: str | None = None,
     min_chapter_seconds: float = 30.0,
+    title_language: str = "ar",
 ) -> VideoMetadata:
     """Build upload metadata from what the pipeline already stored.
 
@@ -131,7 +144,12 @@ def suggest(
         has no analysis yet (the title is then simply the project name).
     """
     language = _resolve_language(project, transcript_language)
-    arabic = bool(language and language.startswith("ar"))
+    if title_language in ("ar", "en"):
+        # The owner's standing choice beats the transcript: an English-voiced
+        # or silent recording still gets the channel's own language.
+        arabic = title_language == "ar"
+    else:
+        arabic = bool(language and language.startswith("ar"))
 
     readings = {
         media_id: read(events, media_id=media_id)
@@ -309,14 +327,47 @@ def _capitalise(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
+#: The title's emoji, by the dominant type. The fallback flame is the one
+#: every gaming title tradition converged on.
+_TITLE_EMOJI: Final[dict[str, str]] = {
+    "clutch": "🔥",
+    "near_death": "😱",
+    "death": "💀",
+    "fail": "😂",
+    "funny": "😂",
+    "funny_moment": "😂",
+    "victory": "🏆",
+    "boss": "⚔️",
+    "boss_fight": "⚔️",
+    "chaos": "💥",
+    "high_damage": "💥",
+    "chase": "🚔",
+    "surprise": "😮",
+    "unexpected_event": "😮",
+    "rare_loot": "💎",
+    "discovery": "🔍",
+}
+
+
 def _title(project: Project, *, dominant: Sequence[str], arabic: bool) -> str:
-    """Project or game name plus the dominant types, in the spoken language."""
+    """The click-worthy line, in the owner's standing language.
+
+    Owner instruction (2026-08-28): the title is always Arabic and always
+    grabs -- fully Arabic type names (the day this was written the pipeline
+    published "near death وobjective" inside an Arabic sentence), the game
+    kept as its Latin brand name, one emoji, one promise.
+    """
     subject = _game_name(project) or project.name
     if not dominant:
         return project.name[:MAX_TITLE_LENGTH]
     top = [_phrase(value, arabic=arabic) for value in dominant[:2]]
-    joined = " و".join(top) if arabic else " & ".join(top)
-    title = f"أقوى لحظات {subject}: {joined}" if arabic else f"Best of {subject}: {joined}"
+    emoji = _TITLE_EMOJI.get(dominant[0], "🔥")
+    if arabic:
+        joined = " و".join(top)
+        title = f"{joined} في {subject} {emoji} لن تصدق ما حدث!"
+    else:
+        joined = " & ".join(top)
+        title = f"{joined} in {subject} {emoji} moments you won't believe!"
     return title[:MAX_TITLE_LENGTH]
 
 

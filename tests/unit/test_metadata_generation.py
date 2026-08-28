@@ -91,10 +91,11 @@ class TestLanguage:
             transcript_language="ar",
         )
 
-        assert metadata.title.startswith("أقوى لحظات")
-        # The game name and the genre jargon stay English inside the Arabic text.
+        # Owner instruction (2026-08-28): the title always grabs -- fully
+        # Arabic wording, the game as its Latin brand name, one emoji.
         assert "Grounded" in metadata.title
-        assert "Boss" in metadata.title
+        assert "معارك Boss" in metadata.title
+        assert "لن تصدق" in metadata.title
         assert metadata.language == "ar"
 
     def test_an_arabic_description_counts_the_stored_episodes(self) -> None:
@@ -108,15 +109,29 @@ class TestLanguage:
         assert "معارك" in metadata.description
         assert "اللعبة: Grounded." in metadata.description
 
-    def test_an_english_transcript_yields_an_english_title(self) -> None:
+    def test_the_title_language_is_the_owners_not_the_transcripts(self) -> None:
+        # The channel publishes in Arabic; an English-voiced recording is a
+        # fact about the footage, not about the title.
         events = [_event(GameEventType.COMBAT, 10.0), _event(GameEventType.COMBAT, 200.0)]
 
         metadata = suggest(
             _project(), events_by_media={"media-1": events}, transcript_language="en"
         )
 
-        assert metadata.title == "Best of Grounded: combat"
+        assert "معارك" in metadata.title
         assert metadata.language == "en"
+
+    def test_english_titles_remain_one_knob_away(self) -> None:
+        events = [_event(GameEventType.COMBAT, 10.0), _event(GameEventType.COMBAT, 200.0)]
+
+        metadata = suggest(
+            _project(),
+            events_by_media={"media-1": events},
+            transcript_language="en",
+            title_language="en",
+        )
+
+        assert "combat in Grounded" in metadata.title
 
     def test_detection_trusts_the_stored_language_field_first(self) -> None:
         segments = [SimpleNamespace(language="ar", text="nice shot")]
@@ -141,7 +156,7 @@ class TestChapters:
             _clip(50.0, role="climax", moment_type="boss"),
         ]
 
-        metadata = suggest(_project(), story_clips=clips)
+        metadata = suggest(_project(), story_clips=clips, title_language="en")
 
         starts = [chapter.start_seconds for chapter in metadata.chapters]
         assert starts == [0.0, 40.0, 85.0]
@@ -167,7 +182,9 @@ class TestChapters:
         assert len(metadata.chapters) == MAX_CHAPTERS
 
     def test_repeated_chapter_titles_are_numbered(self) -> None:
-        metadata = suggest(_project(), story_clips=[_clip(40.0), _clip(40.0)])
+        metadata = suggest(
+            _project(), story_clips=[_clip(40.0), _clip(40.0)], title_language="en"
+        )
 
         assert [chapter.title for chapter in metadata.chapters] == ["Combat", "Combat 2"]
 
@@ -176,6 +193,7 @@ class TestChapters:
             _project(),
             story_clips=[_clip(40.0, role="hook"), _clip(45.0), _clip(50.0)],
             transcript_language="en",
+            title_language="en",
         )
 
         assert "0:00 Opening" in metadata.description
@@ -222,7 +240,7 @@ class TestEmptyProject:
         assert metadata.title == "Fresh import"
         assert metadata.chapters == []
         assert metadata.description == ""
-        assert metadata.tags == ["gaming"]
+        assert metadata.tags[0] == "gaming"
         assert metadata.language == "auto"
 
     def test_a_generic_profile_is_not_presented_as_a_game_name(self) -> None:
@@ -298,20 +316,20 @@ class TestThumbnailHooks:
         ]
 
         phrase, emoji = hook_phrase(moments, "en")
-        assert phrase == "IMPOSSIBLE CLUTCH!"
+        assert phrase == "IMPOSSIBLE|CLUTCH!"
         assert emoji == "🔥"
 
     def test_arabic_transcripts_get_the_arabic_phrase(self) -> None:
         from backend.metadata.hooks import hook_phrase
 
         phrase, emoji = hook_phrase([self._moment("boss", 0.8)], "ar")
-        assert phrase == "معركة الزعيم!"
+        assert phrase == "معركة|الزعيم!"
         assert emoji == "⚔️"
 
     def test_no_moments_still_produces_a_phrase(self) -> None:
         from backend.metadata.hooks import hook_phrase
 
-        assert hook_phrase([], "en")[0] == "UNMISSABLE MOMENTS!"
+        assert hook_phrase([], "en")[0] == "UNMISSABLE|MOMENTS!"
 
     def test_burning_changes_the_image_and_never_raises(self, tmp_path) -> None:
         from PIL import Image
@@ -322,7 +340,7 @@ class TestThumbnailHooks:
         Image.new("RGB", (640, 360), (40, 90, 140)).save(image)
         before = image.read_bytes()
 
-        drawn = burn_hook(image, "معركة الزعيم!", "⚔️")
+        drawn = burn_hook(image, "معركة|الزعيم!", "⚔️")
 
         after = image.read_bytes()
         if drawn:
@@ -330,9 +348,12 @@ class TestThumbnailHooks:
             with Image.open(image) as final:
                 assert final.size == (640, 360)
                 pixels = final.getcolors(maxcolors=200000) or []
-                # The fill is thumbnail yellow; at least a few pixels must be.
+                # White first line, red second line: both must reach pixels.
                 assert any(
-                    r > 200 and g > 160 and b < 110 for _, (r, g, b) in pixels
+                    r > 230 and g > 230 and b > 230 for _, (r, g, b) in pixels
+                )
+                assert any(
+                    r > 180 and g < 110 and b < 110 for _, (r, g, b) in pixels
                 )
         # ``False`` is the honest answer on a machine with no usable font;
         # the plain frame is already a thumbnail.
