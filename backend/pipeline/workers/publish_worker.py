@@ -53,10 +53,13 @@ class PublishWorker:
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
         payload = context.job.payload or {}
-        if payload.get("auto") and not payload.get("metadata"):
-            # The auto-publish path carries no hand-written metadata; the
-            # analysis writes it, the same way the Export screen's Suggest
-            # button would have.
+        if payload.get("auto"):
+            # Always regenerated, never read back from the payload: auto
+            # means the analysis writes the words at publish time. Found
+            # live -- the worker persists its payload, so a requeued auto
+            # job carried the metadata snapshot of its very first run, from
+            # before any of the writing existed, and published a video
+            # titled with the raw project name.
             payload = {**payload, "metadata": self._suggested(context).model_dump()}
         # The render is resolved before the request is built: "publish the
         # latest" becomes a concrete id here, and that id -- not an empty
