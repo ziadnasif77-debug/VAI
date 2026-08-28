@@ -1,0 +1,25 @@
+{
+  "id": "metadata.creative_text",
+  "version": 1,
+  "purpose": "Write the video's own title and thumbnail hook from its evidence (owner instruction 2026-08-28: phrases picked per video, not one phrase for all videos). The model writes; deterministic templates remain the fallback for a machine without a model, and validation rejects anything off-evidence in shape: wrong length, empty lines, or Latin-only text on an Arabic channel. Temperature runs high on purpose -- two videos with similar evidence should still not share a sentence.",
+  "input_schema": {
+    "type": "object",
+    "required": ["game", "duration", "types", "creatures", "speech"],
+    "properties": {
+      "game": {"type": "string", "description": "The detected game's display name, or the project name."},
+      "duration": {"type": "string", "description": "Finished length, human readable."},
+      "types": {"type": "string", "description": "Dominant moment/event types with counts, in Arabic."},
+      "creatures": {"type": "string", "description": "Distinctive on-screen names OCR captured, or '-'."},
+      "speech": {"type": "string", "description": "A short sample of what was said, or '-'."}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["title", "hook_top", "hook_bottom"],
+    "properties": {
+      "title": {"type": "string", "maxLength": 120},
+      "hook_top": {"type": "string", "maxLength": 30},
+      "hook_bottom": {"type": "string", "maxLength": 40}
+    }
+  }
+}

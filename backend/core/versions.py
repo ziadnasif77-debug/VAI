@@ -42,6 +42,9 @@ PROMPT_VERSIONS: Final[dict[str, int]] = {
     # words. Without this pass a 41-minute recording with 658 seconds of
     # speech produced two moment types in total.
     "analysis.narration": 3,
+    # The video's own title and thumbnail hook, written from its evidence
+    # (owner instruction 2026-08-28: per-video phrases, not one for all).
+    "metadata.creative_text": 1,
     # v2 of both: the model no longer sets the video's length. Ollama enforces
     # a schema as a grammar, so `minimum: 600` meant a model asked for "30
     # seconds" could not emit 30 -- it emitted 3000, and the person was told

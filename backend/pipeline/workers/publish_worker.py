@@ -125,12 +125,16 @@ class PublishWorker:
         # thumbnail included, the same one the Suggest button would build.
         from backend.metadata.thumbnail import render_thumbnail
 
+        creative = self._creative(context, project, moments, segments)
+        if creative is not None:
+            written = written.model_copy(update={"title": creative.title})
         thumbnail = render_thumbnail(
             database=database,
             config=context.config,
             assets_dir=context.paths.assets,
             moments=moments,
             language=detect_transcript_language(segments),
+            hook_text=creative.hook_lines if creative is not None else None,
         )
         return written.model_copy(
             update={
@@ -138,6 +142,28 @@ class PublishWorker:
                 **({"thumbnail_path": thumbnail} if thumbnail else {}),
             }
         )
+
+    def _creative(self, context: WorkerContext, project, moments, segments):
+        """The model's own words for this video, or ``None`` and templates hold."""
+        defaults = context.config.publishing.defaults
+        if not defaults.creative_text:
+            return None
+        try:
+            from ai.llm import create_llm_provider
+            from backend.metadata.creative import gather_and_write
+
+            provider = create_llm_provider(context.config)
+            return gather_and_write(
+                provider,
+                database=context.database,
+                project=project,
+                moments=moments,
+                segments=segments,
+                arabic=defaults.title_language != "en",
+            )
+        except Exception:
+            logger.exception("Creative text unavailable; templates carry on")
+            return None
 
     def _request(self, context: WorkerContext, payload: dict[str, Any]) -> PublishRequest:
         return PublishRequest(

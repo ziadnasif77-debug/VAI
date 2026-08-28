@@ -37,6 +37,7 @@ def render_thumbnail(
     assets_dir: Path,
     moments: list[Any],
     language: str | None,
+    hook_text: str | None = None,
 ) -> str | None:
     """Extract the peak frame, burn the hook, return the path -- or ``None``."""
     peak = thumbnail_peak(moments)
@@ -69,7 +70,7 @@ def render_thumbnail(
 
     if config.publishing.defaults.thumbnail_hook:
         phrase, emoji = hook_phrase(moments, language)
-        burn_hook(destination, phrase, emoji)
+        burn_hook(destination, hook_text or phrase, emoji)
     return str(destination)
 
 

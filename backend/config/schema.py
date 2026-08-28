@@ -818,6 +818,28 @@ class CritiqueConfig(_Section):
     allow_drops: bool = True
 
 
+class ScreenGuardConfig(_Section):
+    """Clip boundaries against what the screen was showing (timeline/screen_guard.py).
+
+    Exists because the first fully autonomous video opened on the owner's own
+    click of the record button, and its body was one 398-second slab: nothing
+    between moment formation and the timeline ever consulted §77's frame
+    states at a boundary, or broke a clip at the scene seams already stored.
+    """
+
+    enabled: bool = True
+    #: No clip may open inside the first seconds of a recording: the stretch
+    #: behind the record button is desktop chrome, and no named event has
+    #: ever been detected there.
+    recording_start_guard_seconds: float = Field(default=4.0, ge=0)
+    #: Breathing room after a dead span before the clip opens.
+    dead_state_pad_seconds: float = Field(default=0.4, ge=0)
+    #: A clip longer than this is split at stored scene seams.
+    max_clip_seconds: float = Field(default=75.0, gt=0)
+    #: No piece -- and no guarded remainder -- may be shorter than this.
+    min_piece_seconds: float = Field(default=8.0, gt=0)
+
+
 class NarrativeConfig(_Section):
     story: StoryConfig
     best_moments: BestMomentsConfig = Field(default_factory=BestMomentsConfig)
@@ -826,6 +848,7 @@ class NarrativeConfig(_Section):
     pacing: PacingConfig = Field(default_factory=PacingConfig)
     optimizer: DurationOptimizerConfig
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
+    screen_guard: ScreenGuardConfig = Field(default_factory=ScreenGuardConfig)
     transitions: TransitionsConfig = Field(default_factory=TransitionsConfig)
     director: DirectorConfig = Field(default_factory=DirectorConfig)
 
@@ -1427,6 +1450,12 @@ class PublishDefaultsConfig(_Section):
     #: publishes an Arabic channel; the footage's spoken language is a fact
     #: about the recording, not about the channel.
     title_language: str = "ar"
+    #: Let the local model write each video's own title and thumbnail hook
+    #: from its evidence; the deterministic templates remain the fallback.
+    creative_text: bool = True
+    #: Let the local model write each video's own title and thumbnail hook
+    #: from its evidence; the deterministic templates remain the fallback.
+    creative_text: bool = True
 
 
 class LocalFilePublishConfig(_Section):

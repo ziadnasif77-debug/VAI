@@ -362,3 +362,94 @@ class TestThumbnailHooks:
         from backend.metadata.hooks import burn_hook
 
         assert burn_hook(tmp_path / "nowhere.jpg", "TOTAL CHAOS!", "💥") is False
+
+
+class TestCreativeWriter:
+    """Per-video words from the model, with the tables as the floor."""
+
+    @staticmethod
+    def _provider(payload):
+        from ai.llm.fake_provider import FakeLLMProvider
+
+        return FakeLLMProvider(default=payload)
+
+    def test_a_valid_answer_becomes_the_video_text(self) -> None:
+        from backend.metadata.creative import write
+
+        provider = self._provider(
+            {
+                "title": "نجوت من العنكبوت بأعجوبة في Grounded 🔥",
+                "hook_top": "عنكبوت",
+                "hook_bottom": "كاد يلتهمني!",
+            }
+        )
+
+        written = write(
+            provider,
+            game="Grounded",
+            duration="10:00",
+            types="3 معارك",
+            creatures="ORB WEAVER",
+            speech="-",
+            arabic=True,
+        )
+
+        assert written is not None
+        assert "Grounded" in written.title
+        assert written.hook_lines == "عنكبوت|كاد يلتهمني!"
+
+    def test_a_latin_only_title_on_an_arabic_channel_is_refused(self) -> None:
+        from backend.metadata.creative import write
+
+        provider = self._provider(
+            {"title": "Crazy Grounded moments!!", "hook_top": "wow", "hook_bottom": "insane!"}
+        )
+
+        assert (
+            write(
+                provider,
+                game="Grounded",
+                duration="10:00",
+                types="-",
+                creatures="-",
+                speech="-",
+                arabic=True,
+            )
+            is None
+        )
+
+    def test_out_of_bounds_lengths_fall_back_to_the_tables(self) -> None:
+        from backend.metadata.creative import write
+
+        provider = self._provider(
+            {"title": "قصير", "hook_top": "أ", "hook_bottom": "ب"}
+        )
+
+        assert (
+            write(
+                provider,
+                game="G",
+                duration="1:00",
+                types="-",
+                creatures="-",
+                speech="-",
+                arabic=True,
+            )
+            is None
+        )
+
+    def test_no_provider_means_the_tables_carry_on(self) -> None:
+        from backend.metadata.creative import write
+
+        assert (
+            write(
+                None,
+                game="G",
+                duration="1:00",
+                types="-",
+                creatures="-",
+                speech="-",
+                arabic=True,
+            )
+            is None
+        )

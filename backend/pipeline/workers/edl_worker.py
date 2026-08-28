@@ -65,6 +65,17 @@ class EdlWorker:
         durations = self._durations(context)
         policy = context.config.output.duration_policy()
 
+        guard = context.config.narrative.screen_guard
+        if guard.enabled:
+            planned = self._guarded(context, planned, durations, guard)
+            if not planned:
+                context.report(1.0, "Every planned clip was a dead opening")
+                return {
+                    "skipped": True,
+                    "reason": "every planned clip fell inside dead screen time",
+                    "clips": 0,
+                }
+
         context.report(0.2, f"Laying out {len(planned)} clips")
         built = build_timeline(
             planned,
@@ -152,6 +163,31 @@ class EdlWorker:
             for item in media
             if item.metadata.duration_seconds
         }
+
+    def _guarded(self, context, planned, durations, guard):
+        """§77's screen states and the stored scene seams, applied to bounds."""
+        from backend.analysis import frame_state
+        from backend.database.repositories.scenes import SceneRepository
+        from backend.database.repositories.vision import VisionRepository
+        from backend.timeline.screen_guard import guard_clips
+
+        states = {}
+        scenes = {}
+        for media_id in {clip.media_id for clip in planned}:
+            states[media_id] = frame_state.spans(
+                VisionRepository(context.database).list_for_media(media_id),
+                duration_seconds=durations.get(media_id),
+            )
+            scenes[media_id] = SceneRepository(context.database).list_for_media(media_id)
+        return guard_clips(
+            planned,
+            states_by_media=states,
+            scenes_by_media=scenes,
+            recording_start_guard_seconds=guard.recording_start_guard_seconds,
+            dead_state_pad_seconds=guard.dead_state_pad_seconds,
+            max_clip_seconds=guard.max_clip_seconds,
+            min_piece_seconds=guard.min_piece_seconds,
+        )
 
     def _captions(self, context: WorkerContext, timeline: Timeline):
         """Transcript segments for every recording the edit draws on (§71).

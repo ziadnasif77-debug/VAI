@@ -92,6 +92,17 @@ narrative:
   # sentence. Measured on a real project it took 5 mid-word cuts to 3 (the
   # remaining ones sit in speech with no pause within reach, and say so in the
   # plan notes), merged 2 needless joins, and healed a 3.5s overlap.
+  # Clip boundaries against what the screen was showing. The first fully
+  # autonomous video opened on the record-button click and ran one 398-second
+  # slab; openings now advance past menus/loading/desktop and the first
+  # seconds of every recording, and slabs split at stored scene seams.
+  screen_guard:
+    enabled: true
+    recording_start_guard_seconds: 4.0
+    dead_state_pad_seconds: 0.4
+    max_clip_seconds: 75.0
+    min_piece_seconds: 8.0
+
   refinement:
     enabled: true
     snap_window_seconds: 2.5    # how far a cut may move to reach a pause

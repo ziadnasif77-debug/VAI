@@ -34,6 +34,12 @@ publishing:
     # Burn a hook phrase onto the suggested thumbnail, in the transcript's
     # language, at the peak frame -- a bare screenshot spends the click.
     thumbnail_hook: true
+    # Every generated title, description and tag list is written in this
+    # language ("ar", "en", or "auto" to follow the transcript).
+    title_language: ar
+    # The local model writes each video's own title and thumbnail hook from
+    # its evidence; the deterministic templates remain the fallback.
+    creative_text: true
 
   local_file:
     # null -> the project's renders/ directory is offered as the default.
