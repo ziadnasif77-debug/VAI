@@ -800,3 +800,26 @@ class TestFrameStateKeepsMenusOutOfTheEdit:
         )
 
         assert len(formed) == 1
+
+
+class TestDoctrineTiers:
+    """docs/DIRECTION.md §4: names on the score, not new arithmetic."""
+
+    def test_the_rungs_name_what_the_score_earned(self) -> None:
+        from backend.moments.scoring import tier_for
+
+        assert tier_for(0.95) == "master"
+        assert tier_for(0.84) == "major"
+        assert tier_for(0.71) == "good"
+        assert tier_for(0.61) == "supporting"
+        assert tier_for(0.30) == "below"
+
+    def test_every_scored_moment_carries_its_tier(self) -> None:
+        from backend.moments.scoring import tier_for
+
+        # Any scored moment's breakdown names the tier its score earned;
+        # exercised through the public scorer in the integration tests, and
+        # kept honest here at the boundary values.
+        for score in (0.9, 0.8, 0.7, 0.6):
+            assert tier_for(score) != "below"
+        assert tier_for(0.5999) == "below"

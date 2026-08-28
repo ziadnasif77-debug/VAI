@@ -108,6 +108,25 @@ class ScoringContext:
         return (moment.media_id, round(moment.start_seconds, 3))
 
 
+#: The owner's doctrine tiers (docs/DIRECTION.md §4), on the 0-1 score the
+#: ten dimensions already produce. Names, not new arithmetic: a second
+#: scoring system beside the first would only raise which one is real.
+DOCTRINE_TIERS: Final[tuple[tuple[float, str], ...]] = (
+    (0.90, "master"),
+    (0.80, "major"),
+    (0.70, "good"),
+    (0.60, "supporting"),
+)
+
+
+def tier_for(score: float) -> str:
+    """The doctrine's name for this score; below every rung is "below"."""
+    for floor, name in DOCTRINE_TIERS:
+        if score >= floor:
+            return name
+    return "below"
+
+
 def score_moments(
     moments: Sequence[Moment], config: MomentScoringConfig, context: ScoringContext
 ) -> list[Moment]:
@@ -144,6 +163,10 @@ def score_moments(
                 1 for moment in scored if moment.confidence < config.needs_review_confidence
             ),
             "top_score": round(scored[0].score, 4) if scored else 0.0,
+            "tiers": {
+                name: sum(1 for moment in scored if tier_for(moment.score) == name)
+                for _, name in DOCTRINE_TIERS
+            },
         },
     )
     return scored
@@ -189,6 +212,7 @@ def _score_one(
     score = round(min(max(base * multiplier, 0.0), 1.0), 6)
 
     breakdown = {
+        "_tier": tier_for(score),
         **{name: round(value, 4) for name, value in dimensions.items()},
         "_base": round(base, 4),
         "_penalty_dead_time": round(dead_time, 4),

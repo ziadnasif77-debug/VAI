@@ -303,3 +303,39 @@ lavfi.freezedetect.freeze_duration: 1.0
         stderr = "lavfi.freezedetect.freeze_start: 1.5"
 
         assert technical._parse_freeze(stderr, 10.0) == ((1.5, 8.5),)
+
+
+class TestDoctrineSummary:
+    """docs/DIRECTION.md §34: one readable score, and the honest list."""
+
+    def test_the_score_is_arithmetic_over_what_qa_measured(
+        self, database, paths, config
+    ) -> None:
+        from types import SimpleNamespace
+
+        from backend.pipeline.workers.qa_worker import QaWorker
+
+        context = SimpleNamespace(database=database, project_id="proj-none")
+        report = SimpleNamespace(
+            failures=("frozen frames",),
+            warnings=("black stretch", "loud peak"),
+        )
+
+        quality, uncertainties = QaWorker()._doctrine_summary(context, report)
+
+        # 100 - 25x1 - 6x2, and no stage notes for a project with no jobs.
+        assert quality == 63
+        assert uncertainties == ["[warning] black stretch", "[warning] loud peak"]
+
+    def test_a_clean_report_scores_a_hundred(self, database) -> None:
+        from types import SimpleNamespace
+
+        from backend.pipeline.workers.qa_worker import QaWorker
+
+        context = SimpleNamespace(database=database, project_id="proj-none")
+        report = SimpleNamespace(failures=(), warnings=())
+
+        quality, uncertainties = QaWorker()._doctrine_summary(context, report)
+
+        assert quality == 100
+        assert uncertainties == []

@@ -114,6 +114,7 @@ class QaWorker:
                 extra={"warnings": [str(item) for item in report.warnings]},
             )
 
+        quality, uncertainties = self._doctrine_summary(context, report)
         context.report(1.0, _message(report))
         return {
             **report.summary(),
@@ -121,7 +122,47 @@ class QaWorker:
             "output_path": str(path),
             "checks_stored": stored,
             "explanation": report.explain(),
+            # The doctrine's closing contract (docs/DIRECTION.md §34): one
+            # score a person can read at a glance, and the honest list of
+            # what the pipeline was unsure about instead of silence.
+            "quality_score": quality,
+            "uncertainties": uncertainties,
         }
+
+    def _doctrine_summary(self, context: WorkerContext, report) -> tuple[int, list[str]]:
+        """A 0-100 score and the uncertainty list, both derived, both stated.
+
+        The score is arithmetic over what QA already measured -- failures,
+        warnings, and every §95 note an upstream stage attached -- so two
+        videos with the same defects always score the same. The uncertainty
+        list is those notes verbatim: the §95 design already made every
+        degradation announce itself; this collects the announcements where
+        the doctrine asks for them.
+        """
+        notes: list[str] = []
+        repository = JobRepository(context.database)
+        for stage in (JobStage.STORY, JobStage.EDL, JobStage.RENDER, JobStage.CRITIQUE):
+            job = repository.find(context.project_id, stage, None)
+            if job is None or not job.result:
+                continue
+            for note in job.result.get("notes") or []:
+                text = str(note)
+                if text and text not in notes:
+                    notes.append(text)
+            if stage is JobStage.CRITIQUE and job.result.get("skipped"):
+                notes.append(f"critique skipped: {job.result.get('reason')}")
+
+        score = 100
+        score -= 25 * len(report.failures)
+        score -= 6 * len(report.warnings)
+        score -= 2 * len(notes)
+        quality = max(0, min(100, score))
+
+        uncertainties = [
+            *(f"[warning] {item}" for item in report.warnings),
+            *notes,
+        ]
+        return quality, uncertainties
 
     def _render_skipped(self, context: WorkerContext) -> str | None:
         """Why the render produced nothing, when it produced nothing.

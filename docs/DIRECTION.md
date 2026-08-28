@@ -56,12 +56,13 @@ extremes cancel themselves.
 | Title from the strongest real event, no fake claims | metadata/generation + creative writer with evidence-only prompt |
 | Capability awareness (never request unsupported effects) | realisable-set registry; §92 prompt/version registry |
 | EDIT_PLAN as machine-readable output | the EDL (§40–§42) — it *is* the edit plan |
+| Named highlight tiers on every score | moments/scoring.py `tier_for` — master/major/good/supporting on the ten-dimension score; a second scoring system beside the first would only raise which one is real |
+| Quality score 0–100 + uncertainty list | qa_worker `_doctrine_summary` — arithmetic over failures, warnings and every §95 note upstream stages attached, plus those notes verbatim |
 
 ## Gap table (doctrine asked, not yet built)
 
 | Gap | Doctrine § | Note |
 | --- | --- | --- |
-| Weighted HighlightScore (7 factors, 0–100, named tiers) | 4 | moments carry score_breakdown; the exact weighted blend and tier names are not exposed as config |
 | Pacing tiers driving cut length (LOW/MED/HIGH/PEAK) | 7 | pacing exists per §38; intensity-tiered cut-length policy is coarser than the doctrine's |
 | Explicit escalation ladders and per-effect cooldowns | 9 | budgets cap totals; a declared cooldown/escalation curve per effect type is not modelled |
 | Speed ramps (variable speed inside one clip) | 11 | clip-level speed exists; in-clip ramp curves do not |
@@ -69,7 +70,6 @@ extremes cancel themselves.
 | SFX layer (whoosh/riser/hit/bass) | 14 | no licensed SFX assets shipped; the mix carries none by design until assets exist |
 | Music intensity mapping | 15 | §73 plays what the person provides; no intensity-matched selection |
 | Thumbnail composition plan (subject crop/arrows/spotlight) | 22–23 | current: peak frame + styled text; no subject extraction or composition planning |
-| Quality score 0–100 + uncertainty list in the final report | 34 | QA reports verdicts and warnings; a single scored summary is not emitted |
 
 Each gap graduates from this table by shipping with tests and a PLAN entry,
 in the order the owner's feedback pulls them.
