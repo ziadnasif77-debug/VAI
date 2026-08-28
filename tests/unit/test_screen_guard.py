@@ -161,3 +161,78 @@ class TestSlabSplitting:
 
         assert {clip.media_id for clip in guarded} == {"media-1"}
         assert all(clip.moment_type is MomentType.CHAOS for clip in guarded)
+
+
+class TestRecorderProbe:
+    """Frames nobody sampled, read for the recorder's own chrome."""
+
+    class _Ffmpeg:
+        def base_arguments(self):
+            return ["-y"]
+
+        def run(self, argv, **_kwargs):
+            from pathlib import Path
+
+            from PIL import Image
+
+            Image.new("RGB", (8, 8)).save(Path(argv[-1]))
+
+    def test_obs_chrome_becomes_desktop_spans(self, tmp_path) -> None:
+        from ai.ocr.fake_provider import FakeOcrProvider
+        from backend.analysis.recorder_probe import recorder_spans
+
+        ocr = FakeOcrProvider(default=[("بدء البث", 0.9), ("المشاهد", 0.8)])
+
+        spans = recorder_spans(
+            tmp_path / "recording.mkv",
+            ffmpeg=self._Ffmpeg(),
+            ocr=ocr,
+            scratch_dir=tmp_path / "probe",
+            offsets=(0.5, 2.0, 4.0),
+        )
+
+        assert spans
+        assert spans[0].state is FrameState.DESKTOP
+        assert spans[0].start_seconds == 0.0
+        assert spans[-1].end_seconds >= 4.0
+
+    def test_game_frames_produce_no_spans(self, tmp_path) -> None:
+        from ai.ocr.fake_provider import FakeOcrProvider
+        from backend.analysis.recorder_probe import recorder_spans
+
+        ocr = FakeOcrProvider(default=[("Purchase the Omni Shovel upgrade", 0.9)])
+
+        spans = recorder_spans(
+            tmp_path / "recording.mkv",
+            ffmpeg=self._Ffmpeg(),
+            ocr=ocr,
+            scratch_dir=tmp_path / "probe",
+            offsets=(0.5, 2.0),
+        )
+
+        assert spans == []
+
+    def test_no_ocr_engine_means_no_probe_and_no_crash(self, tmp_path) -> None:
+        from backend.analysis.recorder_probe import recorder_spans
+
+        assert (
+            recorder_spans(
+                tmp_path / "recording.mkv",
+                ffmpeg=self._Ffmpeg(),
+                ocr=None,
+                scratch_dir=tmp_path / "probe",
+            )
+            == []
+        )
+
+    def test_a_desktop_span_blocks_a_clip_opening(self) -> None:
+        states = [StateSpan(FrameState.DESKTOP, 0.0, 12.0)]
+
+        guarded = guard_clips(
+            [_clip(5.0, 60.0)],
+            states_by_media={"media-1": states},
+            scenes_by_media={},
+            dead_state_pad_seconds=0.4,
+        )
+
+        assert guarded[0].source_start == pytest.approx(12.4)

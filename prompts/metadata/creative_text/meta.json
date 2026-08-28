@@ -1,7 +1,7 @@
 {
   "id": "metadata.creative_text",
-  "version": 2,
-  "purpose": "v2 anchors the output language top and bottom with a shape example: the first live run answered the all-Arabic v1 prompt in English and validation threw the answer away -- the same drift the Critic needed its own v4 for. Write the video's own title and thumbnail hook from its evidence (owner instruction 2026-08-28: phrases picked per video, not one phrase for all videos). The model writes; deterministic templates remain the fallback for a machine without a model, and validation rejects anything off-evidence in shape: wrong length, empty lines, or Latin-only text on an Arabic channel. Temperature runs high on purpose -- two videos with similar evidence should still not share a sentence.",
+  "version": 3,
+  "purpose": "v3 demands one coherent Arabic sentence (no number-list titles, no leading digit, Arabic comma) after a live title read as fragments. v2 anchors the output language top and bottom with a shape example: the first live run answered the all-Arabic v1 prompt in English and validation threw the answer away -- the same drift the Critic needed its own v4 for. Write the video's own title and thumbnail hook from its evidence (owner instruction 2026-08-28: phrases picked per video, not one phrase for all videos). The model writes; deterministic templates remain the fallback for a machine without a model, and validation rejects anything off-evidence in shape: wrong length, empty lines, or Latin-only text on an Arabic channel. Temperature runs high on purpose -- two videos with similar evidence should still not share a sentence.",
   "input_schema": {
     "type": "object",
     "required": ["game", "duration", "types", "creatures", "speech"],

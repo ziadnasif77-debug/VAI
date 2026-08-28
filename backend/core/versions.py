@@ -37,14 +37,17 @@ PROJECT_MANIFEST_VERSION: Final[int] = 1
 #: disagree, which is how a forgotten bump is caught before it serves stale
 #: results.
 PROMPT_VERSIONS: Final[dict[str, int]] = {
-    "vision.frame_description": 2,
+    # v3 adds the `desktop` label with the inside-a-window rule: a real video
+    # opened on OBS itself, and v2 described the small preview's grass as
+    # gameplay because "a game inside an app window" was not a choice it had.
+    "vision.frame_description": 3,
     # The transcript is the only source that already contains the story in
     # words. Without this pass a 41-minute recording with 658 seconds of
     # speech produced two moment types in total.
     "analysis.narration": 3,
     # The video's own title and thumbnail hook, written from its evidence
     # (owner instruction 2026-08-28: per-video phrases, not one for all).
-    "metadata.creative_text": 2,
+    "metadata.creative_text": 3,
     # v2 of both: the model no longer sets the video's length. Ollama enforces
     # a schema as a grammar, so `minimum: 600` meant a model asked for "30
     # seconds" could not emit 30 -- it emitted 3000, and the person was told

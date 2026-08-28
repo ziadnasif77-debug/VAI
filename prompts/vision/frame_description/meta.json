@@ -1,6 +1,6 @@
 {
   "id": "vision.frame_description",
-  "version": 2,
+  "version": 3,
   "purpose": "Describe candidate gameplay frames: game state, visible action, HUD text and anything unusual. Supporting evidence for game-event detection (SPEC 15, 21, 26), never a decision on its own.",
   "input_schema": {
     "type": "object",

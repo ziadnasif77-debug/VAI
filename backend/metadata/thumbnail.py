@@ -20,10 +20,16 @@ from typing import Any, Final
 
 from backend.core.errors import ErrorCode, GamingEditorError
 from backend.core.logging import LogChannel, get_logger
+from backend.core.models.enums import FrameState
 from backend.database.repositories.media import MediaRepository
 from backend.media.ffmpeg import FFmpegRunner
 from backend.metadata.generation import thumbnail_arguments, thumbnail_peak
 from backend.metadata.hooks import burn_hook, hook_phrase
+
+#: States a thumbnail may be cut from. The recording app is never the video's
+#: face: measured 2026-08-28, a published thumbnail was the OBS window with
+#: the game alive only in its preview.
+_LIVE_STATES = frozenset({FrameState.GAMEPLAY, FrameState.HUD_ONLY, FrameState.UNKNOWN})
 
 logger = get_logger("metadata.thumbnail", LogChannel.PIPELINE)
 
@@ -51,6 +57,16 @@ def render_thumbnail(
     if not source.is_file():
         return None
 
+    at_seconds = _live_peak(
+        database=database,
+        config=config,
+        media=media,
+        moments=moments,
+        media_id=media_id,
+        at_seconds=at_seconds,
+        assets_dir=assets_dir,
+    )
+
     destination = assets_dir / THUMBNAIL_FILENAME
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -72,6 +88,87 @@ def render_thumbnail(
         phrase, emoji = hook_phrase(moments, language)
         burn_hook(destination, hook_text or phrase, emoji)
     return str(destination)
+
+
+def _live_peak(
+    *,
+    database,
+    config,
+    media,
+    moments,
+    media_id: str,
+    at_seconds: float,
+    assets_dir: Path,
+) -> float:
+    """The peak, moved off any dead screen it landed on.
+
+    The same evidence the screen guard reads -- §77's frame states plus the
+    recorder probe -- applied to the one frame the channel wears. A peak
+    inside a dead span walks to the span's end; if the whole neighbourhood is
+    dead, the next-scoring moment gets its turn, and the last resort is the
+    first live stretch of the recording.
+    """
+    try:
+        from ai.ocr import create_ocr_provider
+        from backend.analysis import frame_state as frame_state_module
+        from backend.analysis.recorder_probe import recorder_spans
+        from backend.database.repositories.vision import VisionRepository
+
+        duration = getattr(media.metadata, "duration_seconds", None)
+        spans = list(
+            frame_state_module.spans(
+                VisionRepository(database).list_for_media(media_id),
+                duration_seconds=duration,
+            )
+        )
+        try:
+            ocr = create_ocr_provider(config)
+        except Exception:
+            ocr = None
+        spans.extend(
+            recorder_spans(
+                Path(media.source_path),
+                ffmpeg=FFmpegRunner(config.ffmpeg),
+                ocr=ocr,
+                scratch_dir=assets_dir / "recorder-probe",
+            )
+        )
+        dead = [span for span in spans if span.state not in _LIVE_STATES]
+        if not dead:
+            return at_seconds
+
+        def moved(candidate: float) -> float:
+            changed = True
+            while changed:
+                changed = False
+                for span in dead:
+                    if span.start_seconds <= candidate < span.end_seconds:
+                        candidate = span.end_seconds + 0.5
+                        changed = True
+            return candidate
+
+        first = moved(max(at_seconds, 4.0))
+        limit = (duration or first + 1.0) - 0.5
+        if first <= limit and abs(first - at_seconds) < 20.0:
+            return first
+        # The chosen peak's whole neighbourhood is dead: give the other
+        # moments their turn, best first.
+        ranked = sorted(
+            (m for m in moments if str(getattr(m, "media_id", "")) == media_id),
+            key=lambda m: -float(getattr(m, "score", 0.0)),
+        )
+        for moment in ranked:
+            candidate = moved(max(float(getattr(moment, "start_seconds", 0.0)), 4.0))
+            if candidate <= min(float(getattr(moment, "end_seconds", candidate)), limit):
+                logger.info(
+                    "Thumbnail peak moved off a dead screen",
+                    extra={"from": round(at_seconds, 1), "to": round(candidate, 1)},
+                )
+                return candidate
+        return min(moved(4.0), limit)
+    except Exception:
+        logger.exception("Live-peak check failed; using the raw peak")
+        return at_seconds
 
 
 __all__ = ["THUMBNAIL_FILENAME", "render_thumbnail"]

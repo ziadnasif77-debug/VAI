@@ -47,6 +47,9 @@ logger = get_logger("analysis.frame_state", LogChannel.PIPELINE)
 #: other label. Calling it a menu rejected 37 of 60 moments in a measurement,
 #: nearly all of them ordinary gameplay. It is HUD, not a screen.
 _LABEL_STATES: Final[tuple[tuple[str, FrameState], ...]] = (
+    # First on purpose: the recorder's window beats anything visible inside
+    # its preview. A game seen through OBS is OBS.
+    ("desktop", FrameState.DESKTOP),
     ("loading", FrameState.LOADING),
     ("menu", FrameState.MENU),
     ("pause", FrameState.PAUSE),

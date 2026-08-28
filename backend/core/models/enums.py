@@ -203,6 +203,11 @@ class FrameState(str, Enum):
     HUD_ONLY = "hud_only"
     PAUSE = "pause"
     TRANSITION = "transition"
+    #: The operating system or a recording/streaming app is on screen --
+    #: OBS chrome, file windows, the desktop -- even when the game is alive
+    #: inside a small preview. Measured 2026-08-28: a video opened on OBS
+    #: itself and every sampled detector called the preview gameplay.
+    DESKTOP = "desktop"
     UNKNOWN = "unknown"
 
     @property

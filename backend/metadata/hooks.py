@@ -124,7 +124,8 @@ def burn_hook(image_path: Path, text: str, emoji: str = "") -> bool:
         )
 
         x = (width - layer.width) // 2
-        y = height - layer.height - int(height * 0.03)
+        # Above the duration stamp YouTube draws in the lower corner.
+        y = height - layer.height - int(height * 0.06)
         image.paste(layer, (x, max(y, 0)), layer)
         image.save(image_path, quality=92)
         return True
@@ -150,7 +151,7 @@ def _text_layer(lines, width, height, font_path, emoji, emoji_path):
         size = int(size * 0.92)
         font, widest = fitted(size)
 
-    outer = max(size // 9, 4)
+    outer = max(size // 7, 6)
     inner = max(size // 22, 2)
     fatten = max(size // 26, 2)
     line_height = int(size * 1.28)
@@ -161,6 +162,16 @@ def _text_layer(lines, width, height, font_path, emoji, emoji_path):
     block_height = line_height * len(lines) + 2 * (outer + fatten) + int(size * 0.2)
     layer = Image.new("RGBA", (block_width, block_height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
+
+    # A soft dark scrim under the whole block. Research and the owner's own
+    # screenshot agree: strokes alone lose over bright, busy frames; the
+    # scrim guarantees the contrast the strokes then sharpen.
+    pad = int(size * 0.25)
+    draw.rounded_rectangle(
+        [(max(emoji_side - pad, 0), 0), (block_width - max(emoji_side - pad, 0), block_height)],
+        radius=int(size * 0.4),
+        fill=(0, 0, 0, 115),
+    )
 
     centre_x = block_width // 2
     y = outer + fatten

@@ -21,6 +21,7 @@ stage in milliseconds and never re-analyses the source.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ai.providers.base import TranscriptSegment
@@ -166,18 +167,39 @@ class EdlWorker:
 
     def _guarded(self, context, planned, durations, guard):
         """§77's screen states and the stored scene seams, applied to bounds."""
+        from ai.ocr import create_ocr_provider
         from backend.analysis import frame_state
+        from backend.analysis.recorder_probe import recorder_spans
+        from backend.database.repositories.media import MediaRepository
         from backend.database.repositories.scenes import SceneRepository
         from backend.database.repositories.vision import VisionRepository
         from backend.timeline.screen_guard import guard_clips
 
+        media_repository = MediaRepository(context.database)
+        try:
+            ocr = create_ocr_provider(context.config)
+        except Exception:
+            ocr = None
         states = {}
         scenes = {}
         for media_id in {clip.media_id for clip in planned}:
-            states[media_id] = frame_state.spans(
-                VisionRepository(context.database).list_for_media(media_id),
-                duration_seconds=durations.get(media_id),
+            spans = list(
+                frame_state.spans(
+                    VisionRepository(context.database).list_for_media(media_id),
+                    duration_seconds=durations.get(media_id),
+                )
             )
+            record = media_repository.get(media_id)
+            if record is not None and record.source_path:
+                spans.extend(
+                    recorder_spans(
+                        Path(record.source_path),
+                        ffmpeg=context.ffmpeg,
+                        ocr=ocr,
+                        scratch_dir=context.paths.analysis / "recorder-probe",
+                    )
+                )
+            states[media_id] = spans
             scenes[media_id] = SceneRepository(context.database).list_for_media(media_id)
         return guard_clips(
             planned,

@@ -160,7 +160,8 @@ def _scripts_allowed(text: str) -> bool:
 def _line(value: Any) -> str:
     if not isinstance(value, str):
         return ""
-    return " ".join(value.replace("#", " ").split())
+    cleaned = value.replace("#", " ").replace(" ,", "،").replace(",", "،")
+    return " ".join(cleaned.split())
 
 
 def gather_and_write(
