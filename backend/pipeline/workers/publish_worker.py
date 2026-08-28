@@ -53,6 +53,11 @@ class PublishWorker:
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
         payload = context.job.payload or {}
+        if payload.get("auto") and not payload.get("metadata"):
+            # The auto-publish path carries no hand-written metadata; the
+            # analysis writes it, the same way the Export screen's Suggest
+            # button would have.
+            payload = {**payload, "metadata": self._suggested(context).model_dump()}
         # The render is resolved before the request is built: "publish the
         # latest" becomes a concrete id here, and that id -- not an empty
         # string -- is what the history must name.
@@ -83,6 +88,37 @@ class PublishWorker:
         }
 
     # -- assembling the request ------------------------------------------
+
+    def _suggested(self, context: WorkerContext):
+        """Metadata from the analysis, assembled the way the API route does."""
+        from backend.core.models.enums import JobStage
+        from backend.database.repositories.gaming import GameEventRepository
+        from backend.database.repositories.jobs import JobRepository
+        from backend.database.repositories.media import MediaRepository
+        from backend.database.repositories.moments import MomentRepository
+        from backend.database.repositories.projects import ProjectRepository
+        from backend.database.repositories.transcript import TranscriptRepository
+        from backend.metadata.generation import detect_transcript_language, suggest
+
+        database = context.database
+        project = ProjectRepository(database).require(context.project_id)
+        moments = []
+        events_by_media = {}
+        for item in MediaRepository(database).list_for_project(context.project_id):
+            moments.extend(MomentRepository(database).list_for_media(item.id))
+            events_by_media[item.id] = GameEventRepository(database).list_for_media(item.id)
+        story = JobRepository(database).find(context.project_id, JobStage.STORY, None)
+        clips = story.result.get("clips") if story is not None and story.result else None
+        defaults = context.config.publishing.defaults
+        segments = TranscriptRepository(database).list_for_project(context.project_id)
+        return suggest(
+            project,
+            moments=moments,
+            events_by_media=events_by_media,
+            story_clips=clips if isinstance(clips, list) else (),
+            transcript_language=detect_transcript_language(segments),
+            min_chapter_seconds=defaults.min_chapter_seconds,
+        )
 
     def _request(self, context: WorkerContext, payload: dict[str, Any]) -> PublishRequest:
         return PublishRequest(

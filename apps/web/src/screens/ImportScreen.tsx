@@ -68,6 +68,7 @@ export function ImportScreen({
     active: () => false,
   });
   const [path, setPath] = useState('');
+  const [outputDir, setOutputDir] = useState(project.output_directory ?? '');
   const [busy, setBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   // Hidden after a 501: a headless or Tk-less machine cannot show a dialog,
@@ -111,7 +112,14 @@ export function ImportScreen({
   }, [media, path, project.id]);
 
   const update = useCallback(
-    async (changes: {mode?: VideoMode; target_duration_seconds?: number; game?: string}) => {
+    async (changes: {
+      mode?: VideoMode;
+      target_duration_seconds?: number;
+      game?: string;
+      captions_enabled?: boolean;
+      output_directory?: string;
+      auto_publish?: boolean;
+    }) => {
       try {
         await api.projects.update(project.id, changes);
         onChanged();
@@ -238,6 +246,55 @@ export function ImportScreen({
           All three can be changed later: re-editing costs seconds and never re-analyses
           the source (§127). The game is the exception — it decides what the analysis
           looks for, so changing it after analysing means analysing again.
+        </p>
+      </section>
+
+      <section className="panel">
+        <h2>Delivery</h2>
+        <label className="inline">
+          <input
+            type="checkbox"
+            checked={Boolean(project.captions_enabled)}
+            onChange={(event) => void update({captions_enabled: event.target.checked})}
+          />
+          Write captions inside the video
+        </label>
+        <p className="muted">
+          Checked, the model transcribes the speech and burns it into the frame — the long
+          video and the Shorts both. Unchecked, the speech is still analysed for the edit,
+          but nothing is written on the picture.
+        </p>
+        <div className="row">
+          <label className="inline" style={{flex: 1}}>
+            Output folder
+            <input
+              type="text"
+              placeholder="D:\Videos\VAI — empty keeps the file in the project only"
+              value={outputDir}
+              onChange={(event) => setOutputDir(event.target.value)}
+              onBlur={() => void update({output_directory: outputDir})}
+              onKeyDown={(event) =>
+                event.key === 'Enter' && void update({output_directory: outputDir})
+              }
+            />
+          </label>
+        </div>
+        <p className="muted">
+          Every finished render is copied there under the project's name. Leave it empty and
+          the file stays in the project's renders folder, as always.
+        </p>
+        <label className="inline">
+          <input
+            type="checkbox"
+            checked={Boolean(project.auto_publish)}
+            onChange={(event) => void update({auto_publish: event.target.checked})}
+          />
+          Publish to YouTube by itself when QA passes
+        </label>
+        <p className="muted">
+          Ticking this is the asking (§51): after a green QA the upload runs with metadata
+          written from the analysis — no button press. Needs YouTube connected on the
+          Export screen; visibility follows the publishing default.
         </p>
       </section>
 

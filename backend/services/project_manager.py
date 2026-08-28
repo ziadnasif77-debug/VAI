@@ -101,6 +101,9 @@ class ProjectManager:
             game=request.game,
             resolution=request.resolution,
             fps=request.fps,
+            captions_enabled=request.captions_enabled,
+            output_directory=request.output_directory,
+            auto_publish=request.auto_publish,
             aspect_ratio=self._config.video.aspect_ratio,
             language=request.language,
             project_directory=str(project_paths.root),
@@ -178,6 +181,9 @@ class ProjectManager:
         changed = changes.changed_fields()
         if not changed:
             return project
+
+        if changed.get("output_directory") == "":
+            changed["output_directory"] = None
 
         if "target_duration_seconds" in changed:
             policy = self._config.duration_policy

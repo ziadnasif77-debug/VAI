@@ -154,7 +154,18 @@ class EdlWorker:
         }
 
     def _captions(self, context: WorkerContext, timeline: Timeline):
-        """Transcript segments for every recording the edit draws on (§71)."""
+        """Transcript segments for every recording the edit draws on (§71).
+
+        Unless the project said no: captions are a per-project choice made at
+        the import screen, off by default. The transcript itself still exists
+        -- the edit is built from what was said -- but nothing is written
+        into the frame.
+        """
+        from backend.database.repositories.projects import ProjectRepository
+
+        project = ProjectRepository(context.database).get(context.project_id)
+        if project is not None and not project.captions_enabled:
+            return []
         repository = TranscriptRepository(context.database)
         segments: dict[str, list[TranscriptSegment]] = {
             media_id: list(repository.list_for_media(media_id))

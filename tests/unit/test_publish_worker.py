@@ -207,3 +207,152 @@ class TestTheQaVerdict:
         )
 
         assert outcome.succeeded
+
+
+class TestAutoPublishHook:
+    """§51 with consent recorded: the import-screen flag is the asking."""
+
+    @staticmethod
+    def _runner(database, paths, config, worker):
+        from backend.pipeline.runner import PipelineRunner
+
+        return PipelineRunner(
+            database, paths, config, workers={JobStage.QA: worker}
+        )
+
+    class _GreenQA:
+        stage = JobStage.QA
+
+        def run(self, context):
+            return {"passed": True}
+
+    def test_a_green_qa_queues_publish_when_the_project_asked(
+        self, project_manager, database, paths, config
+    ) -> None:
+        # The hook is called directly with the QA job row: starting a real QA
+        # here would need the whole chain rendered first, and what the chain
+        # does is not what this test is about.
+        project = project_manager.create(
+            ProjectCreate(
+                name="AskedUpFront", target_duration_seconds=900, auto_publish=True
+            )
+        )
+        runner = self._runner(database, paths, config, self._GreenQA())
+        qa_job = runner.jobs.queue(project.id, JobStage.QA)
+
+        runner._maybe_auto_publish(qa_job)
+
+        publishes = [
+            item
+            for item in runner.jobs.list_jobs(project.id)
+            if item.stage is JobStage.PUBLISH
+        ]
+        assert len(publishes) == 1
+        assert publishes[0].status is JobStatus.QUEUED
+        assert publishes[0].payload == {"target": "youtube", "auto": True}
+
+    def test_a_green_qa_queues_nothing_when_nobody_asked(
+        self, project_manager, database, paths, config
+    ) -> None:
+        project = project_manager.create(
+            ProjectCreate(name="NeverAsked", target_duration_seconds=900)
+        )
+        runner = self._runner(database, paths, config, self._GreenQA())
+        qa_job = runner.jobs.queue(project.id, JobStage.QA)
+
+        runner._maybe_auto_publish(qa_job)
+
+        assert all(
+            item.stage is not JobStage.PUBLISH
+            for item in runner.jobs.list_jobs(project.id)
+        )
+
+
+class TestRenderDelivery:
+    """The finished file lands where the project asked, or the note says why."""
+
+    def test_the_file_is_copied_to_the_chosen_folder(
+        self, project_manager, database, tmp_path
+    ) -> None:
+        from types import SimpleNamespace
+
+        from backend.pipeline.workers.render_worker import RenderWorker
+
+        chosen = tmp_path / "exports"
+        project = project_manager.create(
+            ProjectCreate(
+                name="To My Folder",
+                target_duration_seconds=900,
+                output_directory=str(chosen),
+            )
+        )
+        rendered = tmp_path / "final.mp4"
+        rendered.write_bytes(b"video-bytes")
+        context = SimpleNamespace(database=database, project_id=project.id)
+
+        destination, note = RenderWorker()._deliver(context, rendered)
+
+        assert note is None
+        assert destination is not None
+        assert Path(destination).read_bytes() == b"video-bytes"
+        assert Path(destination).parent == chosen
+
+    def test_a_failed_copy_is_a_note_and_never_an_exception(
+        self, project_manager, database, tmp_path
+    ) -> None:
+        from types import SimpleNamespace
+
+        from backend.pipeline.workers.render_worker import RenderWorker
+
+        blocked = tmp_path / "not-a-directory"
+        blocked.write_text("a file where the folder should be")
+        project = project_manager.create(
+            ProjectCreate(
+                name="Blocked",
+                target_duration_seconds=900,
+                output_directory=str(blocked),
+            )
+        )
+        rendered = tmp_path / "final.mp4"
+        rendered.write_bytes(b"video-bytes")
+        context = SimpleNamespace(database=database, project_id=project.id)
+
+        destination, note = RenderWorker()._deliver(context, rendered)
+
+        assert destination is None
+        assert note is not None and "failed" in note
+
+    def test_no_chosen_folder_means_no_copy_and_no_note(
+        self, project_manager, database, tmp_path
+    ) -> None:
+        from types import SimpleNamespace
+
+        from backend.pipeline.workers.render_worker import RenderWorker
+
+        project = project_manager.create(
+            ProjectCreate(name="Default", target_duration_seconds=900)
+        )
+        rendered = tmp_path / "final.mp4"
+        rendered.write_bytes(b"video-bytes")
+        context = SimpleNamespace(database=database, project_id=project.id)
+
+        assert RenderWorker()._deliver(context, rendered) == (None, None)
+
+
+class TestShortsRespectTheCaptionsChoice:
+    def test_captions_off_ships_the_plain_cut(self, tmp_path) -> None:
+        from types import SimpleNamespace
+
+        from backend.pipeline.workers.shorts_worker import ShortsWorker
+
+        cut = tmp_path / "cut.mp4"
+        cut.write_bytes(b"vertical")
+        out = tmp_path / "short.mp4"
+        config = SimpleNamespace(captions=True)
+        project = SimpleNamespace(captions_enabled=False)
+
+        note = ShortsWorker()._burn_captions(None, None, cut, out, config, project)
+
+        assert note is None
+        assert out.read_bytes() == b"vertical"
+        assert not cut.exists()

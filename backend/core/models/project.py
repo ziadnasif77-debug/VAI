@@ -71,6 +71,18 @@ class ProjectCreate(_Base):
     resolution: OutputResolution = 1080
     fps: OutputFps = 60
     language: str = Field(default="auto", max_length=32)
+    #: Whether the transcript is written INTO the frame as captions. Off by
+    #: default: the person opts in to text on the video; the speech is still
+    #: transcribed either way, because the edit is built from what was said.
+    captions_enabled: bool = False
+    #: Where the finished video is copied when a render succeeds. ``None``
+    #: keeps it in the project's renders/ directory only.
+    output_directory: str | None = Field(default=None, max_length=500)
+    #: When true, a successful QA queues the YouTube publish on its own, with
+    #: metadata generated from the analysis. §51 still holds -- nothing is
+    #: delivered *unasked* -- because ticking this at the import screen is the
+    #: asking, made once and recorded on the project.
+    auto_publish: bool = False
 
     @field_validator("name")
     @classmethod
@@ -103,6 +115,38 @@ class ProjectCreate(_Base):
         return normalised
 
 
+    @field_validator("output_directory")
+    @classmethod
+    def _valid_output_directory(cls, value: str | None) -> str | None:
+        cleaned = _clean_output_directory(value)
+        return None if cleaned == "" else cleaned
+
+
+def _clean_output_directory(value: str | None) -> str | None:
+    """Validate a chosen output folder; blank collapses to the empty string.
+
+    The empty string is meaningful to :class:`ProjectUpdate`, where ``None``
+    already means "leave unchanged" and blank is how a person clears the
+    choice. :class:`ProjectCreate` maps it straight back to ``None``.
+    """
+    if value is None:
+        return None
+    stripped = value.strip().strip('"')
+    if not stripped:
+        return ""
+    from pathlib import PureWindowsPath
+
+    path = PureWindowsPath(stripped)
+    if not path.is_absolute():
+        raise ValueError(f"Output directory must be an absolute path, got {stripped!r}.")
+    if str(path.drive).upper() == "C:":
+        raise ValueError(
+            "Output directory on C: is refused: this machine's standing rule is "
+            "that nothing is written to the system drive (it is nearly full)."
+        )
+    return str(path)
+
+
 class ProjectUpdate(_Base):
     """Mutable project fields. ``None`` means "leave unchanged".
 
@@ -118,6 +162,16 @@ class ProjectUpdate(_Base):
     fps: OutputFps | None = None
     language: str | None = Field(default=None, max_length=32)
     status: ProjectStatus | None = None
+    captions_enabled: bool | None = None
+    #: ``None`` leaves the choice unchanged; a blank string clears it; a path
+    #: replaces it, under the same rules the import screen applies.
+    output_directory: str | None = None
+    auto_publish: bool | None = None
+
+    @field_validator("output_directory")
+    @classmethod
+    def _valid_output_directory(cls, value: str | None) -> str | None:
+        return _clean_output_directory(value)
 
     @field_validator("name")
     @classmethod
@@ -177,6 +231,9 @@ class Project(_Base):
     fps: OutputFps = 60
     aspect_ratio: str = "16:9"
     language: str = "auto"
+    captions_enabled: bool = False
+    output_directory: str | None = None
+    auto_publish: bool = False
 
     project_directory: str
     version: int = Field(default=1, ge=1, description="Project edit version.")

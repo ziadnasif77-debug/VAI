@@ -269,3 +269,61 @@ class TestRepair:
         project_manager.repair_directories(project.id)
 
         assert (paths.root / "moments").is_dir()
+
+
+class TestDeliveryChoices:
+    """The import screen's three delivery choices (2026-08-28).
+
+    Captions, a destination folder and auto-publish are all opt-in: the
+    resting state of a new project writes nothing on the frame, copies
+    nothing anywhere, and publishes nothing on its own.
+    """
+
+    def test_everything_defaults_to_off(self, project_manager) -> None:
+        project = project_manager.create(
+            ProjectCreate(name="Plain", target_duration_seconds=900)
+        )
+
+        assert project.captions_enabled is False
+        assert project.output_directory is None
+        assert project.auto_publish is False
+
+    def test_the_choices_survive_the_database(self, project_manager, database) -> None:
+        from backend.database.repositories.projects import ProjectRepository
+
+        created = project_manager.create(
+            ProjectCreate(
+                name="Chosen",
+                target_duration_seconds=900,
+                captions_enabled=True,
+                output_directory="D:\\Videos\\VAI",
+                auto_publish=True,
+            )
+        )
+
+        loaded = ProjectRepository(database).require(created.id)
+
+        assert loaded.captions_enabled is True
+        assert loaded.output_directory == "D:\\Videos\\VAI"
+        assert loaded.auto_publish is True
+
+    def test_an_output_directory_on_the_system_drive_is_refused(self) -> None:
+        with pytest.raises(Exception, match="system drive"):
+            ProjectCreate(
+                name="X",
+                target_duration_seconds=900,
+                output_directory="C:\\Users\\anyone\\Videos",
+            )
+
+    def test_a_relative_output_directory_is_refused(self) -> None:
+        with pytest.raises(Exception, match="absolute"):
+            ProjectCreate(
+                name="X", target_duration_seconds=900, output_directory="videos\\out"
+            )
+
+    def test_a_blank_output_directory_means_none(self) -> None:
+        created = ProjectCreate(
+            name="X", target_duration_seconds=900, output_directory="  "
+        )
+
+        assert created.output_directory is None

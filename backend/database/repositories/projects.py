@@ -12,7 +12,8 @@ from backend.database.connection import Database
 
 _COLUMNS = (
     "id, name, created_at, updated_at, status, target_duration_seconds, mode, game, "
-    "detected_game, resolution, fps, aspect_ratio, language, project_directory, version, "
+    "detected_game, resolution, fps, aspect_ratio, language, captions_enabled, "
+    "output_directory, auto_publish, project_directory, version, "
     "application_version, analysis_version, schema_version"
 )
 
@@ -33,6 +34,7 @@ class ProjectRepository:
             f"INSERT INTO projects ({_COLUMNS}) VALUES ("
             ":id, :name, :created_at, :updated_at, :status, :target_duration_seconds, "
             ":mode, :game, :detected_game, :resolution, :fps, :aspect_ratio, :language, "
+            ":captions_enabled, :output_directory, :auto_publish, "
             ":project_directory, :version, :application_version, :analysis_version, "
             ":schema_version)",
             _to_row(project),
@@ -92,6 +94,8 @@ class ProjectRepository:
             "target_duration_seconds = :target_duration_seconds, mode = :mode, game = :game, "
             "detected_game = :detected_game, resolution = :resolution, fps = :fps, "
             "aspect_ratio = :aspect_ratio, language = :language, "
+            "captions_enabled = :captions_enabled, output_directory = :output_directory, "
+            "auto_publish = :auto_publish, "
             "project_directory = :project_directory, version = :version, "
             "application_version = :application_version, analysis_version = :analysis_version, "
             "schema_version = :schema_version WHERE id = :id",
@@ -132,6 +136,9 @@ def _to_row(project: Project) -> dict[str, object]:
         "detected_game": project.detected_game,
         "resolution": project.resolution,
         "fps": project.fps,
+        "captions_enabled": int(project.captions_enabled),
+        "output_directory": project.output_directory,
+        "auto_publish": int(project.auto_publish),
         "aspect_ratio": project.aspect_ratio,
         "language": project.language,
         "project_directory": project.project_directory,
@@ -155,6 +162,9 @@ def _from_row(row: sqlite3.Row) -> Project:
         detected_game=row["detected_game"],
         resolution=row["resolution"],
         fps=row["fps"],
+        captions_enabled=bool(row["captions_enabled"]),
+        output_directory=row["output_directory"],
+        auto_publish=bool(row["auto_publish"]),
         aspect_ratio=row["aspect_ratio"],
         language=row["language"],
         project_directory=row["project_directory"],

@@ -264,7 +264,37 @@ class PipelineRunner:
                 return RunOutcome(job=failed, error_code=ErrorCode.INTERNAL_ERROR)
 
         completed = self._jobs.complete(job_id, result=_serialisable(result))
+        if completed.stage is JobStage.QA:
+            self._maybe_auto_publish(completed)
         return RunOutcome(job=completed)
+
+    def _maybe_auto_publish(self, job: Job) -> None:
+        """Queue the YouTube publish when the project asked for it up front.
+
+        §51 stands -- nothing is delivered *unasked* -- because the
+        auto-publish flag ticked at the import screen is the asking, made
+        once, explicitly, and recorded on the project row. Idempotent by the
+        same rule every queue call follows; failure to queue is logged, never
+        raised, because QA's own success must not be poisoned by a delivery
+        convenience.
+        """
+        try:
+            from backend.database.repositories.projects import ProjectRepository
+
+            project = ProjectRepository(self._db).get(job.project_id)
+            if project is None or not project.auto_publish:
+                return
+            queued = self._jobs.queue(
+                job.project_id,
+                JobStage.PUBLISH,
+                payload={"target": "youtube", "auto": True},
+            )
+            logger.info(
+                "Auto-publish queued by the project's own flag",
+                extra={"publish_job": queued.id},
+            )
+        except Exception:
+            logger.exception("Auto-publish could not be queued")
 
     # -- internals ------------------------------------------------------
 

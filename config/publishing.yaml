@@ -18,6 +18,7 @@ publishing:
   # PUBLISH_TARGET_NOT_CONFIGURED rather than doing nothing quietly.
   enabled_targets:
     - local_file
+    - youtube
 
   default_target: local_file
 
@@ -39,14 +40,14 @@ publishing:
   # Planned, not implemented. Present so the shape of the eventual settings is
   # already fixed and the UI has something to bind to.
   youtube:
-    enabled: false
+    enabled: true
     # The OAuth *client* pair is yours, created once at
     # console.cloud.google.com (an "installed app" client with the YouTube
     # Data API enabled). The id is public by design and may live here; the
     # secret goes in its own file so this file never carries one. The granted
     # token is written to token_file under the data root, owner-only.
     client_id: null
-    client_secret_file: null          # e.g. .credentials/google_client_secret.txt
+    client_secret_file: .credentials/google_client_secret.txt
     token_file: .credentials/youtube_oauth.json
     credential_id: null
     channel_id: null

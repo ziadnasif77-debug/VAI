@@ -207,8 +207,10 @@ class RenderWorker:
         )
 
         removed = clear_segments(work_dir)
+        delivered, delivery_note = self._deliver(context, final.path)
         context.report(1.0, f"Rendered {final.duration_seconds / 60:.1f} minutes")
         return {
+            **({"delivered_to": delivered} if delivered else {}),
             "output_path": str(final.path),
             "duration_seconds": round(final.duration_seconds, 3),
             "size_bytes": final.size_bytes,
@@ -218,8 +220,42 @@ class RenderWorker:
             "clips": programme.clips,
             "reused_segments": programme.reused_segments,
             "segments_removed": removed,
-            "notes": [*programme.notes, *final.notes],
+            "notes": [
+                *programme.notes,
+                *final.notes,
+                *([delivery_note] if delivery_note else []),
+            ],
         }
+
+    def _deliver(self, context: WorkerContext, rendered) -> tuple[str | None, str | None]:
+        """Copy the finished file where the project asked to receive it.
+
+        ``(destination, note)``. The copy is a delivery, not the render: a
+        full disk or a vanished folder at the chosen location must not turn a
+        finished video into a failed job (§95), so failure here is a note on
+        success, never an exception.
+        """
+        import shutil
+
+        from backend.core.fs import sanitize_filename
+        from backend.database.repositories.projects import ProjectRepository
+
+        project = ProjectRepository(context.database).get(context.project_id)
+        if project is None or not project.output_directory:
+            return None, None
+        directory = Path(project.output_directory)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            destination = directory / f"{sanitize_filename(project.name) or project.id}.mp4"
+            shutil.copy2(rendered, destination)
+        except OSError as exc:
+            logger.warning(
+                "Could not deliver the finished video to the chosen folder",
+                extra={"directory": str(directory), "error": str(exc)},
+            )
+            return None, f"delivery to {directory} failed: {exc}"
+        logger.info("Delivered the finished video", extra={"destination": str(destination)})
+        return str(destination), None
 
     def _target(self, context: WorkerContext) -> tuple[EncodeTarget, int, int]:
         """The output format (§75).

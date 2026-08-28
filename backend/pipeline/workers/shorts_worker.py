@@ -108,7 +108,7 @@ class ShortsWorker:
                 error_message=f"Cutting Short {plan.index + 1} failed.",
             )
 
-            note = self._burn_captions(context, plan, cut, out_path, config)
+            note = self._burn_captions(context, plan, cut, out_path, config, project)
             if cut.exists() and out_path.exists() and cut != out_path:
                 cut.unlink(missing_ok=True)
 
@@ -139,9 +139,15 @@ class ShortsWorker:
             collected.extend(repository.list_for_media(item.id))
         return collected
 
-    def _burn_captions(self, context: WorkerContext, plan, cut, out_path, config) -> str | None:
-        """Captions through the long-form engine, or the plain cut with a note."""
-        if not config.captions:
+    def _burn_captions(
+        self, context: WorkerContext, plan, cut, out_path, config, project
+    ) -> str | None:
+        """Captions through the long-form engine, or the plain cut with a note.
+
+        The project's own captions choice governs Shorts too: a person who
+        asked for no text inside the video meant the vertical cuts as well.
+        """
+        if not config.captions or not project.captions_enabled:
             cut.replace(out_path)
             return None
 

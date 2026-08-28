@@ -72,6 +72,12 @@ export type Project = {
   target_duration_seconds: number;
   /** Empty or "auto" means no profile: analysis runs on the generic path (§23). */
   game?: string | null;
+  /** Whether the transcript is written into the frame as captions. Off by default. */
+  captions_enabled?: boolean;
+  /** Where the finished video is copied on a successful render; null keeps renders/ only. */
+  output_directory?: string | null;
+  /** When true, a green QA queues the YouTube publish on its own. */
+  auto_publish?: boolean;
   project_directory: string;
   created_at: string;
   updated_at: string;
@@ -281,7 +287,18 @@ export const api = {
       post<Project>('/projects', body),
     update: (
       id: string,
-      body: Partial<Pick<Project, 'name' | 'mode' | 'target_duration_seconds' | 'game'>>,
+      body: Partial<
+        Pick<
+          Project,
+          | 'name'
+          | 'mode'
+          | 'target_duration_seconds'
+          | 'game'
+          | 'captions_enabled'
+          | 'output_directory'
+          | 'auto_publish'
+        >
+      >,
     ) =>
       patch<Project>(`/projects/${id}`, body),
     status: (id: string) => get<{project: Project; stages: StageStatus[]}>(`/projects/${id}/status`),

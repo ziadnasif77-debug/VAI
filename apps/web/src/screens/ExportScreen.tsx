@@ -75,6 +75,27 @@ export function ExportScreen({
     }, 5000);
   }, [targets]);
 
+  const publishNow = useCallback(async () => {
+    setBusy(true);
+    setPublishedUrl(null);
+    try {
+      const meta = await api.metadata.suggest(project.id);
+      await api.publishing.publish(project.id, {
+        target: 'youtube',
+        metadata: {
+          title: meta.title,
+          description: meta.description,
+          tags: meta.tags,
+          thumbnail_path: meta.thumbnail_path,
+          visibility,
+        },
+      });
+      setPublishedUrl('queued');
+    } finally {
+      setBusy(false);
+    }
+  }, [project.id, visibility]);
+
   const publishToYouTube = useCallback(async () => {
     setBusy(true);
     setPublishedUrl(null);
@@ -252,6 +273,16 @@ export function ExportScreen({
 
         {youtube?.connected && (
           <>
+            <button className="primary" onClick={() => void publishNow()} disabled={busy}>
+              Publish to YouTube now
+            </button>
+            <p className="muted">
+              One press: the title, description, tags and thumbnail come from the analysis,
+              visibility is what the selector below says, and the upload runs as a job.
+              {project.auto_publish
+                ? ' This project also publishes by itself whenever QA passes.'
+                : ' Tick auto-publish on the Import screen and even this press stops being needed.'}
+            </p>
             <button
               onClick={async () => {
                 setBusy(true);

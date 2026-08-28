@@ -45,10 +45,16 @@ class TestShippedConfiguration:
     def test_gpu_budget_leaves_headroom(self, config: AppConfig) -> None:
         assert config.gpu.usable_vram_mb < config.gpu.total_vram_mb
 
-    def test_publishing_ships_local_file_only(self, config: AppConfig) -> None:
-        # YouTube auto-publish is planned but must not be enabled by default.
-        assert config.publishing.enabled_targets == [PublishTarget.LOCAL_FILE]
-        assert config.publishing.youtube.enabled is False
+    def test_publishing_ships_both_targets_and_no_credentials(self, config: AppConfig) -> None:
+        # YouTube shipped enabled on 2026-08-28 -- the auto-publish flag and
+        # the Export screen's one-press button need the target to exist. What
+        # must never ship is a credential: the client pair stays null, so an
+        # unconfigured machine gets the remedy message, not an upload.
+        assert PublishTarget.LOCAL_FILE in config.publishing.enabled_targets
+        assert PublishTarget.YOUTUBE in config.publishing.enabled_targets
+        assert config.publishing.youtube.enabled is True
+        assert config.publishing.youtube.client_id is None
+        assert config.publishing.default_target is PublishTarget.LOCAL_FILE
 
 
 class TestHardwareProfileSelection:
@@ -170,11 +176,28 @@ class TestSemanticValidation:
 
     def test_youtube_cannot_be_enabled_without_being_listed(self, config_dir: Path) -> None:
         with pytest.raises(ConfigurationError, match="enabled_targets"):
-            load_config(config_dir, overrides={"publishing": {"youtube": {"enabled": True}}})
+            load_config(
+                config_dir,
+                overrides={
+                    "publishing": {
+                        "enabled_targets": ["local_file"],
+                        "youtube": {"enabled": True},
+                    }
+                },
+            )
 
     def test_default_publish_target_must_be_enabled(self, config_dir: Path) -> None:
         with pytest.raises(ConfigurationError, match="default_target"):
-            load_config(config_dir, overrides={"publishing": {"default_target": "youtube"}})
+            load_config(
+                config_dir,
+                overrides={
+                    "publishing": {
+                        "enabled_targets": ["local_file"],
+                        "youtube": {"enabled": False},
+                        "default_target": "youtube",
+                    }
+                },
+            )
 
 
 class TestCaching:

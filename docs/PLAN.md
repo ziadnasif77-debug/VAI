@@ -163,6 +163,39 @@ of it and nothing in the output said so. Fixed, with `avoid`, `skip`, `remove`,
 phase because Phase F would have seen the same sentence in three projects and
 made the inversion the default for every project after them.
 
+### The import screen learns delivery — captions, a folder, and hands-free publish (2026-08-28)
+
+Three owner requests, one shape: choices made once, at the import screen,
+recorded on the project row (migration 0004, schema 4).
+
+**Captions became opt-in.** `captions_enabled`, off by default: a new project
+writes nothing on the frame — the long video and the Shorts both — while the
+speech is still transcribed, because the edit is built from what was said.
+Every project that already existed was created when captions were
+unconditional and keeps the behaviour it was made with (the migration
+backfills true). The gate sits where the captions are born: the EDL worker
+returns no captions for a project that said no, and the Shorts worker ships
+the plain cut.
+
+**The finished video lands where the person asked.** `output_directory`,
+validated at the model (absolute path; C: refused by this machine's own
+standing rule), applied at the render: a successful render copies the file
+there under the project's name. The copy is a delivery, not the render — a
+full disk at the chosen folder becomes a note on a green job, never a failed
+one (§95).
+
+**Auto-publish, with §51 intact.** `auto_publish`, off by default. When
+ticked, a green QA queues the YouTube publish by itself, and the publish
+worker writes the metadata the way the Export screen's Suggest button would
+have — from the analysis. Nothing is delivered *unasked*: the tick at the
+import screen is the asking, made once, explicitly, per project. The Export
+screen also gained the one-press version — **Publish to YouTube now** —
+suggest and publish in a single click for projects that did not pre-ask.
+
+The publishing target ships enabled now (the flag and the button need it to
+exist); what must never ship stays null — an unconfigured machine gets the
+remedy message, not an upload. 1,671 unit tests; the web app rebuilt.
+
 ### Proved live, then shipped — Shorts, the gate, the grammar (2026-08-27)
 
 Three live runs on real footage closed the day, each exercising what the day
@@ -1596,3 +1629,4 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-27 | **Evaluation moves to situation granularity.** `read_as_episodes` scores events through the product's own episode reader (generics pass through); straddling predictions match first, judged after (a boundary episode had turned a found label into a miss). Seed 0.26→0.35, GTA out-of-sample 0.35→0.53, Grounded 0.42→0.56 precision, recall unpaid everywhere. |
 | 2026-08-27 | **Detector wave from the golden set's misses**: cluster discipline (context never bridges, claiming span capped 15 s), vision-only low_health demoted, `suppressed_generic_rules` (Grounded vetoes the two rules its footage contradicts), creature-bar OCR events, `WOOZY` as near_death, `description_pattern`/`min_label_count` on fusion rules, fire named from the prose (`visible_destruction`/`burning_wreck`), generic markers unjudgeable in the metric, type-aware tie-break. Grounded events 0.60/**1.00**, moments **0.80/1.00**; every remaining out-of-sample miss carries its documented reason. |
 | 2026-08-27 | **Live proofs + ship**: three real Shorts with captions in 296 s; certification story→QA in 5.3 min with QA green, VRAM gate consulted, J/L planner correctly keeping a speechless boundary hard; `jl_cuts` ships enabled; `dist/VAI-0.1.0.zip` rebuilt (296 MB). Live YouTube publish awaits only the owner's Google OAuth client. |
+| 2026-08-28 | **Delivery choices at the import screen** (owner requests): `captions_enabled` opt-in (off = nothing written on the frame, Shorts included; legacy projects backfilled on), `output_directory` (validated, C: refused; render copies the finished file there, failure is a §95 note), `auto_publish` (green QA queues the upload with analysis-written metadata — the tick is §51's asking), plus a one-press **Publish to YouTube now** on the Export screen. Migration 0004, schema 4, 1,671 tests. |
