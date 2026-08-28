@@ -31,6 +31,9 @@ publishing:
     # construction and are useful locally regardless of destination.
     generate_chapters: true
     min_chapter_seconds: 30
+    # Burn a hook phrase onto the suggested thumbnail, in the transcript's
+    # language, at the peak frame -- a bare screenshot spends the click.
+    thumbnail_hook: true
 
   local_file:
     # null -> the project's renders/ directory is offered as the default.

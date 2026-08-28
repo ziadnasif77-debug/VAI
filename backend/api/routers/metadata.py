@@ -85,13 +85,15 @@ def suggest_metadata(project_id: str, state: AppState = Depends(get_state)) -> V
         min_chapter_seconds=defaults.min_chapter_seconds,
     )
 
-    thumbnail = _render_thumbnail(state, project_id, moments)
+    thumbnail = _render_thumbnail(state, project_id, moments, language)
     if thumbnail is not None:
         metadata = metadata.model_copy(update={"thumbnail_path": thumbnail})
     return metadata
 
 
-def _render_thumbnail(state: AppState, project_id: str, moments: list[Moment]) -> str | None:
+def _render_thumbnail(
+    state: AppState, project_id: str, moments: list[Moment], language: str | None = None
+) -> str | None:
     """One frame at the best moment's peak, or ``None`` -- never an error.
 
     Written into the project's assets directory (§43: user-facing artefacts
@@ -127,6 +129,11 @@ def _render_thumbnail(state: AppState, project_id: str, moments: list[Moment]) -
             extra={"project_id": project_id, "media_id": media_id, "error": str(error)},
         )
         return None
+
+    if state.config.publishing.defaults.thumbnail_hook:
+        from backend.metadata.hooks import burn_hook, hook_phrase
+
+        burn_hook(destination, hook_phrase(moments, language))
     return str(destination)
 
 

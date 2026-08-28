@@ -33,6 +33,8 @@ ai = [
     "numpy==2.2.6",
     "opencv-python-headless==4.11.0.86",
     "Pillow==12.2.0",
+    "arabic-reshaper==3.0.1",
+    "python-bidi==0.6.11",
     "av==18.0.0",
     "onnxruntime==1.27.0",
     "requests>=2.32",

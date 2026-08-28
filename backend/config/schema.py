@@ -1420,6 +1420,8 @@ class PublishDefaultsConfig(_Section):
     category: str | None = None
     generate_chapters: bool = True
     min_chapter_seconds: float = Field(default=30.0, gt=0)
+    #: Burn a hook phrase onto the suggested thumbnail (metadata/hooks.py).
+    thumbnail_hook: bool = True
 
 
 class LocalFilePublishConfig(_Section):

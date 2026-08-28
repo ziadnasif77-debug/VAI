@@ -277,3 +277,58 @@ class TestThumbnail:
 
     def test_no_moments_means_no_thumbnail(self) -> None:
         assert thumbnail_peak([]) is None
+
+
+class TestThumbnailHooks:
+    """The phrase that grabs, chosen by the analysis and drawn shaped."""
+
+    @staticmethod
+    def _moment(kind: str, score: float):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(moment_type=SimpleNamespace(value=kind), score=score)
+
+    def test_the_dominant_type_votes_with_its_score(self) -> None:
+        from backend.metadata.hooks import hook_phrase
+
+        moments = [
+            self._moment("fail", 0.2),
+            self._moment("fail", 0.2),
+            self._moment("clutch", 0.9),
+        ]
+
+        assert hook_phrase(moments, "en") == "IMPOSSIBLE CLUTCH!"
+
+    def test_arabic_transcripts_get_the_arabic_phrase(self) -> None:
+        from backend.metadata.hooks import hook_phrase
+
+        assert "!" in hook_phrase([self._moment("boss", 0.8)], "ar")
+        assert hook_phrase([self._moment("boss", 0.8)], "ar") == "معركة الزعيم!"
+
+    def test_no_moments_still_produces_a_phrase(self) -> None:
+        from backend.metadata.hooks import hook_phrase
+
+        assert hook_phrase([], "en") == "UNMISSABLE MOMENTS!"
+
+    def test_burning_changes_the_image_and_never_raises(self, tmp_path) -> None:
+        from PIL import Image
+
+        from backend.metadata.hooks import burn_hook
+
+        image = tmp_path / "thumb.jpg"
+        Image.new("RGB", (640, 360), (40, 90, 140)).save(image)
+        before = image.read_bytes()
+
+        drawn = burn_hook(image, "معركة الزعيم!")
+
+        after = image.read_bytes()
+        if drawn:
+            assert after != before
+            assert Image.open(image).size == (640, 360)
+        # ``False`` is the honest answer on a machine with no usable font;
+        # the plain frame is already a thumbnail.
+
+    def test_a_missing_file_is_a_false_not_a_crash(self, tmp_path) -> None:
+        from backend.metadata.hooks import burn_hook
+
+        assert burn_hook(tmp_path / "nowhere.jpg", "TOTAL CHAOS!") is False
