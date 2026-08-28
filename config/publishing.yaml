@@ -40,6 +40,8 @@ publishing:
     # The local model writes each video's own title and thumbnail hook from
     # its evidence; the deterministic templates remain the fallback.
     creative_text: true
+    # Recompose the thumbnail around the subject the vision model locates.
+    thumbnail_composition: true
 
   local_file:
     # null -> the project's renders/ directory is offered as the default.

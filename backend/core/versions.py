@@ -41,6 +41,8 @@ PROMPT_VERSIONS: Final[dict[str, int]] = {
     # opened on OBS itself, and v2 described the small preview's grass as
     # gameplay because "a game inside an app window" was not a choice it had.
     "vision.frame_description": 3,
+    # One frame, one subject box, for the thumbnail composition pass.
+    "vision.subject_box": 1,
     # The transcript is the only source that already contains the story in
     # words. Without this pass a 41-minute recording with 658 seconds of
     # speech produced two moment types in total.

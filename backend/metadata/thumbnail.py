@@ -84,10 +84,29 @@ def render_thumbnail(
         )
         return None
 
+    if config.publishing.defaults.thumbnail_composition:
+        _recompose(destination, config)
+
     if config.publishing.defaults.thumbnail_hook:
         phrase, emoji = hook_phrase(moments, language)
         burn_hook(destination, hook_text or phrase, emoji)
     return str(destination)
+
+
+def _recompose(destination: Path, config) -> None:
+    """§22-§23: crop and zoom to the subject the vision model locates."""
+    try:
+        from ai.vision import create_vision_provider
+        from backend.metadata.composition import compose
+
+        provider = create_vision_provider(config)
+        if provider is None or not hasattr(provider, "locate_subject"):
+            return
+        box = provider.locate_subject(destination)
+        if box is not None:
+            compose(destination, box)
+    except Exception:
+        logger.exception("Thumbnail composition unavailable; the frame ships as extracted")
 
 
 def _live_peak(

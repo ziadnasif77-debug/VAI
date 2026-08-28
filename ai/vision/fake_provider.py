@@ -91,6 +91,12 @@ class FakeVisionProvider:
     def unload(self) -> None:
         self.unload_count += 1
 
+    def locate_subject(self, frame_path):
+        """Scripted subject box, or ``None`` like a model with no answer."""
+        self.located = getattr(self, "located", [])
+        self.located.append(frame_path)
+        return getattr(self, "subject_box", None)
+
     def describe(
         self,
         frame_paths: tuple[Path, ...],

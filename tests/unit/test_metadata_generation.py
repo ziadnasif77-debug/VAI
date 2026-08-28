@@ -453,3 +453,51 @@ class TestCreativeWriter:
             )
             is None
         )
+
+
+class TestComposition:
+    """§22-§23: the crop arithmetic, and the seatbelt on the model's box."""
+
+    def test_a_plausible_box_composes_toward_the_anchor_third(self) -> None:
+        from backend.metadata.composition import crop_for
+
+        rectangle = crop_for((0.6, 0.3, 0.2, 0.3), width=1280, height=720)
+
+        assert rectangle is not None
+        left, top, right, bottom = rectangle
+        assert 0 <= left < right <= 1280
+        assert 0 <= top < bottom <= 720
+        # Aspect preserved.
+        assert (right - left) / (bottom - top) == pytest.approx(1280 / 720, rel=0.01)
+
+    def test_a_subject_already_filling_the_frame_composes_nothing(self) -> None:
+        from backend.metadata.composition import crop_for
+
+        assert crop_for((0.1, 0.1, 0.8, 0.8), width=1280, height=720) is None
+
+    def test_low_confidence_and_absurd_boxes_are_refused(self) -> None:
+        from backend.metadata.composition import valid_box
+
+        assert valid_box({"x": 0.4, "y": 0.3, "w": 0.2, "h": 0.3, "confidence": 0.2}) is None
+        assert valid_box({"x": 0.4, "y": 0.3, "w": 0.01, "h": 0.3, "confidence": 0.9}) is None
+        assert valid_box({"x": 0.9, "y": 0.3, "w": 0.5, "h": 0.3, "confidence": 0.9}) is None
+        assert valid_box(None) is None
+        assert (
+            valid_box({"x": 0.4, "y": 0.3, "w": 0.2, "h": 0.3, "confidence": 0.9}) is not None
+        )
+
+    def test_compose_recomposes_a_real_image_in_place(self, tmp_path) -> None:
+        from PIL import Image
+
+        from backend.metadata.composition import compose
+
+        image = tmp_path / "thumb.jpg"
+        Image.new("RGB", (1280, 720), (30, 90, 140)).save(image)
+        before = image.read_bytes()
+
+        drawn = compose(image, {"x": 0.55, "y": 0.25, "w": 0.2, "h": 0.35, "confidence": 0.9})
+
+        assert drawn is True
+        assert image.read_bytes() != before
+        with Image.open(image) as final:
+            assert final.size == (1280, 720)

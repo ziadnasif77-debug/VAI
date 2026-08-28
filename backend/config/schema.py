@@ -1492,9 +1492,9 @@ class PublishDefaultsConfig(_Section):
     #: Let the local model write each video's own title and thumbnail hook
     #: from its evidence; the deterministic templates remain the fallback.
     creative_text: bool = True
-    #: Let the local model write each video's own title and thumbnail hook
-    #: from its evidence; the deterministic templates remain the fallback.
-    creative_text: bool = True
+    #: Recompose the thumbnail around the subject the vision model locates
+    #: (docs/DIRECTION.md §22-§23).
+    thumbnail_composition: bool = True
 
 
 class LocalFilePublishConfig(_Section):

@@ -146,6 +146,39 @@ class OllamaVisionProvider:
 
     # -- analysis -------------------------------------------------------
 
+    def locate_subject(self, frame_path: Path) -> dict | None:
+        """One frame, one subject box (prompt ``vision.subject_box``).
+
+        Returns the raw dict for the composition layer to validate, or
+        ``None`` -- a thumbnail without a recomposition is already a
+        thumbnail, so every failure here is a log line, not an error.
+        """
+        try:
+            prompt = load_prompt("vision.subject_box")
+            payload = {
+                "model": self._config.model,
+                "prompt": prompt.render(),
+                "images": [_encode(frame_path)],
+                "format": prompt.output_schema,
+                "stream": False,
+                "keep_alive": KEEP_ALIVE_ACTIVE,
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": 200,
+                    "num_ctx": self._config.context_tokens,
+                },
+            }
+            response = self._post(
+                "/api/generate", payload, timeout=self._config.timeout_seconds
+            )
+            self._loaded = True
+            import json as _json
+
+            return _json.loads(response.get("response", "") or "null")
+        except Exception:
+            logger.exception("Subject location failed; the frame ships as extracted")
+            return None
+
     def describe(
         self,
         frame_paths: tuple[Path, ...],
