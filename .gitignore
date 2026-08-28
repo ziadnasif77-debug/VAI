@@ -49,3 +49,7 @@ config/*.local.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# Owner-only credentials: the OAuth client secret and the granted YouTube
+# token. The packager refuses to ship this directory; git must never see it.
+.credentials/

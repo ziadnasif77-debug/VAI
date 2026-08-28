@@ -46,7 +46,7 @@ publishing:
     # Data API enabled). The id is public by design and may live here; the
     # secret goes in its own file so this file never carries one. The granted
     # token is written to token_file under the data root, owner-only.
-    client_id: null
+    client_id: 583344787316-pm8rf3ftbtiep687fkjl5hm2rf0bdval.apps.googleusercontent.com
     client_secret_file: .credentials/google_client_secret.txt
     token_file: .credentials/youtube_oauth.json
     credential_id: null
