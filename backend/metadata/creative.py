@@ -97,7 +97,20 @@ def write(
     except Exception:
         logger.exception("The creative writer failed unexpectedly")
         return None
-    return _validated(payload, arabic=arabic)
+    written = _validated(payload, arabic=arabic)
+    if written is None:
+        # One more ask. The 7B sometimes answers an all-Arabic prompt in
+        # English (the Critic needed a prompt version for the same drift);
+        # a second sample at this temperature usually lands. Two misses mean
+        # the tables were the right author today.
+        try:
+            payload = provider.complete_json(
+                rendered, schema=_SCHEMA, prompt_id=prompt.id, temperature=_TEMPERATURE
+            )
+        except GamingEditorError:
+            return None
+        written = _validated(payload, arabic=arabic)
+    return written
 
 
 def _validated(payload: Any, *, arabic: bool) -> CreativeText | None:
@@ -119,7 +132,29 @@ def _validated(payload: Any, *, arabic: bool) -> CreativeText | None:
     if arabic and not any("؀" <= ch <= "ۿ" for ch in title):
         logger.info("Creative title rejected: no Arabic on an Arabic channel")
         return None
+    for line in (title, top, bottom):
+        if not _scripts_allowed(line):
+            # Measured on the second live sample: the 7B wrote Cyrillic into
+            # an Arabic title. Foreign scripts are not creativity.
+            logger.info("Creative text rejected: foreign script", extra={"line": line[:40]})
+            return None
     return CreativeText(title=title, hook_top=top, hook_bottom=bottom)
+
+
+def _scripts_allowed(text: str) -> bool:
+    """Arabic, Latin, digits, punctuation and emoji -- nothing else."""
+    import unicodedata
+
+    for ch in text:
+        if ch.isascii():
+            continue
+        if "؀" <= ch <= "ۿ" or "ﭐ" <= ch <= "﻿":
+            continue
+        category = unicodedata.category(ch)
+        if category.startswith(("P", "S", "Z", "N", "M")):
+            continue
+        return False
+    return True
 
 
 def _line(value: Any) -> str:
@@ -154,6 +189,14 @@ def gather_and_write(
         for kind, count in votes.most_common(3)
     )
 
+    # HUD nouns OCR reads on every second frame. A "creature" that is really
+    # the STORAGE label walks straight into the title as a character -- the
+    # first live sample wrote "STORAGE saves the day".
+    interface_nouns = {
+        "STORAGE", "NEW", "IDEAS", "NEW IDEAS", "LOCKED", "SAVE", "LOAD",
+        "MENU", "INVENTORY", "EQUIP", "CRAFT", "OPTIONS", "SETTINGS", "MAP",
+        "QUEST", "OBJECTIVES", "PAUSED", "LIVE", "REC", "HP", "MP", "XP",
+    }
     creatures: Counter[str] = Counter()
     try:
         for item in MediaRepository(database).list_for_project(project.id):
@@ -162,7 +205,12 @@ def gather_and_write(
             )
             for row in rows:
                 text = str(row["text"] or "").strip()
-                if 3 <= len(text) <= 24 and text.isupper() and text.replace(" ", "").isalpha():
+                if (
+                    3 <= len(text) <= 24
+                    and text.isupper()
+                    and text.replace(" ", "").isalpha()
+                    and text not in interface_nouns
+                ):
                     creatures[text] += 1
     except Exception:
         logger.exception("Could not gather on-screen names; writing without them")

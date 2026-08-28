@@ -44,7 +44,7 @@ PROMPT_VERSIONS: Final[dict[str, int]] = {
     "analysis.narration": 3,
     # The video's own title and thumbnail hook, written from its evidence
     # (owner instruction 2026-08-28: per-video phrases, not one for all).
-    "metadata.creative_text": 1,
+    "metadata.creative_text": 2,
     # v2 of both: the model no longer sets the video's length. Ollama enforces
     # a schema as a grammar, so `minimum: 600` meant a model asked for "30
     # seconds" could not emit 30 -- it emitted 3000, and the person was told

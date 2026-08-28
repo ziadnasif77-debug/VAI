@@ -134,7 +134,11 @@ class PublishWorker:
             assets_dir=context.paths.assets,
             moments=moments,
             language=detect_transcript_language(segments),
-            hook_text=creative.hook_lines if creative is not None else None,
+            # Titles come from the model; the thumbnail's two lines stay with
+            # the curated tables. Measured 2026-08-28: the same sampling that
+            # writes a sound Arabic title writes gibberish hook lines, and a
+            # thumbnail wears its words larger than anything else.
+            hook_text=None,
         )
         return written.model_copy(
             update={
