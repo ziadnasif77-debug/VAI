@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.core.models.enums import JobStage, VideoMode
+from backend.core.models.enums import JobStage, JobStatus, VideoMode
 from backend.core.models.media import MediaImport
 from backend.core.models.project import ProjectCreate
 from backend.media.probe import probe_media
@@ -104,18 +104,29 @@ class TestTheStage:
             assert path.is_file(), produced
             assert produced["size_bytes"] > 0
 
-    def test_the_stage_is_manual(
+    def test_the_stage_runs_only_when_asked(
         self, media_service, project_manager, shorts_runner, reaction_clip
     ):
-        # §51: running the pipeline must never cut Shorts on its own.
+        # §51: nothing is cut unasked. The asking has two shapes now -- the
+        # button, or the owner's standing auto_after_qa -- so what the
+        # pipeline run itself must never do is *execute* the cut uninvited:
+        # with the standing config on, a green QA queues the job and it waits
+        # for a worker; with it off, the job does not even exist.
         project = project_manager.create(
             ProjectCreate(name="NoAuto", target_duration_seconds=600, mode=VideoMode.STORY)
         )
         media_service.import_media(project.id, MediaImport(path=str(reaction_clip)))
         shorts_runner.run_project(project.id)
 
-        jobs = shorts_runner.jobs.list_jobs(project.id)
-        assert all(job.stage is not JobStage.SHORTS for job in jobs)
+        jobs = [
+            job
+            for job in shorts_runner.jobs.list_jobs(project.id)
+            if job.stage is JobStage.SHORTS
+        ]
+        if shorts_runner._config.shorts.auto_after_qa:
+            assert all(job.status is JobStatus.QUEUED for job in jobs)
+        else:
+            assert jobs == []
 
 
 class TestTheEndpoint:

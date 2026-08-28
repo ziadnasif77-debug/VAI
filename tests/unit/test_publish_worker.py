@@ -268,6 +268,53 @@ class TestAutoPublishHook:
         )
 
 
+class TestAutoShortsHook:
+    """The owner's standing config queues the vertical cuts after QA."""
+
+    def test_a_green_qa_queues_shorts_when_the_config_asks(
+        self, project_manager, database, paths, config
+    ) -> None:
+        from backend.pipeline.runner import PipelineRunner
+
+        project = project_manager.create(
+            ProjectCreate(name="Standing", target_duration_seconds=900)
+        )
+        runner = PipelineRunner(database, paths, config, workers={})
+        runner._config = runner._config.model_copy(deep=True)
+        runner._config.shorts.auto_after_qa = True
+        qa_job = runner.jobs.queue(project.id, JobStage.QA)
+
+        runner._maybe_auto_shorts(qa_job)
+
+        shorts = [
+            item
+            for item in runner.jobs.list_jobs(project.id)
+            if item.stage is JobStage.SHORTS
+        ]
+        assert len(shorts) == 1
+        assert shorts[0].status is JobStatus.QUEUED
+
+    def test_the_hook_is_silent_when_nobody_asked(
+        self, project_manager, database, paths, config
+    ) -> None:
+        from backend.pipeline.runner import PipelineRunner
+
+        project = project_manager.create(
+            ProjectCreate(name="Quiet", target_duration_seconds=900)
+        )
+        runner = PipelineRunner(database, paths, config, workers={})
+        runner._config = runner._config.model_copy(deep=True)
+        runner._config.shorts.auto_after_qa = False
+        qa_job = runner.jobs.queue(project.id, JobStage.QA)
+
+        runner._maybe_auto_shorts(qa_job)
+
+        assert all(
+            item.stage is not JobStage.SHORTS
+            for item in runner.jobs.list_jobs(project.id)
+        )
+
+
 class TestRenderDelivery:
     """The finished file lands where the project asked, or the note says why."""
 

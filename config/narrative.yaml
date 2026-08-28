@@ -124,7 +124,10 @@ narrative:
   # floor so QA never mistakes it for a broken render.
   transitions:
     enabled: true
-    time_jump_seconds: 45    # a same-recording jump this long reads as "later", not "next"
+    # Owner ask 2026-08-28 ("good coherence between shots"): every skipped
+    # stretch a viewer could notice announces itself. 45 let sub-minute jumps
+    # pose as continuity.
+    time_jump_seconds: 20
     dip_seconds: 0.3         # each side of the join
 
   # The Director (Phase C). Everything above decides which moments and in what

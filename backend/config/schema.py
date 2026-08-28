@@ -987,6 +987,10 @@ class ShortsConfig(_Section):
     """
 
     enabled: bool = True
+    #: Queue the cut by itself after every green QA. §51 still holds -- the
+    #: owner's standing instruction (2026-08-28: "always one or two Reels
+    #: ready after every render") is the asking, made once, in configuration.
+    auto_after_qa: bool = False
     #: How many to cut, strongest first. YouTube treats up to 3 minutes as a
     #: Short now; 60 s is still where retention lives, so both are knobs.
     count: int = Field(default=3, ge=1, le=20)

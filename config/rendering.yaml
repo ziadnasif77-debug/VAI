@@ -173,10 +173,14 @@ remotion:
 # Vertical Shorts (9:16) cut from the same analysis. A Short is a tiny edit
 # rendered through the same stack as the long video -- an NVENC cut of one
 # strong moment, centre-cropped, captions composited at the vertical frame.
-# Manual like every delivery: nothing is cut until the person asks.
+# Delivery-gated like everything else: nothing is cut until asked -- and
+# auto_after_qa below is the owner asking, once, in configuration.
 shorts:
   enabled: true
-  count: 3
+  # Owner standing instruction (2026-08-28): one or two Reels ready after
+  # every render of the main video. A green QA queues the cut by itself.
+  auto_after_qa: true
+  count: 2
   min_seconds: 15
   max_seconds: 60
   width: 1080

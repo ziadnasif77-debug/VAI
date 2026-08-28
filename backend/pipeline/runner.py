@@ -266,7 +266,28 @@ class PipelineRunner:
         completed = self._jobs.complete(job_id, result=_serialisable(result))
         if completed.stage is JobStage.QA:
             self._maybe_auto_publish(completed)
+            self._maybe_auto_shorts(completed)
         return RunOutcome(job=completed)
+
+    def _maybe_auto_shorts(self, job: Job) -> None:
+        """Queue the vertical cuts when the owner's standing config asks.
+
+        Same §51 arithmetic as auto-publish: nothing is delivered *unasked*,
+        and `shorts.auto_after_qa` is the asking -- made once, in
+        configuration, by the owner who wants a Reel or two ready after every
+        render. Failure to queue never poisons QA's own success.
+        """
+        try:
+            shorts = self._config.shorts
+            if not (shorts.enabled and shorts.auto_after_qa):
+                return
+            queued = self._jobs.queue(job.project_id, JobStage.SHORTS)
+            logger.info(
+                "Auto-shorts queued by the standing configuration",
+                extra={"shorts_job": queued.id, "count": shorts.count},
+            )
+        except Exception:
+            logger.exception("Auto-shorts could not be queued")
 
     def _maybe_auto_publish(self, job: Job) -> None:
         """Queue the YouTube publish when the project asked for it up front.
