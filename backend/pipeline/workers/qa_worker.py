@@ -129,6 +129,10 @@ class QaWorker:
             "uncertainties": uncertainties,
         }
 
+    #: Notes that record an action the pipeline took on purpose. They stay
+    #: in their stage's result for §80; they are not uncertainty.
+    _ACTION_NOTE_PREFIXES = ("variety: ", "flatness: ", "arc: ")
+
     def _doctrine_summary(self, context: WorkerContext, report) -> tuple[int, list[str]]:
         """A 0-100 score and the uncertainty list, both derived, both stated.
 
@@ -147,6 +151,13 @@ class QaWorker:
                 continue
             for note in job.result.get("notes") or []:
                 text = str(note)
+                # The run-breaker's notes describe fixes made, not doubts
+                # held -- §80 transparency, already on the story record.
+                # Scoring them as uncertainty punished the machine for
+                # repairing: measured live, a better edit scored 24 where
+                # its broken predecessor scored 52.
+                if text.startswith(self._ACTION_NOTE_PREFIXES):
+                    continue
                 if text and text not in notes:
                     notes.append(text)
             if stage is JobStage.CRITIQUE and job.result.get("skipped"):

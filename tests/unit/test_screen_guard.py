@@ -287,99 +287,109 @@ class TestDeadInteriors:
 
         assert guarded == []
 class TestSourceDeadSpans:
-    """The source's own black/frozen stretches, measured once and cached."""
+    """The source's own black/frozen stretches: windowed, cached, incremental."""
 
-    def test_a_cached_verdict_skips_the_decode(self, tmp_path: Path, config) -> None:
-        import json
+    class _Runner:
+        """Serves canned detector stderr per window and counts decodes."""
 
+        def __init__(self, stderr_by_start=None):
+            self.stderr_by_start = stderr_by_start or {}
+            self.calls: list[float] = []
+
+        def base_arguments(self, **_):
+            return ["ffmpeg"]
+
+        def input_arguments(self, path, *, start, duration):
+            self.calls.append(round(start, 1))
+            self._current = start
+            return ["-ss", str(start), "-t", str(duration), "-i", str(path)]
+
+        def run(self, argv, check=False, **_):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(
+                ok=True, stderr=self.stderr_by_start.get(self._current, "")
+            )
+
+    def test_runs_are_offset_and_freeze_pairs_are_durations(
+        self, tmp_path: Path, config
+    ) -> None:
         from backend.analysis.source_dead import dead_source_spans
 
         source = tmp_path / "rec.mkv"
         source.write_bytes(b"x" * 64)
-        stat = source.stat()
-        cache = tmp_path / "cache"
-        cache.mkdir()
-        (cache / "media-1.json").write_text(
-            json.dumps(
-                {
-                    "signature": f"{stat.st_size}:{int(stat.st_mtime)}",
-                    "black": [[10.0, 16.4]],
-                    "freeze": [[100.0, 106.7]],
-                }
-            ),
-            encoding="utf-8",
+        runner = self._Runner(
+            {
+                97.0: (
+                    "[blackdetect] black_start:4.0 black_end:10.4 black_duration:6.4\n"
+                    "[freezedetect] lavfi.freezedetect.freeze_start: 20.0\n"
+                    "[freezedetect] lavfi.freezedetect.freeze_duration: 10.7\n"
+                )
+            }
         )
-
-        class _Boom:
-            def base_arguments(self, **_):
-                raise AssertionError("the decode must not run on a cache hit")
 
         spans = dead_source_spans(
             source,
-            ffmpeg=_Boom(),
+            ffmpeg=runner,
             config=config,
-            cache_dir=cache,
+            cache_dir=tmp_path / "cache",
             media_id="media-1",
+            windows=[(100.0, 130.0)],
             duration_seconds=1200.0,
         )
 
-        assert [(s.start_seconds, s.end_seconds) for s in spans] == [
-            (9.7, 16.7),
-            (99.7, 107.0),
+        got = sorted((s.state.value, round(s.start_seconds, 1), round(s.end_seconds, 1)) for s in spans)
+        # Window opens at 100-3 (pad); runs offset by that seek, padded 0.3.
+        assert got == [
+            ("pause", 116.7, 128.0),
+            ("transition", 100.7, 107.7),
         ]
         assert all(not s.state.is_gameplay for s in spans)
 
-    def test_a_measured_verdict_is_written_back(
-        self, tmp_path: Path, config, monkeypatch
+    def test_a_second_call_decodes_nothing_new(self, tmp_path: Path, config) -> None:
+        from backend.analysis.source_dead import dead_source_spans
+
+        source = tmp_path / "rec.mkv"
+        source.write_bytes(b"x" * 64)
+        runner = self._Runner()
+        common = {
+            "ffmpeg": runner,
+            "config": config,
+            "cache_dir": tmp_path / "cache",
+            "media_id": "media-2",
+            "windows": [(50.0, 80.0)],
+            "duration_seconds": 600.0,
+        }
+
+        dead_source_spans(source, **common)
+        first = list(runner.calls)
+        dead_source_spans(source, **common)
+
+        assert first and runner.calls == first, "the cache must answer the rerun"
+
+    def test_a_window_that_will_not_decode_is_an_empty_answer(
+        self, tmp_path: Path, config
     ) -> None:
         from backend.analysis.source_dead import dead_source_spans
-        from backend.qa import technical
 
         source = tmp_path / "rec.mkv"
         source.write_bytes(b"x" * 64)
 
-        monkeypatch.setattr(
-            technical,
-            "decode",
-            lambda *a, **k: technical.DecodeMeasurements(
-                decoded=True, black_runs=((5.0, 11.4),), freeze_runs=()
-            ),
-        )
+        class _Broken(self._Runner):
+            def run(self, argv, check=False, **_):
+                from types import SimpleNamespace
 
-        spans = dead_source_spans(
-            source,
-            ffmpeg=object(),
-            config=config,
-            cache_dir=tmp_path / "cache",
-            media_id="media-2",
-            duration_seconds=600.0,
-        )
-
-        assert len(spans) == 1
-        assert (tmp_path / "cache" / "media-2.json").is_file()
-
-    def test_a_failed_decode_is_an_empty_answer(
-        self, tmp_path: Path, config, monkeypatch
-    ) -> None:
-        from backend.analysis.source_dead import dead_source_spans
-        from backend.qa import technical
-
-        source = tmp_path / "rec.mkv"
-        source.write_bytes(b"x" * 64)
-        monkeypatch.setattr(
-            technical,
-            "decode",
-            lambda *a, **k: technical.DecodeMeasurements(decoded=False, error="boom"),
-        )
+                return SimpleNamespace(ok=False, stderr="")
 
         assert (
             dead_source_spans(
                 source,
-                ffmpeg=object(),
+                ffmpeg=_Broken(),
                 config=config,
                 cache_dir=tmp_path / "cache",
                 media_id="media-3",
-                duration_seconds=None,
+                windows=[(10.0, 40.0)],
+                duration_seconds=600.0,
             )
             == []
         )

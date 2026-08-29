@@ -243,6 +243,15 @@ class EdlWorker:
                         config=context.config,
                         cache_dir=context.paths.analysis / "source-dead",
                         media_id=media_id,
+                        # Only the seconds the plan is about to use: a probe
+                        # over the whole recording died on a mid-file OBS
+                        # corruption once, silently, and most of a session is
+                        # not in the edit anyway.
+                        windows=[
+                            (clip.source_start, clip.source_end)
+                            for clip in planned
+                            if clip.media_id == media_id
+                        ],
                         duration_seconds=durations.get(media_id),
                     )
                 )
