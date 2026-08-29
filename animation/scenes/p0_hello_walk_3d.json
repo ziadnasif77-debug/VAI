@@ -1,7 +1,7 @@
 {
   "$schema": "vai://schemas/scene-document/v1",
   "id": "p0_hello_walk_3d",
-  "duration_s": 10.0,
+  "duration_s": 11.8,
   "fps": 24,
   "seed_lock": 4471,
   "style_ref": "p0",
@@ -170,7 +170,7 @@
       "track": "action",
       "actor": "hero",
       "anim": "talk",
-      "until": 8.4,
+      "until": 10.36,
       "visemes": "audio/line1.visemes.json"
     },
     {
@@ -185,7 +185,7 @@
       "op": "push",
       "params": {
         "zoom_to": 1.1,
-        "over": 2.6,
+        "over": 3.4,
         "ease": "inout_sine"
       }
     },
@@ -197,18 +197,18 @@
         "ambient": "#ffd9b0"
       },
       "params": {
-        "over": 2.5
+        "over": 3.4
       }
     },
     {
-      "t": 8.6,
+      "t": 10.6,
       "track": "action",
       "actor": "hero",
       "anim": "sad_idle",
-      "until": 10.0
+      "until": 11.8
     },
     {
-      "t": 8.7,
+      "t": 10.7,
       "track": "audio",
       "file": "sfx/sad_chirp.wav",
       "gain_db": -10
