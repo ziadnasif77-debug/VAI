@@ -3,6 +3,9 @@
 narrative:
   # Story mode optimises narrative coherence, not raw moment score (§36).
   story:
+    # A session with no epic/clutch still has a biggest moment: at or above
+    # this score it carries the climax role under its own name.
+    climax_fallback_min_score: 0.5
     structure:
       - hook
       - context
@@ -67,6 +70,9 @@ narrative:
   # entertainment, narrative and variety, minus repetition and dead time.
   optimizer:
     strategy: weighted_knapsack
+    # Variety and flatness fixed by *choosing different material* (swap or
+    # drop within the duration band), never by reordering (S38 at selection).
+    sequence_repair: true
     objective_weights:
       entertainment: 1.00
       narrative: 0.90

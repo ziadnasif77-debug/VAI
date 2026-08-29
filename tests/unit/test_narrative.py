@@ -15,6 +15,7 @@ thing that matters.
 
 from __future__ import annotations
 
+import itertools
 import random
 from collections import Counter
 from itertools import pairwise
@@ -26,9 +27,9 @@ from backend.core.models.enums import GameEventType, MomentType, VideoMode
 from backend.gaming.correlation import GameEvent
 from backend.moments.formation import Moment, replace_moment
 from backend.narrative.hook import HOOK_STRENGTH, choose_hook
-from backend.narrative.optimizer import optimise
+from backend.narrative.optimizer import optimise, repair_sequence
 from backend.narrative.pacing import intensity_of, order, report
-from backend.narrative.story import BEAT_TYPES, build_plan
+from backend.narrative.story import BEAT_TYPES, _story_order, build_plan
 
 pytestmark = pytest.mark.unit
 
@@ -845,3 +846,143 @@ class TestStoryChronology:
         # everything in that run is labelled, and nothing after it jumps.
         opening_roles = {"hook", "hook_flash"}
         assert plan.moments[0].metadata.get("role") in opening_roles
+class TestSequenceRepair:
+    """§33/§38 at selection time: runs fixed by choosing, never reordering."""
+
+    def _quiet(self, moment):
+        return replace_moment(
+            moment, score_breakdown={**moment.score_breakdown, "audio": 0.1, "reaction": 0.1}
+        )
+
+    def _loud(self, moment):
+        return replace_moment(
+            moment, score_breakdown={**moment.score_breakdown, "audio": 0.9, "reaction": 0.9}
+        )
+
+    def _repair(self, chosen, bench, config, *, target=80.0, tolerance=20.0):
+        return repair_sequence(
+            chosen,
+            [*chosen, *bench],
+            pacing_config=config.narrative.pacing,
+            config=config.narrative.optimizer,
+            target_seconds=target,
+            tolerance=tolerance,
+        )
+
+    def test_a_same_type_run_is_broken_by_a_swap(self, config) -> None:
+        chosen = [
+            _moment(10.0, moment_type=MomentType.SKILL),
+            _moment(40.0, moment_type=MomentType.SKILL, entertainment=0.3, narrative=0.3),
+            _moment(70.0, moment_type=MomentType.SKILL),
+            _moment(100.0, moment_type=MomentType.SKILL),
+        ]
+        bench = [_moment(55.0, moment_type=MomentType.CHAOS)]
+
+        repaired, notes = self._repair(chosen, bench, config)
+
+        types = [m.moment_type for m in repaired]
+        assert MomentType.CHAOS in types
+        longest = max(
+            len(list(group)) for _, group in itertools.groupby(types)
+        )
+        assert longest <= config.narrative.pacing.max_consecutive_same_type
+        assert any(note.startswith("variety: swapped") for note in notes)
+        starts = [m.context_start for m in repaired]
+        assert starts == sorted(starts), "repair must never reorder"
+
+    def test_with_an_empty_bench_the_weakest_is_dropped(self, config) -> None:
+        chosen = [
+            _moment(10.0, moment_type=MomentType.SKILL),
+            _moment(40.0, moment_type=MomentType.SKILL, entertainment=0.2, narrative=0.2),
+            _moment(70.0, moment_type=MomentType.SKILL),
+            _moment(100.0, moment_type=MomentType.SKILL),
+        ]
+
+        repaired, notes = self._repair(chosen, [], config, target=80.0, tolerance=25.0)
+
+        assert len(repaired) == 3
+        assert all(m.start_seconds != 40.0 for m in repaired)
+        assert any(note.startswith("variety: dropped") for note in notes)
+
+    def test_the_duration_band_refuses_a_drop(self, config) -> None:
+        chosen = [
+            _moment(10.0, moment_type=MomentType.SKILL),
+            _moment(40.0, moment_type=MomentType.SKILL),
+            _moment(70.0, moment_type=MomentType.SKILL),
+            _moment(100.0, moment_type=MomentType.SKILL),
+        ]
+
+        repaired, _notes = self._repair(chosen, [], config, target=80.0, tolerance=5.0)
+
+        assert len(repaired) == 4, "dropping below the band is worse than the run"
+
+    def test_a_flat_stretch_is_relieved(self, config) -> None:
+        chosen = [
+            self._quiet(_moment(10.0, moment_type=MomentType.DISCOVERY)),
+            self._quiet(_moment(40.0, moment_type=MomentType.TENSION)),
+            self._quiet(_moment(70.0, moment_type=MomentType.DISCOVERY)),
+            self._loud(_moment(100.0, moment_type=MomentType.CHAOS)),
+            self._loud(_moment(130.0, moment_type=MomentType.SURPRISE)),
+        ]
+        bench = [self._loud(_moment(55.0, moment_type=MomentType.RAGE))]
+
+        _repaired, notes = self._repair(chosen, bench, config, target=100.0, tolerance=25.0)
+
+        assert any(
+            note.startswith(("flatness: swapped", "flatness: dropped")) for note in notes
+        )
+
+    def test_the_edit_ends_on_strength(self, config) -> None:
+        chosen = [
+            self._loud(_moment(10.0, moment_type=MomentType.CHAOS)),
+            self._loud(_moment(40.0, moment_type=MomentType.SURPRISE)),
+            self._loud(_moment(70.0, moment_type=MomentType.CHAOS)),
+            self._quiet(_moment(100.0, moment_type=MomentType.DISCOVERY)),
+        ]
+
+        repaired, notes = self._repair(chosen, [], config, target=80.0, tolerance=25.0)
+
+        assert repaired[-1].moment_type is not MomentType.DISCOVERY
+        assert any(note.startswith("arc: dropped") for note in notes)
+
+    def test_a_clean_selection_is_left_alone(self, config) -> None:
+        chosen = [
+            _moment(10.0, moment_type=MomentType.SKILL),
+            _moment(40.0, moment_type=MomentType.CHAOS),
+            _moment(70.0, moment_type=MomentType.SKILL),
+            _moment(100.0, moment_type=MomentType.CHAOS),
+        ]
+
+        repaired, notes = self._repair(chosen, [], config)
+
+        assert [m.start_seconds for m in repaired] == [m.start_seconds for m in chosen]
+        assert notes == []
+
+
+class TestClimaxFallback:
+    """A session with no canonical climax type still has a biggest moment."""
+
+    def test_the_peak_carries_the_climax_under_its_own_name(self, config) -> None:
+        moments = [
+            _moment(10.0, moment_type=MomentType.SKILL, score=0.55),
+            _moment(60.0, moment_type=MomentType.CHAOS, score=0.72),
+            _moment(110.0, moment_type=MomentType.TENSION, score=0.5),
+            _moment(160.0, moment_type=MomentType.DEFEAT, score=0.6),
+        ]
+
+        ordered, beats, notes = _story_order(moments, config.narrative)
+
+        assert "climax" in beats
+        assert beats[ordered.index(max(moments, key=lambda m: m.score))] == "climax"
+        assert any("climax carried by the session's peak" in note for note in notes)
+
+    def test_a_weak_session_keeps_the_honest_note(self, config) -> None:
+        moments = [
+            _moment(10.0, moment_type=MomentType.SKILL, score=0.3),
+            _moment(60.0, moment_type=MomentType.TENSION, score=0.35),
+        ]
+
+        _ordered, beats, notes = _story_order(moments, config.narrative)
+
+        assert "climax" not in beats
+        assert "no moment strong enough to serve as a climax" in notes

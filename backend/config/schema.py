@@ -653,6 +653,12 @@ class StoryConfig(_Section):
     coherence_weight: float = Field(default=0.55, ge=0.0, le=1.0)
     score_weight: float = Field(default=0.45, ge=0.0, le=1.0)
     require_climax: bool = True
+    #: A session can peak without ever producing a canonical climax type --
+    #: measured live: 79 moments, zero of the five climax types, and the QA
+    #: note fired on a video that *had* a biggest moment. At or above this
+    #: score, the strongest unassigned moment carries the climax role under
+    #: its own name; below it, the honest "no climax" note stands.
+    climax_fallback_min_score: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class BestMomentsConfig(_Section):
@@ -723,6 +729,11 @@ class DurationOptimizerConfig(_Section):
     objective_weights: OptimizerObjectiveWeights
     objective_penalties: OptimizerPenalties
     max_iterations: int = Field(default=500, ge=1)
+    #: §33/§38 at selection time: break same-type and low-intensity runs by
+    #: swapping in different unselected material (or dropping the weakest
+    #: member when the duration band allows), never by reordering -- story
+    #: mode is chronological and stays that way.
+    sequence_repair: bool = True
     allow_context_trim: bool = True
     max_context_trim_ratio: float = Field(default=0.5, ge=0.0, le=1.0)
     #: Slack cuts both ways. When every moment is already in the edit and it

@@ -37,7 +37,7 @@ from backend.director.models import Blueprint
 from backend.moments.formation import Moment, replace_moment
 from backend.narrative import pacing, refinement
 from backend.narrative.hook import HookSelection, choose_hook
-from backend.narrative.optimizer import OptimisationResult, optimise
+from backend.narrative.optimizer import OptimisationResult, optimise, repair_sequence
 
 logger = get_logger("narrative.story", LogChannel.PIPELINE)
 
@@ -171,6 +171,26 @@ def build_plan(
     )
     if selection.is_empty:
         return _empty(mode, target_seconds, policy, notes=selection.notes)
+
+    if config.optimizer.sequence_repair:
+        # Before the Director or the beats see anything: both index into and
+        # label exactly this list, and a repair after them would un-name what
+        # they named.
+        repaired, repair_notes = repair_sequence(
+            selection.moments,
+            moments,
+            pacing_config=config.pacing,
+            config=config.optimizer,
+            target_seconds=target_seconds,
+            tolerance=policy.tolerance_for(target_seconds),
+        )
+        if repair_notes:
+            selection = dataclasses.replace(
+                selection,
+                moments=tuple(repaired),
+                total_seconds=sum(m.context_duration for m in repaired),
+                notes=(*selection.notes, *repair_notes),
+            )
 
     if mode is VideoMode.STORY:
         if director is None:
@@ -306,7 +326,33 @@ def _story_order(
 
     notes: list[str] = []
     if story.require_climax and "climax" not in role_of.values():
-        notes.append("no moment strong enough to serve as a climax")
+        # Measured live: 79 moments, zero of the five canonical climax types,
+        # and the note fired on a session that plainly had a biggest moment.
+        # The peak carries the role under its own name; only a session whose
+        # peak is genuinely weak keeps the honest failure note.
+        # The peak may already be carrying a lesser label -- with few clips
+        # the earlier beats consume everything. The climax is the arc's
+        # spine, so it may take over any role except the hook and the
+        # ending; the vacated beat is simply absent, which the structure
+        # already allows.
+        eligible = [
+            moment
+            for moment in moments
+            if moment.score >= story.climax_fallback_min_score
+            and role_of.get((moment.media_id, moment.start_seconds))
+            not in ("hook", "ending")
+        ]
+        if eligible:
+            peak = max(eligible, key=lambda moment: moment.score)
+            if peak in remaining:
+                remaining.remove(peak)
+            role_of[(peak.media_id, peak.start_seconds)] = "climax"
+            notes.append(
+                f"climax carried by the session's peak (a {peak.moment_type.value} "
+                f"moment, score {peak.score:.2f}); no canonical climax type was recorded"
+            )
+        else:
+            notes.append("no moment strong enough to serve as a climax")
 
     ordered = sorted(moments, key=lambda m: (m.media_id, m.context_start))
     beats = [role_of.get((m.media_id, m.start_seconds), "body") for m in ordered]

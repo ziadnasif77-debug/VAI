@@ -506,4 +506,197 @@ def _trim_context(
     return result, trimmed_total
 
 
-__all__ = ["BUCKET_SECONDS", "OptimisationResult", "optimise"]
+# ---------------------------------------------------------------------------
+# sequence repair (S33/S38 at selection time)
+# ---------------------------------------------------------------------------
+
+#: A swap must bring at least this share of the victim's value; below it the
+#: variety would cost more entertainment than it buys.
+_SWAP_VALUE_FLOOR: Final[float] = 0.6
+#: Flat-run swaps may go lower: relief is the point, not equivalence.
+_FLAT_SWAP_VALUE_FLOOR: Final[float] = 0.4
+_REPAIR_ROUNDS: Final[int] = 12
+
+
+def repair_sequence(
+    selected: Sequence[Moment],
+    pool: Sequence[Moment],
+    *,
+    pacing_config,
+    config: DurationOptimizerConfig,
+    target_seconds: float,
+    tolerance: float,
+) -> tuple[list[Moment], list[str]]:
+    """Fix same-type and low-intensity runs by choosing, never reordering.
+
+    The knapsack picks a *set*; chronology then lines same-type neighbours up
+    shoulder to shoulder, and the variety term -- a share of the whole, blind
+    to adjacency -- cannot see it. Measured live before this existed: seven
+    same-type clips in a row against a limit of two, on a selection whose
+    global type mix looked fine.
+
+    Three repairs, in priority order, one change per round so every invariant
+    is re-measured before the next decision:
+
+    * a same-type run over ``max_consecutive_same_type`` swaps its weakest
+      members for the best differently-typed bench moments, or drops them
+      when the duration band allows;
+    * a below-threshold stretch longer than
+      ``max_consecutive_low_intensity_seconds`` gets the same treatment,
+      victims chosen by intensity;
+    * a weak final clip is dropped, because a video should end on strength
+      (S16) and chronology forbids moving strength to the end.
+
+    Every change keeps the total inside the duration band or strictly closer
+    to the target than before; when neither swap nor drop is possible the run
+    stays and the pacing report says so, exactly as it does today.
+    """
+    from backend.narrative.pacing import intensity_of
+
+    chosen = sorted(selected, key=lambda m: (m.media_id, m.context_start))
+    key = lambda m: (m.media_id, m.start_seconds)  # noqa: E731
+    taken = {key(m) for m in chosen}
+    bench = [m for m in pool if key(m) not in taken]
+    notes: list[str] = []
+    floor_total = target_seconds - tolerance
+    ceiling = target_seconds + tolerance
+
+    def total_of(moments: Sequence[Moment]) -> float:
+        return sum(m.context_duration for m in moments)
+
+    def fits(new_total: float) -> bool:
+        old = abs(total_of(chosen) - target_seconds)
+        return floor_total <= new_total <= ceiling or abs(new_total - target_seconds) <= old
+
+    def swap(victim: Moment, candidate: Moment) -> None:
+        chosen.remove(victim)
+        chosen.append(candidate)
+        chosen.sort(key=lambda m: (m.media_id, m.context_start))
+        bench.remove(candidate)
+        bench.append(victim)
+
+    def best_bench(predicate, value_floor: float, victim: Moment) -> Moment | None:
+        victim_value = _base_value(victim, config)
+        candidates = [
+            item
+            for item in bench
+            if predicate(item)
+            and _base_value(item, config) >= value_floor * victim_value
+            and fits(total_of(chosen) - victim.context_duration + item.context_duration)
+        ]
+        return max(candidates, key=lambda item: _base_value(item, config), default=None)
+
+    for _ in range(_REPAIR_ROUNDS):
+        if len(chosen) <= 3:
+            break
+        intensities = [intensity_of(m) for m in chosen]
+        low_bar = sum(intensities) / len(intensities) * 0.75
+
+        # -- same-type runs ------------------------------------------------
+        run = _longest_type_run(chosen)
+        if len(run) > pacing_config.max_consecutive_same_type:
+            victim = min(run, key=lambda m: _base_value(m, config))
+            candidate = best_bench(
+                lambda item, other=victim.moment_type: item.moment_type is not other,
+                _SWAP_VALUE_FLOOR,
+                victim,
+            )
+            if candidate is not None:
+                swap(victim, candidate)
+                notes.append(
+                    f"variety: swapped a {victim.moment_type.value} at "
+                    f"{victim.start_seconds:.0f}s for a {candidate.moment_type.value} "
+                    f"at {candidate.start_seconds:.0f}s"
+                )
+                continue
+            if total_of(chosen) - victim.context_duration >= floor_total:
+                chosen.remove(victim)
+                bench.append(victim)
+                notes.append(
+                    f"variety: dropped a {victim.moment_type.value} at "
+                    f"{victim.start_seconds:.0f}s from a run of {len(run)}"
+                )
+                continue
+
+        # -- low-intensity stretches ----------------------------------------
+        stretch = _longest_low_stretch(chosen, intensities, low_bar)
+        if (
+            stretch
+            and sum(m.context_duration for m in stretch)
+            > pacing_config.max_consecutive_low_intensity_seconds
+        ):
+            victim = min(stretch, key=intensity_of)
+            candidate = best_bench(
+                lambda item, bar=low_bar: intensity_of(item) >= bar,
+                _FLAT_SWAP_VALUE_FLOOR,
+                victim,
+            )
+            if candidate is not None:
+                swap(victim, candidate)
+                notes.append(
+                    f"flatness: swapped a quiet {victim.moment_type.value} at "
+                    f"{victim.start_seconds:.0f}s for a {candidate.moment_type.value} "
+                    f"at {candidate.start_seconds:.0f}s"
+                )
+                continue
+            if total_of(chosen) - victim.context_duration >= floor_total:
+                chosen.remove(victim)
+                bench.append(victim)
+                notes.append(
+                    f"flatness: dropped a quiet {victim.moment_type.value} at "
+                    f"{victim.start_seconds:.0f}s"
+                )
+                continue
+
+        # -- end on strength -------------------------------------------------
+        last = chosen[-1]
+        if (
+            intensity_of(last) < low_bar
+            and total_of(chosen) - last.context_duration >= floor_total
+        ):
+            chosen.pop()
+            bench.append(last)
+            notes.append(
+                f"arc: dropped a quiet {last.moment_type.value} ending at "
+                f"{last.start_seconds:.0f}s so the edit ends on strength"
+            )
+            continue
+
+        break
+
+    return chosen, notes
+
+
+def _longest_type_run(chosen: Sequence[Moment]) -> list[Moment]:
+    """The longest consecutive same-type stretch, first among equals."""
+    best: list[Moment] = []
+    current: list[Moment] = []
+    for moment in chosen:
+        if current and moment.moment_type is current[-1].moment_type:
+            current.append(moment)
+        else:
+            current = [moment]
+        if len(current) > len(best):
+            best = list(current)
+    return best
+
+
+def _longest_low_stretch(
+    chosen: Sequence[Moment], intensities: Sequence[float], low_bar: float
+) -> list[Moment]:
+    """The longest consecutive below-bar stretch, by seconds."""
+    best: list[Moment] = []
+    best_seconds = 0.0
+    current: list[Moment] = []
+    for moment, intensity in zip(chosen, intensities, strict=True):
+        if intensity < low_bar:
+            current.append(moment)
+            seconds = sum(m.context_duration for m in current)
+            if seconds > best_seconds:
+                best, best_seconds = list(current), seconds
+        else:
+            current = []
+    return best
+
+
+__all__ = ["BUCKET_SECONDS", "OptimisationResult", "optimise", "repair_sequence"]
