@@ -52,15 +52,15 @@ The owner paused the kids/animation project after P0. State at parking:
 byte-identical, twice) for both dimensions pre-speech; **Arabic speech
 works** -- Windows OneCore *Microsoft Naayf* (ar-SA, local, free) through
 scratch say_arabic.ps1, bunny-pitched (+15% via asetrate at the SOURCE rate
--- it is 16 kHz, not 48), and  turns Arabic text into the nine-
+-- it is 16 kHz, not 48), and `lipsync.py` turns Arabic text into the nine-
 viseme timeline over the measured duration (harakat honoured, shadda doubles,
 long vowels weighted). Demo: out/arabic_demo/p0_arabic.mp4.
 
 **Open issue #1 (the real one)**: windowed Movie Maker presents are hostage
 to desktop occlusion -- a covered window skips presents while logic ticks,
 injecting a frame-lag (measured: run_b f27 == run_a f22) that breaks the
-gate.  writes zero frames;  (minimized) made it
-worse (8% identical). **Next step decided**: SubViewport self-capture --
+gate. `--headless` writes zero frames; `window/size/mode=1` (minimized)
+made it worse (8% identical). **Next step decided**: SubViewport self-capture --
 ScenePlayer renders into an offscreen SubViewport (UPDATE_ALWAYS) and saves
 each frame itself via get_image().save_png(frame_idx); keep --write-movie
 only for the WAV. Present-skips then cannot touch the contract.
