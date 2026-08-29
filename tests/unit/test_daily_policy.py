@@ -409,6 +409,44 @@ class TestNothingBeforeTheFind:
             )
 
 
+class TestGpuSweep:
+    """The owner plays and records after the machine is done: the sweep is
+    auditable in the report, and it never runs under a live production."""
+
+    def test_an_idle_day_sweeps_and_reports(self, database, paths, config, tmp_path, monkeypatch) -> None:
+
+        calls = []
+        monkeypatch.setattr(
+            'backend.core.gpu.release_everything_we_loaded',
+            lambda cfg: calls.append(1) or {'released': ['qwen2.5vl:7b'], 'free_vram_mb_after': 7100},
+        )
+        producer = _producer(database, paths, config, vault=tmp_path / 'empty')
+        (tmp_path / 'empty').mkdir()
+
+        tick(producer, datetime(2026, 8, 29, 2, 5, tzinfo=OSLO))
+
+        assert calls, 'the idle sweep ran'
+        import json as _json
+        row = database.fetch_one("SELECT report FROM daily_runs WHERE day = ?", ('2026-08-29',))
+        report = _json.loads(row['report'])
+        assert report['gpu']['released'] == ['qwen2.5vl:7b']
+        assert report['gpu']['free_vram_mb'] == 7100
+
+    def test_a_live_production_is_never_swept_under(self, database, paths, config, sample_video, tmp_path, monkeypatch) -> None:
+        calls = []
+        monkeypatch.setattr(
+            'backend.core.gpu.release_everything_we_loaded',
+            lambda cfg: calls.append(1),
+        )
+        vault = tmp_path / 'vault'
+        _recording(vault, 'one.mkv', sample_video, mtime=1_000)
+        producer = _producer(database, paths, config, vault=vault)
+
+        tick(producer, datetime(2026, 8, 29, 2, 5, tzinfo=OSLO))
+
+        assert not calls, 'a PROCESSING row holds the sweep back'
+
+
 class TestDailyReport:
     """§12: the day accounts for itself, including for doing nothing."""
 

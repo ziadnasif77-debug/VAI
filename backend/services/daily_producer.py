@@ -64,6 +64,7 @@ class DailyReport:
     archived: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
+    gpu: dict | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -78,6 +79,7 @@ class DailyReport:
             "archived": self.archived,
             "errors": self.errors,
             "reasons": self.reasons,
+            "gpu": self.gpu,
         }
 
 
@@ -601,6 +603,35 @@ class DailyProducer:
                     f"({delivered or 'no delivery recorded'})"
                 )
 
+    def sweep_gpu(self, report: DailyReport | None) -> None:
+        """The owner's standing demand, on the record: when the day's work is
+        done, the card is free for playing and recording. Per-stage unloads
+        and the runner's idle sweep already do the freeing; this makes it
+        auditable -- the daily report carries the released models and the
+        before/after VRAM, so "nothing is holding the card" is a measured
+        line, not a promise. Idempotent: sweeping a free card frees nothing
+        and says so."""
+        busy = self._db.fetch_one(
+            "SELECT source_path FROM production_ledger WHERE state = ?",
+            (_PROCESSING,),
+        )
+        if busy is not None:
+            return
+        try:
+            from backend.core.gpu import release_everything_we_loaded
+
+            freed = release_everything_we_loaded(self._config)
+        except Exception:
+            logger.exception("GPU sweep failed; the per-stage unloads still stand")
+            return
+        if report is not None:
+            report.gpu = {
+                "released": freed.get("released") or [],
+                "free_vram_mb": freed.get("free_vram_mb_after"),
+            }
+        if freed.get("released"):
+            logger.info("Daily sweep: the card is free for play", extra=freed)
+
     # -- report (§12) -----------------------------------------------------
 
     def write_report(self, report: DailyReport) -> None:
@@ -714,6 +745,7 @@ def tick(producer: DailyProducer, now: datetime | None = None) -> None:
         report = producer.snapshot_report(day)
         producer.verify_delivery(report)
         producer.archive_published(report)
+        producer.sweep_gpu(report)
         producer.write_report(report)
     else:
         # The done-shelf sweep does not wait for a claimed day: a video
