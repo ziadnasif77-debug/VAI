@@ -24,7 +24,7 @@ from typing import NoReturn
 ROOT = Path(__file__).resolve().parent.parent
 GODOT = Path(os.environ.get("GODOT_EXE", ROOT / "tools" / "godot" / "godot.exe"))
 FFMPEG = Path(
-    os.environ.get("FFMPEG_EXE", ROOT / "tools" / "ffmpeg" / "bin" / "ffmpeg.exe")
+    os.environ.get("FFMPEG_EXE", ROOT / "tools" / "ffmpeg" / "ffmpeg.exe")
 )
 
 REQUIRED = ("id", "duration_s", "fps", "layers", "characters", "timeline")
@@ -119,8 +119,12 @@ def main() -> int:
     ensure_p0_audio(assets, doc)
 
     movie = frames_dir / "f.png"
+    # Not --headless: Movie Maker needs a real rendering context, and the
+    # dummy driver writes zero frames silently. A window appears for the
+    # seconds of the render; on this desktop machine that is the honest
+    # trade until an offscreen context proves itself.
     run(
-        [str(GODOT), "--headless",
+        [str(GODOT),
          "--path", str(ROOT / "animation" / "godot"),
          "--write-movie", str(movie),
          "--fixed-fps", str(doc["fps"]),

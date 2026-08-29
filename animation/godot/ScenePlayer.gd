@@ -126,8 +126,8 @@ func _build_camera() -> void:
 	cam.anchor_mode = Camera2D.ANCHOR_MODE_FIXED_TOP_LEFT
 	# Anchored top-left and positioned by half-viewport math below, so the
 	# parallax arithmetic has one origin of truth.
-	cam.make_current()
 	add_child(cam)
+	cam.make_current()
 
 func _build_lighting() -> void:
 	modulate_node = CanvasModulate.new()
@@ -279,12 +279,12 @@ func _drive_camera(t: float) -> void:
 			"follow":
 				var params: Dictionary = op.get("params", {})
 				var until := float(op.get("until", 1e9))
-				var target := actors.get(String(params.get("target", "")), null)
+				var target: Node2D = actors.get(String(params.get("target", "")), null)
 				if target != null:
 					var off := Vector2(0, 0)
 					if params.has("offset"):
 						off = Vector2(params["offset"][0], params["offset"][1])
-					var followed: Vector2 = target.position + off
+					var followed: Vector2 = (target as Node2D).position + off
 					if t <= until:
 						# deterministic lag: exponential approach computed
 						# from elapsed frames, not accumulated state
@@ -308,7 +308,7 @@ func _drive_camera(t: float) -> void:
 	# parallax: each layer slides against the camera by (1 - depth)
 	for id in layers.keys():
 		var L: Dictionary = layers[id]
-		var shift := (pos - Vector2(640, 620)) * (1.0 - L["depth"])
+		var shift: Vector2 = (pos - Vector2(640, 620)) * (1.0 - float(L["depth"]))
 		L["node"].position = L["base_pos"] + shift
 
 func _drive_lighting(t: float) -> void:

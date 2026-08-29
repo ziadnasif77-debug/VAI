@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FFMPEG = Path(
-    os.environ.get("FFMPEG_EXE", ROOT / "tools" / "ffmpeg" / "bin" / "ffmpeg.exe")
+    os.environ.get("FFMPEG_EXE", ROOT / "tools" / "ffmpeg" / "ffmpeg.exe")
 )
 
 IDENTICAL_FLOOR = 0.995
