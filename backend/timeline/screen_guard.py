@@ -89,6 +89,7 @@ def guard_clips(
         excised,
         scenes_by_media,
         cap_fn=cap_fn,
+        events_by_media=events_by_media or {},
         max_seconds=max_clip_seconds,
         high_tier_max_seconds=high_tier_max_seconds,
         low_tier_max_seconds=low_tier_max_seconds,
@@ -396,6 +397,7 @@ def _split_long_clips(
     low_tier_max_seconds: float = 100.0,
     min_piece: float = 8.0,
     cap_fn=None,
+    events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
 ) -> list[PlannedClip]:
     refined: list[PlannedClip] = []
     for clip in clips:
@@ -414,11 +416,21 @@ def _split_long_clips(
         if clip.source_end - clip.source_start <= cap:
             refined.append(clip)
             continue
+        # A hot band's cap can sit far below the global piece floor; a floor
+        # that scales with the cap is what lets a climax actually cut fast.
+        piece_floor = min(min_piece, max(0.8, cap * 0.45)) if cap_fn else min_piece
         cuts = _cut_points(
             clip,
             scenes_by_media.get(clip.media_id, ()),
             max_seconds=cap,
-            min_piece=min_piece,
+            min_piece=piece_floor,
+            # Cut on the beat: a strong game event's onset is as real a seam
+            # as a scene change -- night footage proved scenes alone go
+            # sparse exactly where the action burns.
+            extra_seams=[
+                start
+                for start, _end in (events_by_media or {}).get(clip.media_id, ())
+            ],
         )
         if not cuts:
             refined.append(clip)
@@ -445,6 +457,7 @@ def _cut_points(
     *,
     max_seconds: float,
     min_piece: float,
+    extra_seams: Sequence[float] = (),
 ) -> list[float]:
     """Scene starts inside the clip, greedily thinned to honest pieces.
 
@@ -452,12 +465,13 @@ def _cut_points(
     sparse for that, the clip stays whole -- an arithmetic midpoint is not a
     seam, and shipping the slab is better than cutting mid-action.
     """
+    seam_times = [
+        float(getattr(scene, "start_seconds", 0.0)) for scene in scenes
+    ] + [float(t) for t in extra_seams]
     candidates = sorted(
-        float(getattr(scene, "start_seconds", 0.0))
-        for scene in scenes
-        if clip.source_start + min_piece
-        <= float(getattr(scene, "start_seconds", 0.0))
-        <= clip.source_end - min_piece
+        t
+        for t in seam_times
+        if clip.source_start + min_piece <= t <= clip.source_end - min_piece
     )
     cuts: list[float] = []
     previous = clip.source_start

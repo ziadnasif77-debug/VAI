@@ -51,6 +51,7 @@ class SemanticTimeline:
     lanes: dict[str, list[float]] = field(default_factory=dict)
     _levels: dict[str, float] = field(default_factory=dict)
     _min_segment_s: float = 4.0
+    _range_cache: tuple[float, float] | None = None
 
     # -- reading ---------------------------------------------------------
 
@@ -70,10 +71,32 @@ class SemanticTimeline:
         return self._classify(self.intensity_between(start, end))
 
     def _classify(self, value: float) -> str:
+        lo, hi = self._robust_range
+        if hi - lo >= 0.15:
+            # Rescale into THIS session's dynamic range before grading.
+            # Absolute thresholds on blended values meant no real session
+            # ever reached climax (the lanes rarely peak in unison); pure
+            # rank-quantiles crowned every molehill on a bimodal session.
+            # Value-within-range keeps both honest: a small bump near the
+            # session floor stays calm, the session top always grades hot.
+            value = (value - lo) / (hi - lo)
         for level in LEVELS[:-1]:
             if value <= self._levels[level]:
                 return level
         return "climax"
+
+    @property
+    def _robust_range(self) -> tuple[float, float]:
+        """The session's p05..p95 intensity span; below 0.15 of spread the
+        lane is flat and grading falls back to absolute thresholds."""
+        if self._range_cache is None:
+            ordered = sorted(self.lanes["intensity"])
+            n = len(ordered)
+            self._range_cache = (
+                ordered[int(0.05 * (n - 1))],
+                ordered[int(0.95 * (n - 1))],
+            )
+        return self._range_cache
 
     def shape(self) -> list[ShapeSegment]:
         """The session's natural form: level runs, short runs merged (§80)."""
