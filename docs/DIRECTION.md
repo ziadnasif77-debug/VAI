@@ -48,7 +48,7 @@ extremes cancel themselves.
 | Understand before editing (timeline of intensity) | the full analysis pipeline; episodes (Phase B); §46 |
 | Cut menus/loading/dead time/recorder chrome | dead-time (§36), frame states (§77), screen guard + recorder probe |
 | Effects with reason, target, budget, no stacking wars | effects engine: triggers, budgets (6/min), realiser registry, §69 |
-| Hook first, intro ≤3 s, outro short | narrative hook config (§37), story structure |
+| Hook first, intro ≤3 s, outro short | narrative hook config (§37), story structure; §19's escalating montage open (2–3 rapid flashes, weakest first, §42-safe) in `hook._montage_extras` |
 | Audio ducked, dialogue intelligible, no invented music | §72–§73 mix; "no local music found" note |
 | Text sparingly, never over UI | caption engine collision rules; effects text guards |
 | Self-critique before finalising | the Critic (Phase E) with apply-and-veto |
@@ -58,18 +58,20 @@ extremes cancel themselves.
 | EDIT_PLAN as machine-readable output | the EDL (§40–§42) — it *is* the edit plan |
 | Named highlight tiers on every score | moments/scoring.py `tier_for` — master/major/good/supporting on the ten-dimension score; a second scoring system beside the first would only raise which one is real |
 | Quality score 0–100 + uncertainty list | qa_worker `_doctrine_summary` — arithmetic over failures, warnings and every §95 note upstream stages attached, plus those notes verbatim |
+| Pacing tiers driving cut length (§7) | screen_guard `_cap_for` over `scoring.tier_for`: master/major slabs cap at 45 s, good at 75, filler at 100 |
+| Escalation ladders + per-effect cooldowns (§9) | planner: `escalation` rungs scale strength by same-type count; `cooldown_seconds` suppresses on record ("cooldown" in the rejected reasons) |
+| Speed ramps inside one clip (§11) | timeline/retime.py: ≤3 trim/setpts pieces, atempo chained under 0.5, pitch pinned; spans stay the duration truth |
+| Freeze frames (§12) | retime freeze = trim + tpad clone + concat, ffprobe-exact; downstream captions/overlays/stingers map through `output_offset` |
+| SFX layer, voiced per moment (§14) | rendering/sfx.py synthesises impact/hit/whoosh/riser from FFmpeg arithmetic (royalty-free by construction); `sound_effect.params.voices` maps events-then-types to a voice at planning time; transition whooshes ride the §46 fade metadata; risers honour `lead_seconds` |
+| Music intensity mapping (§15) | `find_music(…, mean_intensity=…)`: low/build/peak shelves picked by the story's own mean intensity; flat directories unchanged |
+| Thumbnail composition (§22–23) | metadata/composition.py: VL `locate_subject` → rule-of-thirds crop, zoom ≤1.6, vignette; confidence rails, ships-as-extracted on any doubt |
 
 ## Gap table (doctrine asked, not yet built)
 
 | Gap | Doctrine § | Note |
 | --- | --- | --- |
-| Pacing tiers driving cut length (LOW/MED/HIGH/PEAK) | 7 | pacing exists per §38; intensity-tiered cut-length policy is coarser than the doctrine's |
-| Explicit escalation ladders and per-effect cooldowns | 9 | budgets cap totals; a declared cooldown/escalation curve per effect type is not modelled |
-| Speed ramps (variable speed inside one clip) | 11 | clip-level speed exists; in-clip ramp curves do not |
-| Freeze frames | 12 | not in the effect library |
-| SFX layer (whoosh/riser/hit/bass) | 14 | no licensed SFX assets shipped; the mix carries none by design until assets exist |
-| Music intensity mapping | 15 | §73 plays what the person provides; no intensity-matched selection |
-| Thumbnail composition plan (subject crop/arrows/spotlight) | 22–23 | current: peak frame + styled text; no subject extraction or composition planning |
+| Detected game steering the editing grammar | 29 | detection-level adaptation is shipped (GameProfile: per-game event rules, suppressions, fusion); what is missing is the wire from the detected game to `EditingIntent` defaults — a horror game asking for slower pacing on its own |
+| Named style presets | 32 | every §32 axis already lives on `EditingIntent` (pacing, effects level, captions, music, variety); a preset is a named bundle of those fields in the phrase layer, and none ship yet |
 
 Each gap graduates from this table by shipping with tests and a PLAN entry,
 in the order the owner's feedback pulls them.
