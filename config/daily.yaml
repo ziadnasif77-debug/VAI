@@ -16,6 +16,12 @@ daily:
   # means the copy step is skipped and the daily report says so. Never
   # assumed, never hardcoded.
   output_directory: null
+  # The done-shelf (owner, 2026-08-29): every recording whose video is
+  # produced and on YouTube moves here -- created if missing, excluded
+  # from discovery, ledger and media rows following the file. Moving is
+  # not deleting: the original survives, relocated.
+  archive_directory: "D:/Gaming 2026/Ferdig"
+
   # Which eligible recording a day picks: the newest session first --
   # fresh content for a daily channel -- with the backlog kept for the
   # days that follow, exactly as the policy orders.

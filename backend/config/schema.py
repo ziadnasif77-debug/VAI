@@ -137,6 +137,11 @@ class DailyConfig(_Section):
     max_long_videos: int = Field(default=1, ge=0, le=10)
     max_reels: int = Field(default=2, ge=0, le=20)
     output_directory: str | None = None
+    #: Where a source recording rests once its video is produced and on
+    #: YouTube -- the done-shelf ("Ferdig"). Created on first use; excluded
+    #: from discovery, so the machine never mistakes its own finished work
+    #: for a new recording. Null disables the sweep.
+    archive_directory: str | None = None
     selection: Literal["newest", "oldest"] = "newest"
 
     @field_validator("production_time", "publish_time")
@@ -158,7 +163,7 @@ class DailyConfig(_Section):
         ZoneInfo(value)  # raises for an unknown zone
         return value
 
-    @field_validator("output_directory")
+    @field_validator("output_directory", "archive_directory")
     @classmethod
     def _not_the_system_drive(cls, value: str | None) -> str | None:
         if value is None:

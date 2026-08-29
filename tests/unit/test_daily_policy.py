@@ -22,11 +22,18 @@ pytestmark = pytest.mark.unit
 OSLO = ZoneInfo("Europe/Oslo")
 
 
-def _producer(database, paths, config, *, vault: Path | None = None) -> DailyProducer:
+def _producer(
+    database, paths, config, *, vault: Path | None = None, archive: Path | None = None
+) -> DailyProducer:
     application = config.application.model_copy(
         update={"media_source_roots": [str(vault)] if vault else []}
     )
-    daily = config.daily.model_copy(update={"enabled": True})
+    daily = config.daily.model_copy(
+        update={
+            "enabled": True,
+            "archive_directory": str(archive) if archive else None,
+        }
+    )
     return DailyProducer(
         database,
         paths,
@@ -417,3 +424,91 @@ class TestDailyReport:
         assert any(
             "no output directory" in reason for reason in report["reasons"]
         ), "the unset output folder is said out loud, never assumed"
+class TestFerdigShelf:
+    """The owner's done-shelf: produced + on YouTube => the source rests in
+    Ferdig, created on first use, followed by its records, never rediscovered."""
+
+    def _published(self, producer, database, vault, sample_video, name="done.mkv"):
+        clip = _recording(vault, name, sample_video, mtime=1_000)
+        producer.discover("2026-08-29")
+        producer.produce("2026-08-29")
+        producer._set_state(str(clip.resolve()), "published", video_url="https://youtu.be/x")
+        return clip
+
+    def test_a_published_recording_moves_and_the_folder_is_created(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        archive = vault / "Ferdig"
+        producer = _producer(database, paths, config, vault=vault, archive=archive)
+        clip = self._published(producer, database, vault, sample_video)
+        assert not archive.exists(), "nothing pre-creates the shelf"
+
+        producer.archive_published(None)
+
+        moved = archive / clip.name
+        assert moved.is_file()
+        assert not clip.exists(), "moved, not copied"
+        ledger = database.fetch_one("SELECT source_path, note FROM production_ledger", ())
+        assert ledger["source_path"] == str(moved.resolve())
+        assert "archived from" in ledger["note"]
+        media = database.fetch_one("SELECT source_path FROM media", ())
+        assert media["source_path"] == str(moved.resolve()), "media rows follow the file"
+
+    def test_the_sweep_is_idempotent(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        archive = vault / "Ferdig"
+        producer = _producer(database, paths, config, vault=vault, archive=archive)
+        self._published(producer, database, vault, sample_video)
+
+        producer.archive_published(None)
+        first = sorted(item.name for item in archive.iterdir())
+        producer.archive_published(None)
+
+        assert sorted(item.name for item in archive.iterdir()) == first
+
+    def test_the_shelf_is_never_rediscovered(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        archive = vault / "Ferdig"
+        producer = _producer(database, paths, config, vault=vault, archive=archive)
+        self._published(producer, database, vault, sample_video)
+        producer.archive_published(None)
+
+        found, fresh = producer.discover("2026-08-30")
+
+        assert (found, fresh) == (0, 0), "Ferdig is a shelf, not an inbox"
+        assert producer.produce("2026-08-30") is None
+
+    def test_a_name_collision_gets_a_numbered_seat(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        archive = vault / "Ferdig"
+        archive.mkdir(parents=True)
+        (archive / "done.mkv").write_bytes(b"a different, larger file......")
+        producer = _producer(database, paths, config, vault=vault, archive=archive)
+        self._published(producer, database, vault, sample_video)
+
+        producer.archive_published(None)
+
+        assert (archive / "done (2).mkv").is_file()
+        ledger = database.fetch_one("SELECT source_path FROM production_ledger", ())
+        assert ledger["source_path"].endswith("done (2).mkv")
+
+    def test_edited_and_new_recordings_stay_where_they_are(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        archive = vault / "Ferdig"
+        producer = _producer(database, paths, config, vault=vault, archive=archive)
+        clip = _recording(vault, "pending.mkv", sample_video, mtime=1_000)
+        producer.discover("2026-08-29")
+
+        producer.archive_published(None)
+
+        assert clip.is_file(), "only published work rests on the shelf"
+        assert not archive.exists()

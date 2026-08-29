@@ -19,6 +19,7 @@ from a second thread.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -60,6 +61,7 @@ class DailyReport:
     ready: int = 0
     published: int = 0
     moved: list[str] = field(default_factory=list)
+    archived: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
 
@@ -73,6 +75,7 @@ class DailyReport:
             "ready": self.ready,
             "published": self.published,
             "moved": self.moved,
+            "archived": self.archived,
             "errors": self.errors,
             "reasons": self.reasons,
         }
@@ -163,6 +166,10 @@ class DailyProducer:
             for item in sorted(base.rglob("*")):
                 if not item.is_file() or item.suffix.lower() not in _SCAN_SUFFIXES:
                     continue
+                if self._under_archive(item):
+                    # The done-shelf is not an inbox: a recording resting in
+                    # Ferdig must never be mistaken for new work.
+                    continue
                 found += 1
                 key = str(item.resolve())
                 if self._row(key) is not None:
@@ -184,6 +191,103 @@ class DailyProducer:
                 if state == _NEW:
                     fresh += 1
         return found, fresh
+
+    def _under_archive(self, item: Path) -> bool:
+        directory = self._config.daily.archive_directory
+        if not directory:
+            return False
+        archive = os.path.normcase(str(Path(directory).expanduser().resolve()))
+        candidate = os.path.normcase(str(item.resolve()))
+        return candidate == archive or candidate.startswith(archive + os.sep)
+
+    def archive_published(self, report: DailyReport | None = None) -> None:
+        """The owner's done-shelf: a published recording moves to Ferdig.
+
+        Runs every tick and is idempotent: only rows whose file still sits
+        outside the archive are touched, the folder is created on first
+        use, and a failure leaves the file where it is with the reason on
+        the row -- the next tick simply tries again. The ledger key and the
+        media rows follow the file, so no later discovery, re-render or
+        §47 resume ever loses it. Moving is not deleting (§7): the
+        original survives, relocated.
+        """
+        directory = self._config.daily.archive_directory
+        if not directory:
+            return
+        rows = self._db.fetch_all(
+            "SELECT source_path FROM production_ledger WHERE state = ?", (_PUBLISHED,)
+        )
+        for row in rows:
+            source = Path(row["source_path"])
+            if self._under_archive(source):
+                continue
+            if not source.is_file():
+                continue
+            try:
+                moved = self._move_to_archive(source, Path(directory))
+            except Exception as error:
+                logger.exception(
+                    "Could not move a finished recording to the archive",
+                    extra={"source": str(source)},
+                )
+                self._db.execute(
+                    "UPDATE production_ledger SET note = ?, updated_at = ? "
+                    "WHERE source_path = ?",
+                    (
+                        f"archive move failed: {str(error)[:200]}",
+                        datetime.now(timezone.utc).isoformat(),
+                        row["source_path"],
+                    ),
+                )
+                continue
+            if report is not None:
+                report.archived.append(str(moved))
+
+    def _move_to_archive(self, source: Path, directory: Path) -> Path:
+        import shutil
+
+        directory.mkdir(parents=True, exist_ok=True)
+        destination = directory / source.name
+        if destination.exists():
+            if destination.stat().st_size == source.stat().st_size:
+                # Already there from an interrupted earlier move: finish the
+                # bookkeeping, do not copy again.
+                source.unlink()
+            else:
+                stem, suffix = source.stem, source.suffix
+                counter = 2
+                while destination.exists():
+                    destination = directory / f"{stem} ({counter}){suffix}"
+                    counter += 1
+                shutil.move(str(source), str(destination))
+        else:
+            shutil.move(str(source), str(destination))
+        if not destination.is_file():
+            raise OSError(f"the move did not land: {destination}")
+
+        old_key = str(source)
+        new_key = str(destination.resolve())
+        self._db.execute(
+            "UPDATE production_ledger SET source_path = ?, note = ?, updated_at = ? "
+            "WHERE source_path = ?",
+            (
+                new_key,
+                f"archived from {old_key}",
+                datetime.now(timezone.utc).isoformat(),
+                old_key,
+            ),
+        )
+        # The media rows follow the file, so a later re-render or resume
+        # still finds its source.
+        self._db.execute(
+            "UPDATE media SET source_path = ? WHERE source_path IN (?, ?)",
+            (new_key, old_key, str(source.resolve()) if source.exists() else old_key),
+        )
+        logger.info(
+            "Finished recording archived",
+            extra={"from": old_key, "to": new_key},
+        )
+        return destination
 
     def _pre_policy_state(self, item: Path) -> tuple[str, str | None]:
         row = self._db.fetch_one(
@@ -597,7 +701,13 @@ def tick(producer: DailyProducer, now: datetime | None = None) -> None:
     if producer.day_started(day):
         report = producer.snapshot_report(day)
         producer.verify_delivery(report)
+        producer.archive_published(report)
         producer.write_report(report)
+    else:
+        # The done-shelf sweep does not wait for a claimed day: a video
+        # published yesterday whose move failed gets its retry on the very
+        # next tick.
+        producer.archive_published(None)
 
 
 __all__ = ["TICK_SECONDS", "DailyProducer", "DailyReport", "DailyScheduler", "tick"]
