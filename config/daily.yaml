@@ -12,10 +12,9 @@ daily:
   publish_time: "10:00"
   max_long_videos: 1
   max_reels: 2
-  # Where each finished video is copied. The owner names this later; null
-  # means the copy step is skipped and the daily report says so. Never
-  # assumed, never hardcoded.
-  output_directory: null
+  # Where each finished video is copied (owner named it, 2026-08-29).
+  # Excluded from discovery like the done-shelf: output is never input.
+  output_directory: "D:/Gaming 2026/Output"
   # The done-shelf (owner, 2026-08-29): every recording whose video is
   # produced and on YouTube moves here -- created if missing, excluded
   # from discovery, ledger and media rows following the file. Moving is

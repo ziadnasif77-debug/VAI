@@ -166,9 +166,9 @@ class DailyProducer:
             for item in sorted(base.rglob("*")):
                 if not item.is_file() or item.suffix.lower() not in _SCAN_SUFFIXES:
                     continue
-                if self._under_archive(item):
-                    # The done-shelf is not an inbox: a recording resting in
-                    # Ferdig must never be mistaken for new work.
+                if self._under_excluded(item):
+                    # Neither the done-shelf nor the output copies are an
+                    # inbox; finished work is never new work.
                     continue
                 found += 1
                 key = str(item.resolve())
@@ -193,12 +193,24 @@ class DailyProducer:
         return found, fresh
 
     def _under_archive(self, item: Path) -> bool:
-        directory = self._config.daily.archive_directory
+        return self._under(item, self._config.daily.archive_directory)
+
+    def _under_excluded(self, item: Path) -> bool:
+        """The shelves are not inboxes: neither Ferdig nor the output copy
+        folder may feed discovery, or the machine would produce videos from
+        its own finished work."""
+        daily = self._config.daily
+        return self._under(item, daily.archive_directory) or self._under(
+            item, daily.output_directory
+        )
+
+    @staticmethod
+    def _under(item: Path, directory: str | None) -> bool:
         if not directory:
             return False
-        archive = os.path.normcase(str(Path(directory).expanduser().resolve()))
+        root = os.path.normcase(str(Path(directory).expanduser().resolve()))
         candidate = os.path.normcase(str(item.resolve()))
-        return candidate == archive or candidate.startswith(archive + os.sep)
+        return candidate == root or candidate.startswith(root + os.sep)
 
     def archive_published(self, report: DailyReport | None = None) -> None:
         """The owner's done-shelf: a published recording moves to Ferdig.

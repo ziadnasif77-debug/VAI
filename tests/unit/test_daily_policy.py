@@ -32,6 +32,9 @@ def _producer(
         update={
             "enabled": True,
             "archive_directory": str(archive) if archive else None,
+            # The shipped config names the owner's real folders; these tests
+            # own their tmp_path world and opt in per test.
+            "output_directory": None,
         }
     )
     return DailyProducer(
@@ -482,6 +485,28 @@ class TestFerdigShelf:
 
         assert (found, fresh) == (0, 0), "Ferdig is a shelf, not an inbox"
         assert producer.produce("2026-08-30") is None
+
+    def test_the_output_copies_are_not_an_inbox_either(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        out = vault / "Output"
+        _recording(out, "finished-copy.mp4", sample_video, mtime=5_000)
+        daily = config.daily.model_copy(
+            update={"enabled": True, "output_directory": str(out)}
+        )
+        application = config.application.model_copy(
+            update={"media_source_roots": [str(vault)]}
+        )
+        producer = DailyProducer(
+            database,
+            paths,
+            config.model_copy(update={"application": application, "daily": daily}),
+        )
+
+        found, fresh = producer.discover("2026-08-29")
+
+        assert (found, fresh) == (0, 0), "output is never input"
 
     def test_a_name_collision_gets_a_numbered_seat(
         self, database, paths, config, sample_video, tmp_path
