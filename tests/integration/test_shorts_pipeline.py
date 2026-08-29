@@ -88,7 +88,22 @@ class TestTheStage:
         media_service.import_media(project.id, MediaImport(path=str(reaction_clip)))
         shorts_runner.run_project(project.id)
 
-        job = shorts_runner.jobs.queue(project.id, JobStage.SHORTS)
+        # The way the button runs it (§90): under the standing auto_after_qa
+        # the run above already cut the Reels, and the button's own route
+        # requeues a finished stage rather than queueing a second one.
+        existing = next(
+            (
+                job
+                for job in shorts_runner.jobs.list_jobs(project.id)
+                if job.stage is JobStage.SHORTS
+            ),
+            None,
+        )
+        job = (
+            shorts_runner.jobs.queue(project.id, JobStage.SHORTS)
+            if existing is None
+            else shorts_runner.jobs.requeue(existing.id)
+        )
         outcome = shorts_runner.run_job(job.id)
 
         assert outcome.succeeded, outcome.job.error_message
@@ -108,10 +123,11 @@ class TestTheStage:
         self, media_service, project_manager, shorts_runner, reaction_clip
     ):
         # §51: nothing is cut unasked. The asking has two shapes now -- the
-        # button, or the owner's standing auto_after_qa -- so what the
-        # pipeline run itself must never do is *execute* the cut uninvited:
-        # with the standing config on, a green QA queues the job and it waits
-        # for a worker; with it off, the job does not even exist.
+        # button, or the owner's standing auto_after_qa, which is consent
+        # given once for every render ("a Reel or two ready after each").
+        # With the standing config on, a green QA queues the job and the
+        # same worker loop that ran the pipeline picks it up -- ready means
+        # cut, not waiting; with it off, the job does not even exist.
         project = project_manager.create(
             ProjectCreate(name="NoAuto", target_duration_seconds=600, mode=VideoMode.STORY)
         )
@@ -124,7 +140,8 @@ class TestTheStage:
             if job.stage is JobStage.SHORTS
         ]
         if shorts_runner._config.shorts.auto_after_qa:
-            assert all(job.status is JobStatus.QUEUED for job in jobs)
+            assert jobs, "the standing config promises Reels after every render"
+            assert all(job.status is JobStatus.COMPLETED for job in jobs)
         else:
             assert jobs == []
 
