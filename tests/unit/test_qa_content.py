@@ -66,32 +66,51 @@ def _finding(findings, check: str):
 
 
 class TestMenusInTheEdit:
-    def test_a_corroborated_menu_run_is_flagged(self, timeline, config) -> None:
-        # Two observations inside clip 1 (100-120 s): a section, not a blip.
+    """v3: judged from the guard's own distilled spans, in seconds -- the
+    eyeball test caught the label-matching version convicting pure gameplay
+    ("inventory" for a hotbar, "menu" for a dark room), seventeen times."""
+
+    def test_a_corroborated_menu_span_in_a_clip_is_flagged(self, timeline, config) -> None:
         findings = _inspect(
-            timeline,
-            config,
-            observations=[(MEDIA, 105.0, ["menu", "ui"]), (MEDIA, 112.0, ["menu"])],
+            timeline, config,
+            state_spans=[(MEDIA, 104.0, 112.0, "menu", 2)],
         )
 
-        assert _finding(findings, "accidental_menu_section").status is QAStatus.WARNING
+        finding = _finding(findings, "accidental_menu_section")
+        assert finding.status is QAStatus.WARNING
+        assert "8.0s" in finding.message
 
-    def test_a_single_observation_is_a_blip_not_a_section(self, timeline, config) -> None:
-        # The guard's evidence floor, applied here too: one sampled frame --
-        # a phone overlay, a busy HUD -- flagged seventeen "sections" on a
-        # real edit. Weak evidence counts nowhere, or everywhere.
-        findings = _inspect(timeline, config, observations=[(MEDIA, 105.0, ["menu", "ui"])])
+    def test_a_single_observation_span_is_a_blip_not_a_section(self, timeline, config) -> None:
+        findings = _inspect(
+            timeline, config,
+            state_spans=[(MEDIA, 104.0, 112.0, "menu", 1)],
+        )
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 
     def test_a_menu_the_edit_left_out_is_not_flagged(self, timeline, config) -> None:
-        # 60 s is between clips: the recording has a menu, the video does not.
-        findings = _inspect(timeline, config, observations=[(MEDIA, 60.0, ["menu"])])
+        # 50-70 s is between clips: the recording has a menu, the video does not.
+        findings = _inspect(
+            timeline, config,
+            state_spans=[(MEDIA, 50.0, 70.0, "menu", 4)],
+        )
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 
-    def test_gameplay_labels_are_not_menus(self, timeline, config) -> None:
-        findings = _inspect(timeline, config, observations=[(MEDIA, 105.0, ["combat", "driving"])])
+    def test_a_boundary_lick_is_not_a_section(self, timeline, config) -> None:
+        # 1.5 s of overlap at a clip edge: the knife's own pad, not a defect.
+        findings = _inspect(
+            timeline, config,
+            state_spans=[(MEDIA, 98.6, 101.5, "menu", 3)],
+        )
+
+        assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
+
+    def test_gameplay_states_are_not_menus(self, timeline, config) -> None:
+        findings = _inspect(
+            timeline, config,
+            state_spans=[(MEDIA, 104.0, 112.0, "gameplay", 5)],
+        )
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 

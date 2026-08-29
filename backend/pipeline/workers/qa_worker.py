@@ -259,14 +259,30 @@ class QaWorker:
         database = context.database
         media = MediaRepository(database).list_for_project(context.project_id)
 
+        from backend.analysis import frame_state
+
         observations: list[tuple[str, float, tuple[str, ...]]] = []
+        state_spans: list[tuple[str, float, float, str, int]] = []
         silences: list[tuple[str, float, float]] = []
         vision = VisionRepository(database)
         audio_events = AudioEventRepository(database)
         for item in media:
+            stored_rows = vision.list_for_media(item.id)
             observations.extend(
-                (item.id, stored.timestamp, stored.labels)
-                for stored in vision.list_for_media(item.id)
+                (item.id, stored.timestamp, stored.labels) for stored in stored_rows
+            )
+            state_spans.extend(
+                (
+                    item.id,
+                    span.start_seconds,
+                    span.end_seconds,
+                    span.state.value,
+                    span.observations,
+                )
+                for span in frame_state.spans(
+                    stored_rows,
+                    duration_seconds=item.metadata.duration_seconds,
+                )
             )
             silences.extend(
                 (item.id, event.start_seconds, event.end_seconds)
@@ -276,6 +292,7 @@ class QaWorker:
 
         inputs = content.ContentInputs(
             observations=observations,
+            state_spans=state_spans,
             silences=silences,
             pacing_warnings=self._pacing_warnings(context),
             black_runs=_black_runs(technical_findings),

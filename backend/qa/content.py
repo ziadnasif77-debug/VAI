@@ -19,7 +19,7 @@ detector and a QA check.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -41,11 +41,10 @@ CHECKS: Final[tuple[str, ...]] = (
     "caption_covers_hud",
 )
 
-#: Vision labels that mean "this is not gameplay". Matched case-insensitively
-#: against whole labels, so "menu" does not fire on "menuever".
-MENU_LABELS: Final[frozenset[str]] = frozenset(
-    {"menu", "loading", "lobby", "settings", "pause", "scoreboard", "inventory"}
-)
+#: How much corroborated menu/loading time inside one clip counts as a
+#: *section*. Below this it is a boundary lick or a bridged glance -- the
+#: guard's own grammar -- not a defect.
+MENU_SECTION_SECONDS: Final[float] = 2.5
 
 #: A clip shorter than this reads as a flash rather than a cut (§77's "bad
 #: transition"). Not a hard rule -- a quick reaction cut is legitimate -- which
@@ -64,6 +63,13 @@ class ContentInputs:
 
     #: ``(media_id, timestamp, labels)`` from the vision pass.
     observations: Sequence[tuple[str, float, Sequence[str]]] = ()
+    #: The same distilled, corroboration-weighted screen-state spans the
+    #: screen guard cuts by: ``(media_id, start, end, state_value,
+    #: observations)``. One truth pipeline -- the eyeball test caught this
+    #: check convicting pure gameplay on free-text labels ("inventory" for
+    #: a hotbar, "menu" for a dark room) that the state distiller had
+    #: already discounted.
+    state_spans: Sequence[tuple[str, float, float, str, int]] = ()
     #: ``(media_id, start, end)`` silences from the audio pass.
     silences: Sequence[tuple[str, float, float]] = ()
     #: Warnings the narrative stage already produced about its own pacing.
@@ -119,51 +125,42 @@ def inspect(
 def _menu_sections(timeline: Timeline, inputs: ContentInputs) -> Finding:
     """Did a menu or loading screen survive into the edit? (§77)
 
-    Menus are not a defect in a recording -- every session has them. They are a
-    defect in a *video*, and the difference is whether a clip covers one.
+    Judged from the distilled state spans -- the exact evidence the screen
+    guard cuts by, corroboration floor included -- and in seconds, because a
+    section is a duration, not a count of sampled frames. A single misread
+    frame flagged seventeen "sections" of pure gameplay before this spoke
+    the same language as the knife.
     """
-    # The same evidence floor the screen guard cuts by: one sampled frame
-    # is a claim, not a section. Menu observations convict in RUNS -- at
-    # least two of them within a sampling stride of each other -- because a
-    # single misread (a phone overlay, a busy HUD) flagged seventeen
-    # "sections" on a real edit while the guard rightly refused to cut any
-    # of them. Consistency: weak evidence counts nowhere, or everywhere.
-    menu_hits: list[tuple[str, float, list[str]]] = []
-    for media_id, timestamp, labels in inputs.observations:
-        if _is_menu(labels):
-            menu_hits.append(
-                (media_id, timestamp, [label for label in labels if _is_menu([label])])
-            )
-    menu_hits.sort(key=lambda hit: (hit[0], hit[1]))
-
     offenders: list[dict[str, Any]] = []
-    run: list[tuple[str, float, list[str]]] = []
-    for hit in [*menu_hits, ("", -1.0, [])]:
-        if run and (hit[0] != run[-1][0] or hit[1] - run[-1][1] > 20.0):
-            if len(run) >= 2:
-                for media_id, timestamp, labels in run:
-                    clip = _clip_covering(timeline, media_id, timestamp)
-                    if clip is not None:
-                        offenders.append(
-                            {
-                                "clip_index": clip.clip_index,
-                                "timeline_seconds": round(
-                                    clip.timeline_start + (timestamp - clip.source_in),
-                                    2,
-                                ),
-                                "labels": labels,
-                            }
-                        )
-            run = []
-        if hit[0]:
-            run.append(hit)
+    for media_id, start, end, state, observations in inputs.state_spans:
+        if state not in ("menu", "loading") or observations < 2:
+            continue
+        for clip in timeline.video_clips():
+            if clip.media_id != media_id:
+                continue
+            overlap = min(end, clip.source_out) - max(start, clip.source_in)
+            if overlap < MENU_SECTION_SECONDS:
+                continue
+            offenders.append(
+                {
+                    "clip_index": clip.clip_index,
+                    "timeline_seconds": round(
+                        clip.timeline_start + max(0.0, start - clip.source_in), 2
+                    ),
+                    "seconds": round(overlap, 1),
+                    "state": state,
+                }
+            )
 
     if not offenders:
         return passed("accidental_menu_section", "no menu or loading screen in the edit")
-    where = ", ".join(f"{item['timeline_seconds']:.0f}s" for item in offenders[:4])
+    where = ", ".join(
+        f"{item['timeline_seconds']:.0f}s ({item['seconds']}s)" for item in offenders[:4]
+    )
+    total = sum(item["seconds"] for item in offenders)
     return warning(
         "accidental_menu_section",
-        f"{len(offenders)} moment(s) in the edit show a menu or loading screen ({where})",
+        f"{total:.1f}s of menu/loading survived into the edit ({where})",
         remedy="Watch those timestamps and remove the clips if they are not intentional.",
         occurrences=offenders[:10],
     )
@@ -294,9 +291,6 @@ def _captions_over_hud(
 # ---------------------------------------------------------------------------
 
 
-def _is_menu(labels: Iterable[str]) -> bool:
-    return any(label.strip().lower() in MENU_LABELS for label in labels)
-
 
 def _clip_covering(
     timeline: Timeline, media_id: str, source_seconds: float
@@ -343,7 +337,7 @@ def _overlaps(left: Region, right: Region) -> bool:
 
 __all__ = [
     "CHECKS",
-    "MENU_LABELS",
+    "MENU_SECTION_SECONDS",
     "MIN_COMFORTABLE_CLIP_SECONDS",
     "ContentInputs",
     "inspect",
