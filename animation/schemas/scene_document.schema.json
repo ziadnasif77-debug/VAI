@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vai://schemas/scene-document/v1",
+  "title": "Scene Document v1 (P0 subset, forward-shaped)",
+  "type": "object",
+  "required": ["id", "duration_s", "fps", "layers", "characters", "timeline"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "duration_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 120 },
+    "fps": { "type": "integer", "enum": [24, 30] },
+    "seed_lock": { "type": "integer", "minimum": 0 },
+    "style_ref": { "type": "string" },
+
+    "layers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "z"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "art": { "type": "string", "description": "PNG path relative to assets root; absent = flat colour" },
+          "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "rect": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+          "z": { "type": "integer" },
+          "depth": { "type": "number", "minimum": 0, "maximum": 1,
+                     "description": "parallax factor: 0 = pinned to sky, 1 = full camera motion" },
+          "pos": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+          "shader": { "type": "object" },
+          "normal": { "type": "string" }
+        }
+      }
+    },
+
+    "characters": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ref", "as", "spawn"],
+        "additionalProperties": false,
+        "properties": {
+          "ref": { "type": "string", "description": "character package id; P0: 'placeholder_biped'" },
+          "as": { "type": "string" },
+          "view": { "type": "string", "enum": ["front", "quarter"], "default": "quarter" },
+          "z": { "type": "integer" },
+          "spawn": {
+            "type": "object",
+            "required": ["pos"],
+            "properties": {
+              "pos": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+              "scale": { "type": "number", "default": 1.0 },
+              "facing": { "type": "string", "enum": ["left", "right"], "default": "right" }
+            }
+          }
+        }
+      }
+    },
+
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["t", "track"],
+        "properties": {
+          "t": { "type": "number", "minimum": 0 },
+          "track": { "type": "string",
+                     "enum": ["action", "camera", "gaze", "expression", "lighting", "audio", "blink"] },
+          "actor": { "type": "string" },
+          "anim": { "type": "string" },
+          "until": { "type": "number" },
+          "params": { "type": "object" },
+          "op": { "type": "string" },
+          "value": {},
+          "dir": { "type": "string" },
+          "hold": { "type": "number" },
+          "set": { "type": "string" },
+          "visemes": { "type": "string" },
+          "file": { "type": "string" },
+          "gain_db": { "type": "number" },
+          "policy": { "type": "string" }
+        }
+      }
+    },
+
+    "lighting": {
+      "type": "object",
+      "properties": {
+        "ambient": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+        "key": { "type": "object" }
+      }
+    },
+
+    "audio_root": { "type": "string" }
+  }
+}

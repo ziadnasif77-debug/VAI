@@ -1,0 +1,54 @@
+{
+  "$schema": "vai://schemas/scene-document/v1",
+  "id": "p0_hello_walk",
+  "duration_s": 10.0,
+  "fps": 24,
+  "seed_lock": 4471,
+  "style_ref": "p0",
+
+  "layers": [
+    { "id": "sky",    "color": "#a8cdbd", "rect": [0, 0, 1920, 1080], "z": 0, "depth": 0.05 },
+    { "id": "far",    "color": "#7ba98f", "rect": [0, 560, 1920, 220], "z": 1, "depth": 0.30 },
+    { "id": "mid",    "color": "#4f8266", "rect": [0, 700, 1920, 180], "z": 2, "depth": 0.60 },
+    { "id": "ground", "color": "#3a6650", "rect": [0, 840, 1920, 240], "z": 3, "depth": 1.00 },
+    { "id": "rock",   "color": "#6b6156", "rect": [1450, 780, 180, 90], "z": 4, "depth": 1.00 }
+  ],
+
+  "characters": [
+    { "ref": "placeholder_biped", "as": "hero", "view": "quarter", "z": 5,
+      "spawn": { "pos": [260, 860], "scale": 1.0, "facing": "right" } }
+  ],
+
+  "timeline": [
+    { "t": 0.0, "track": "camera", "op": "state",
+      "value": { "pos": [640, 620], "zoom": 1.0 } },
+    { "t": 0.0, "track": "lighting", "op": "state", "value": { "ambient": "#ffffff" } },
+
+    { "t": 0.0, "track": "action", "actor": "hero", "anim": "walk", "until": 4.0,
+      "params": { "to": [1050, 860], "speed": 1.0 } },
+    { "t": 0.0, "track": "camera", "op": "follow", "until": 4.0,
+      "params": { "target": "hero", "lag": 0.10, "offset": [0, -240] } },
+    { "t": 0.4, "track": "audio", "file": "sfx/footsteps.wav", "gain_db": -12 },
+
+    { "t": 4.0, "track": "action", "actor": "hero", "anim": "stop_settle" },
+    { "t": 4.5, "track": "gaze", "actor": "hero", "dir": "left", "hold": 0.7 },
+    { "t": 5.4, "track": "gaze", "actor": "hero", "dir": "right", "hold": 0.7 },
+    { "t": 6.1, "track": "expression", "actor": "hero", "set": "worried" },
+
+    { "t": 6.4, "track": "action", "actor": "hero", "anim": "talk", "until": 8.4,
+      "visemes": "audio/line1.visemes.json" },
+    { "t": 6.4, "track": "audio", "file": "audio/line1.wav", "gain_db": -3 },
+    { "t": 6.4, "track": "camera", "op": "push",
+      "params": { "zoom_to": 1.10, "over": 2.6, "ease": "inout_sine" } },
+    { "t": 6.6, "track": "lighting", "op": "fade",
+      "value": { "ambient": "#ffd9b0" }, "params": { "over": 2.5 } },
+
+    { "t": 8.6, "track": "action", "actor": "hero", "anim": "sad_idle", "until": 10.0 },
+    { "t": 8.7, "track": "audio", "file": "sfx/sad_chirp.wav", "gain_db": -10 },
+
+    { "t": 0.0, "track": "blink", "actor": "hero", "policy": "natural" }
+  ],
+
+  "lighting": { "ambient": "#ffffff" },
+  "audio_root": "animation/assets"
+}

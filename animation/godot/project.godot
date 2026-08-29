@@ -1,0 +1,29 @@
+; P0 renderer project — Godot is a Rendering/Animation Runtime here, nothing
+; more (approved architecture v2, amendment #1). All business logic lives in
+; the Python side; this project only knows how to play a Scene Document.
+
+config_version=5
+
+[application]
+
+config/name="VAI Animation P0"
+run/main_scene="res://ScenePlayer.tscn"
+config/features=PackedStringArray("4.3")
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/stretch/mode="canvas_items"
+
+[editor]
+
+movie_writer/mjpeg_quality=0.9
+movie_writer/movie_file=""
+movie_writer/disable_vsync=true
+movie_writer/fps=24
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
