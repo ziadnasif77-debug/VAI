@@ -86,7 +86,8 @@ effects:
       triggers:
         moment_types: [epic, clutch, surprise, outplay]
         events: [multi_kill, clutch, boss_defeat]
-        min_score: 0.7
+        # Percentile rank (S23): top third of THIS session's moments.
+        min_score: 0.65
       limits:
         max_per_minute: 2
         max_per_video: 20
@@ -176,9 +177,11 @@ effects:
       triggers:
         # High-importance impact events only: a ramp on an ordinary kill
         # teaches the viewer to ignore ramps.
-        moment_types: [epic, clutch]
-        events: [multi_kill, clutch, boss_defeat]
-        min_score: 0.8
+        # Chases and mayhem earn ramps too -- a session with no epics
+        # still has peaks worth bending time around (S11).
+        moment_types: [epic, clutch, chaos, surprise]
+        events: [multi_kill, clutch, boss_defeat, chase]
+        min_score: 0.75
       limits:
         max_per_minute: 1
         max_per_video: 4
@@ -202,9 +205,11 @@ effects:
       triggers:
         # The single strongest moment shapes only, at a threshold the ranked
         # scores reserve for the top of a video: one or two per edit.
-        moment_types: [clutch, epic]
+        # The death-freeze is gaming grammar: hold the defeat a beat
+        # before time resumes (S12).
+        moment_types: [clutch, epic, defeat, rare]
         events: []
-        min_score: 0.85
+        min_score: 0.8
       limits:
         max_per_minute: 1
         max_per_video: 2
@@ -224,7 +229,7 @@ effects:
       triggers:
         moment_types: [epic, chaos, surprise]
         events: [multi_kill, boss_defeat]
-        min_score: 0.7
+        min_score: 0.65
       limits:
         max_per_minute: 2
         max_per_video: 16

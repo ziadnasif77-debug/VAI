@@ -138,6 +138,11 @@ narrative:
     # stretch a viewer could notice announces itself. 45 let sub-minute jumps
     # pose as continuity.
     time_jump_seconds: 20
+    # Only an act break earns a dip; ordinary passage of time is a hard cut
+    # with the whoosh carrying the grammar. Measured before the tiers: seven
+    # dips in ten clips -- a strobing edit.
+    long_jump_seconds: 180
+    max_dips: 2
     dip_seconds: 0.3         # each side of the join
 
   # The Director (Phase C). Everything above decides which moments and in what

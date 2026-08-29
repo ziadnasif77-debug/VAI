@@ -884,6 +884,16 @@ class TransitionsConfig(_Section):
     enabled: bool = True
     #: A same-recording jump at least this long reads as "later", not "next".
     time_jump_seconds: float = Field(default=45.0, gt=0)
+    #: A jump at least this large is a *major* one -- an act break. Smaller
+    #: jumps past ``time_jump_seconds`` are medium: real time passed, but a
+    #: dip to black for every one of them made a chronological gaming edit
+    #: strobe (measured: seven dips in a ten-clip video). Medium jumps keep
+    #: the hard cut and let the whoosh say "time passed" in audio alone.
+    long_jump_seconds: float = Field(default=180.0, gt=0)
+    #: Dips a single video may spend on same-recording jumps. The largest
+    #: jumps claim them; a change of recording always dips, outside this
+    #: budget -- a new session is an act break by definition.
+    max_dips: int = Field(default=2, ge=0)
     #: The dip itself, each side of the join.
     dip_seconds: float = Field(default=0.3, gt=0, le=0.45)
 

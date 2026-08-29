@@ -1234,6 +1234,49 @@ class TestTimeJumpGrammar:
         assert _fade_token(dipped[1]) != ""
         assert _fade_token(continuous[1]) == ""
 
+    def test_a_medium_jump_keeps_the_cut_and_marks_the_whoosh(self, config) -> None:
+        # Passage of time, not an act break: the hard cut stays and the
+        # audio grammar (the whoosh reads this marker) says what happened.
+        clips = self._built(config, (0.0, 30.0), (90.0, 120.0))
+
+        assert clips[0].transition_out is TransitionType.CUT
+        assert clips[1].transition_in is TransitionType.CUT
+        assert clips[1].metadata.get("time_jump") == "medium"
+
+    def test_the_dip_budget_goes_to_the_largest_jumps(self, config) -> None:
+        # Measured before the tiers: seven dips in ten clips, a strobing
+        # edit. Four act-sized jumps, budget two: the two largest dip, the
+        # rest keep their cuts with the medium marker.
+        clips = self._built(
+            config,
+            (0.0, 10.0),
+            (200.0, 210.0),    # gap 190
+            (500.0, 510.0),    # gap 290
+            (900.0, 910.0),    # gap 390
+            (1400.0, 1410.0),  # gap 490
+        )
+
+        dips = [c.transition_in is TransitionType.DIP_TO_BLACK for c in clips[1:]]
+        assert dips == [False, False, True, True], "largest two claim the budget"
+        assert clips[1].metadata.get("time_jump") == "medium"
+        assert clips[2].metadata.get("time_jump") == "medium"
+
+    def test_a_recording_change_dips_outside_the_budget(self, config) -> None:
+        clips = self._built(
+            config,
+            (0.0, 10.0),
+            (400.0, 410.0),
+            (900.0, 910.0),
+            (10.0, 20.0),
+            media=["m", "m", "m", "other"],
+        )
+
+        assert clips[1].transition_in is TransitionType.DIP_TO_BLACK
+        assert clips[2].transition_in is TransitionType.DIP_TO_BLACK
+        assert clips[3].transition_in is TransitionType.DIP_TO_BLACK, (
+            "a new session is an act break regardless of the budget"
+        )
+
     def test_disabled_means_every_join_is_a_cut(self, config) -> None:
         narrowed = config.narrative.transitions.model_copy(update={"enabled": False})
         clips = [

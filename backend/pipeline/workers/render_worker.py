@@ -598,7 +598,8 @@ class RenderWorker:
                 return []
             for clip in timeline.video_clips():
                 fade = float(clip.metadata.get("fade_in_seconds") or 0.0)
-                if fade <= 0.0:
+                medium = clip.metadata.get("time_jump") == "medium"
+                if fade <= 0.0 and not medium:
                     continue
                 at = max(0.0, clip.timeline_start - 0.35)
                 if at >= duration_seconds:

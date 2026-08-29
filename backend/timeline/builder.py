@@ -459,32 +459,60 @@ def _mark_time_jumps(
         return clips
 
     marked = list(clips)
+
+    # First pass: classify every join. A change of recording is an act break
+    # unconditionally; a same-recording jump is major only past
+    # ``long_jump_seconds``, else medium past ``time_jump_seconds``.
+    joins: list[tuple[int, float, bool]] = []  # (index, gap, media_change)
     for index in range(1, len(marked)):
         previous, current = marked[index - 1], marked[index]
-        jump = (
-            previous.media_id != current.media_id
-            or current.source_in - previous.source_out >= transitions.time_jump_seconds
-        )
-        if not jump:
+        if previous.media_id != current.media_id:
+            joins.append((index, float("inf"), True))
             continue
-        marked[index - 1] = previous.model_copy(
-            update={
-                "transition_out": TransitionType.DIP_TO_BLACK,
-                "metadata": {
-                    **previous.metadata,
-                    "fade_out_seconds": transitions.dip_seconds,
-                },
-            }
-        )
-        marked[index] = current.model_copy(
-            update={
-                "transition_in": TransitionType.DIP_TO_BLACK,
-                "metadata": {
-                    **current.metadata,
-                    "fade_in_seconds": transitions.dip_seconds,
-                },
-            }
-        )
+        gap = current.source_in - previous.source_out
+        if gap >= transitions.time_jump_seconds:
+            joins.append((index, gap, False))
+
+    # Second pass: spend the dip budget on the LARGEST same-recording jumps.
+    # Seven dips in ten clips read as a strobing edit; two act breaks read
+    # as structure. Everything else keeps its hard cut and gets the whoosh
+    # (audio grammar) via the medium marker the mixer listens for.
+    long_jump = getattr(transitions, "long_jump_seconds", 180.0)
+    budget = getattr(transitions, "max_dips", 2)
+    major_candidates = sorted(
+        (join for join in joins if not join[2] and join[1] >= long_jump),
+        key=lambda join: -join[1],
+    )
+    dip_indices = {index for index, _, media in joins if media}
+    dip_indices |= {index for index, _, _ in major_candidates[:budget]}
+
+    for index, _gap, _media in joins:
+        previous, current = marked[index - 1], marked[index]
+        if index in dip_indices:
+            marked[index - 1] = previous.model_copy(
+                update={
+                    "transition_out": TransitionType.DIP_TO_BLACK,
+                    "metadata": {
+                        **previous.metadata,
+                        "fade_out_seconds": transitions.dip_seconds,
+                    },
+                }
+            )
+            marked[index] = current.model_copy(
+                update={
+                    "transition_in": TransitionType.DIP_TO_BLACK,
+                    "metadata": {
+                        **current.metadata,
+                        "fade_in_seconds": transitions.dip_seconds,
+                    },
+                }
+            )
+        else:
+            marked[index] = current.model_copy(
+                update={
+                    "metadata": {**current.metadata, "time_jump": "medium"},
+                }
+            )
     return marked
 
 
