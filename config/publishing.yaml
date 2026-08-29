@@ -16,6 +16,11 @@ publishing:
   # Targets the running build will accept. A target listed here still needs a
   # registered publisher; one without an implementation fails with
   # PUBLISH_TARGET_NOT_CONFIGURED rather than doing nothing quietly.
+  # Hands-free uploads only above this doctrine score (0-100). A green QA
+  # with warnings can still be a bad video; the button ignores this floor,
+  # the auto path respects it.
+  auto_publish_minimum_score: 60
+
   enabled_targets:
     - local_file
     - youtube

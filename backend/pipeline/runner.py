@@ -305,6 +305,22 @@ class PipelineRunner:
             project = ProjectRepository(self._db).get(job.project_id)
             if project is None or not project.auto_publish:
                 return
+            score = (job.result or {}).get("quality_score")
+            floor = self._config.publishing.auto_publish_minimum_score
+            if isinstance(score, (int, float)) and score < floor:
+                # The asking stands; the floor is about *this* video. The
+                # render and the Reels are done, the button still works --
+                # only the hands-free upload declines to spend the channel's
+                # reputation on a video its own QA scored this low.
+                logger.warning(
+                    "Auto-publish refused by the quality floor",
+                    extra={
+                        "project_id": job.project_id,
+                        "quality_score": score,
+                        "floor": floor,
+                    },
+                )
+                return
             queued = self._jobs.queue(
                 job.project_id,
                 JobStage.PUBLISH,

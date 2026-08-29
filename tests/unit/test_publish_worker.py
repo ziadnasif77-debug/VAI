@@ -403,3 +403,67 @@ class TestShortsRespectTheCaptionsChoice:
         assert note is None
         assert out.read_bytes() == b"vertical"
         assert not cut.exists()
+class TestAutoPublishQualityFloor:
+    """Hands-free publishing only above the doctrine score's floor."""
+
+    def _qa_with_score(self, runner, project_id, score):
+        # The hook reads the job value it is handed; the stage ladder that
+        # produced it is another test's subject.
+        job = runner.jobs.queue(project_id, JobStage.QA)
+        return job.model_copy(update={"result": {"quality_score": score}})
+
+    def _publishes(self, runner, project_id):
+        return [
+            item
+            for item in runner.jobs.list_jobs(project_id)
+            if item.stage is JobStage.PUBLISH
+        ]
+
+    def test_a_low_score_keeps_the_upload_unqueued(
+        self, project_manager, database, paths, config
+    ) -> None:
+        from backend.pipeline.runner import PipelineRunner
+
+        project = project_manager.create(
+            ProjectCreate(name="LowBar", target_duration_seconds=900, auto_publish=True)
+        )
+        runner = PipelineRunner(database, paths, config, workers={})
+        qa = self._qa_with_score(runner, project.id, 14)
+
+        runner._maybe_auto_publish(qa)
+
+        assert self._publishes(runner, project.id) == []
+
+    def test_the_floor_is_inclusive(
+        self, project_manager, database, paths, config
+    ) -> None:
+        from backend.pipeline.runner import PipelineRunner
+
+        project = project_manager.create(
+            ProjectCreate(name="AtBar", target_duration_seconds=900, auto_publish=True)
+        )
+        runner = PipelineRunner(database, paths, config, workers={})
+        floor = config.publishing.auto_publish_minimum_score
+        qa = self._qa_with_score(runner, project.id, floor)
+
+        runner._maybe_auto_publish(qa)
+
+        assert len(self._publishes(runner, project.id)) == 1
+
+    def test_a_result_without_a_score_still_publishes(
+        self, project_manager, database, paths, config
+    ) -> None:
+        # Older QA results predate the doctrine score; the floor only judges
+        # what was actually measured.
+        from backend.pipeline.runner import PipelineRunner
+
+        project = project_manager.create(
+            ProjectCreate(name="OldQA", target_duration_seconds=900, auto_publish=True)
+        )
+        runner = PipelineRunner(database, paths, config, workers={})
+        job = runner.jobs.queue(project.id, JobStage.QA)
+        qa = job.model_copy(update={"result": {"passed": True}})
+
+        runner._maybe_auto_publish(qa)
+
+        assert len(self._publishes(runner, project.id)) == 1

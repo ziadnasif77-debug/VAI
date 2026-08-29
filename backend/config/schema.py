@@ -1539,6 +1539,14 @@ class PublishingConfig(_Section):
     enabled: bool = True
     enabled_targets: list[PublishTarget] = Field(min_length=1)
     default_target: PublishTarget = PublishTarget.LOCAL_FILE
+    #: The floor under hands-free publishing. A QA pass with warnings can
+    #: carry a doctrine score of 14/100 -- measured live on a real session
+    #: whose best stretch was seven same-type clips and a black hole -- and
+    #: auto-publishing that to a channel is the machine spending the owner's
+    #: reputation. Below the floor the upload is not queued; the render, the
+    #: Reels and the manual publish button are all untouched. Scores are only
+    #: consulted when QA produced one, so older results still publish.
+    auto_publish_minimum_score: int = Field(default=60, ge=0, le=100)
     defaults: PublishDefaultsConfig = Field(default_factory=PublishDefaultsConfig)
     local_file: LocalFilePublishConfig = Field(default_factory=LocalFilePublishConfig)
     youtube: YoutubePublishConfig = Field(default_factory=YoutubePublishConfig)
