@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from datetime import time as clock_time
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 from zoneinfo import ZoneInfo
 
 from backend.config.paths import Paths
@@ -60,6 +60,7 @@ class DailyReport:
     produced_reels: int = 0
     ready: int = 0
     published: int = 0
+    reels_scheduled: list[str] = field(default_factory=list)
     moved: list[str] = field(default_factory=list)
     archived: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -75,6 +76,7 @@ class DailyReport:
             "produced_reels": self.produced_reels,
             "ready": self.ready,
             "published": self.published,
+            "reels_scheduled": self.reels_scheduled,
             "moved": self.moved,
             "archived": self.archived,
             "errors": self.errors,
@@ -469,6 +471,7 @@ class DailyProducer:
             return
 
         if state == _READY:
+            self._publish_reels(row, now)
             self._confirm_published(row, now)
             return
 
@@ -543,6 +546,146 @@ class DailyProducer:
             "Daily publication scheduled",
             extra={"project_id": project_id, "publish_at_utc": instant.isoformat()},
         )
+
+    #: Arabic names for the Reel titles, by moment type. A Reel's title is
+    #: deterministic and short; the long video keeps the creative writer.
+    _REEL_TYPE_AR: ClassVar[dict[str, str]] = {
+        "defeat": "هزيمة قاسية",
+        "fail": "لقطة فشل",
+        "skill": "مهارة",
+        "chaos": "فوضى",
+        "surprise": "مفاجأة",
+        "tension": "لحظة توتر",
+        "rare": "لقطة نادرة",
+        "victory": "انتصار",
+        "clutch": "كلتش",
+        "epic": "لحظة ملحمية",
+    }
+
+    def _publish_reels(self, row: Any, now: datetime) -> None:
+        """§ the owner's order: the Reels publish too, scheduled like the long.
+
+        Uploaded with the night's batch, each with its own ``publishAt`` at
+        the configured Oslo times; a time already past rolls to the next
+        day, so nothing ever goes public off-schedule. The ledger's ``reels``
+        JSON is the idempotence truth -- an uploaded index never uploads
+        again, a failed one retries on the next tick, and the daily cap is
+        the list's length by construction.
+        """
+        times = self._config.daily.reel_publish_times
+        if not times:
+            return
+        project_id = row["project_id"]
+        shorts_row = self._db.fetch_one(
+            "SELECT result FROM analysis_jobs WHERE project_id = ? AND stage = 'shorts' "
+            "AND status = 'completed'",
+            (project_id,),
+        )
+        if shorts_row is None or not shorts_row["result"]:
+            return
+        shorts = (json.loads(shorts_row["result"]).get("shorts") or [])[
+            : min(len(times), self._config.daily.max_reels)
+        ]
+        if not shorts:
+            return
+        published: list[dict] = json.loads(row["reels"] or "[]") if "reels" in row.keys() else []  # noqa: SIM118 -- sqlite3.Row membership scans VALUES
+        done = {int(item["index"]) for item in published}
+
+        game_row = self._db.fetch_one(
+            "SELECT detected_game FROM projects WHERE id = ?", (project_id,)
+        )
+        game = (game_row["detected_game"] or "").replace("_", " ").title() if game_row else ""
+
+        day = row["produced_day"] or self.today(now)
+        changed = False
+        for index, short in enumerate(shorts):
+            if index in done:
+                continue
+            path = Path(str(short.get("output_path") or ""))
+            if not path.is_file():
+                continue
+            instant = self._at(day, times[index % len(times)]).astimezone(timezone.utc)
+            if instant <= now.astimezone(timezone.utc):
+                instant = self._at(
+                    (datetime.fromisoformat(day).date() + timedelta(days=1)).isoformat(),
+                    times[index % len(times)],
+                ).astimezone(timezone.utc)
+            kind = self._REEL_TYPE_AR.get(str(short.get("type", "")), "لحظة")
+            title = f"{kind} في {game}! 🔥 #Shorts" if game else f"{kind}! 🔥 #Shorts"
+            try:
+                result = self._upload_reel(path, title, game, instant)
+            except Exception as error:
+                logger.exception(
+                    "A reel upload failed; the next tick retries",
+                    extra={"project_id": project_id, "index": index},
+                )
+                self._set_state(
+                    row["source_path"], str(row["state"]),
+                    note=f"reel {index} upload failed: {str(error)[:160]}",
+                )
+                continue
+            published.append(
+                {
+                    "index": index,
+                    "video_id": result.get("video_id"),
+                    "url": result.get("url"),
+                    "publish_at_utc": instant.isoformat(),
+                }
+            )
+            changed = True
+            logger.info(
+                "Reel uploaded and scheduled",
+                extra={
+                    "project_id": project_id,
+                    "index": index,
+                    "publish_at_utc": instant.isoformat(),
+                    "url": result.get("url"),
+                },
+            )
+        if changed:
+            self._db.execute(
+                "UPDATE production_ledger SET reels = ?, updated_at = ? "
+                "WHERE source_path = ?",
+                (
+                    json.dumps(published, ensure_ascii=False),
+                    datetime.now(timezone.utc).isoformat(),
+                    row["source_path"],
+                ),
+            )
+
+    def _upload_reel(
+        self, path: Path, title: str, game: str, publish_at: datetime
+    ) -> dict:
+        """One vertical upload, scheduled. Split out so tests can fake it."""
+        from backend.core.models.publishing import PublishRequest, VideoMetadata
+        from backend.publishing import build_token_provider
+        from backend.publishing.youtube import YoutubePublisher
+
+        tokens = build_token_provider(self._config, self._paths.data_root)
+        if tokens is None:
+            raise RuntimeError("YouTube is not configured")
+        metadata = VideoMetadata(
+            title=title[:95],
+            description=(
+                (f"لقطة قصيرة من جلسة {game}." if game else "لقطة قصيرة من الجلسة.")
+                + "\n#Shorts #Gaming"
+            ),
+            tags=["shorts", "gaming", *( [game.lower()] if game else [] )],
+            category="Gaming",
+            visibility="public",
+            publish_at=publish_at,
+        )
+        publisher = YoutubePublisher(tokens)
+        result = publisher.publish(
+            PublishRequest(
+                project_id="daily-reel",
+                render_id=path.stem,
+                target="youtube",
+                metadata=metadata,
+            ),
+            path,
+        )
+        return {"video_id": result.external_id, "url": result.external_url}
 
     def _confirm_published(self, row: Any, now: datetime) -> None:
         """After the appointed instant, believe the record, then say so."""
@@ -663,6 +806,13 @@ class DailyProducer:
         report.produced_reels = sum(int(row["reels_produced"] or 0) for row in today)
         report.ready = sum(1 for row in today if row["state"] == _READY)
         report.published = sum(1 for row in today if row["state"] == _PUBLISHED)
+        for row in today:
+            if "reels" in row.keys() and row["reels"]:  # noqa: SIM118
+                for item in json.loads(row["reels"]):
+                    if item.get("url"):
+                        report.reels_scheduled.append(
+                            f"{item['url']} @ {item.get('publish_at_utc','')}"
+                        )
         for row in rows:
             if row["note"] and row["state"] in (_FAILED, _EDITED) and row["produced_day"] == day:
                 report.reasons.append(f"{Path(row['source_path']).name}: {row['note']}")

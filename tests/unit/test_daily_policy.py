@@ -409,6 +409,101 @@ class TestNothingBeforeTheFind:
             )
 
 
+class TestReelPublishing:
+    """The owner's order: the Reels publish too — scheduled, idempotent."""
+
+    def _ready_with_shorts(self, producer, database, vault, sample_video, tmp_path):
+        clip = _recording(vault, 'one.mkv', sample_video, mtime=1_000)
+        producer.discover('2026-08-29')
+        producer.produce('2026-08-29')
+        row = database.fetch_one('SELECT project_id, source_path FROM production_ledger', ())
+        short_a = tmp_path / 'short-a.mp4'; short_a.write_bytes(b'a'*64)
+        short_b = tmp_path / 'short-b.mp4'; short_b.write_bytes(b'b'*64)
+        database.execute(
+            "INSERT INTO analysis_jobs (id, project_id, stage, status, attempt, max_attempts, created_at, result) "
+            "VALUES (?, ?, 'shorts', 'completed', 1, 3, ?, ?)",
+            ('job-sh-1', row['project_id'], '2026-08-29T01:00:00Z', json.dumps({'shorts': [
+                {'index':0,'type':'defeat','output_path':str(short_a)},
+                {'index':1,'type':'skill','output_path':str(short_b)},
+            ]})),
+        )
+        producer._set_state(row['source_path'], 'ready', produced_day='2026-08-29')
+        return database.fetch_one('SELECT * FROM production_ledger', ())
+
+    def test_reels_upload_scheduled_at_the_oslo_times(
+        self, database, paths, config, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        vault = tmp_path / 'vault'
+        producer = _producer(database, paths, config, vault=vault)
+        row = self._ready_with_shorts(producer, database, vault, sample_video, tmp_path)
+        uploads = []
+        monkeypatch.setattr(DailyProducer, '_upload_reel',
+            lambda self, path, title, game, at: uploads.append((path.name, title, at)) or {'video_id':'v','url':'u'})
+
+        producer._publish_reels(row, datetime(2026, 8, 29, 3, 0, tzinfo=OSLO))
+
+        assert [u[0] for u in uploads] == ['short-a.mp4', 'short-b.mp4']
+        # 13:00/17:00 CEST == 11:00/15:00 UTC, same day (03:00 is before both)
+        assert uploads[0][2] == datetime(2026, 8, 29, 11, 0, tzinfo=timezone.utc)
+        assert uploads[1][2] == datetime(2026, 8, 29, 15, 0, tzinfo=timezone.utc)
+        assert '#Shorts' in uploads[0][1]
+
+    def test_a_past_slot_rolls_to_tomorrow(
+        self, database, paths, config, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        vault = tmp_path / 'vault'
+        producer = _producer(database, paths, config, vault=vault)
+        row = self._ready_with_shorts(producer, database, vault, sample_video, tmp_path)
+        uploads = []
+        monkeypatch.setattr(DailyProducer, '_upload_reel',
+            lambda self, path, title, game, at: uploads.append(at) or {'video_id':'v','url':'u'})
+
+        producer._publish_reels(row, datetime(2026, 8, 29, 14, 0, tzinfo=OSLO))
+
+        assert uploads[0] == datetime(2026, 8, 30, 11, 0, tzinfo=timezone.utc), 'past 13:00 rolls'
+        assert uploads[1] == datetime(2026, 8, 29, 15, 0, tzinfo=timezone.utc), '17:00 still today'
+
+    def test_uploaded_reels_never_upload_twice(
+        self, database, paths, config, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        vault = tmp_path / 'vault'
+        producer = _producer(database, paths, config, vault=vault)
+        row = self._ready_with_shorts(producer, database, vault, sample_video, tmp_path)
+        uploads = []
+        monkeypatch.setattr(DailyProducer, '_upload_reel',
+            lambda self, path, title, game, at: uploads.append(1) or {'video_id':'v','url':'u'})
+
+        now = datetime(2026, 8, 29, 3, 0, tzinfo=OSLO)
+        producer._publish_reels(row, now)
+        row2 = database.fetch_one('SELECT * FROM production_ledger', ())
+        producer._publish_reels(row2, now)
+
+        assert len(uploads) == 2, 'the ledger is the idempotence truth'
+
+    def test_a_failed_upload_retries_next_tick(
+        self, database, paths, config, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        vault = tmp_path / 'vault'
+        producer = _producer(database, paths, config, vault=vault)
+        row = self._ready_with_shorts(producer, database, vault, sample_video, tmp_path)
+        calls = {'n': 0}
+        def flaky(self, path, title, game, at):
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise RuntimeError('network')
+            return {'video_id':'v','url':'u'}
+        monkeypatch.setattr(DailyProducer, '_upload_reel', flaky)
+
+        now = datetime(2026, 8, 29, 3, 0, tzinfo=OSLO)
+        producer._publish_reels(row, now)
+        row2 = database.fetch_one('SELECT * FROM production_ledger', ())
+        producer._publish_reels(row2, now)
+
+        stored = json.loads(database.fetch_one('SELECT reels FROM production_ledger', ())['reels'])
+        assert {item['index'] for item in stored} == {0, 1}
+        assert calls['n'] == 3, 'one failure, one retry, one success for the other'
+
+
 class TestGpuSweep:
     """The owner plays and records after the machine is done: the sweep is
     auditable in the report, and it never runs under a live production."""

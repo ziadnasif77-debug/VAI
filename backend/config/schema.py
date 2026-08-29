@@ -136,6 +136,10 @@ class DailyConfig(_Section):
     publish_time: str = "10:00"
     max_long_videos: int = Field(default=1, ge=0, le=10)
     max_reels: int = Field(default=2, ge=0, le=20)
+    #: When each Reel goes public, Oslo clock -- after the long video's
+    #: 10:00, spreading the day instead of crowding it. Uploaded early and
+    #: scheduled on the platform, exactly like the long one.
+    reel_publish_times: list[str] = Field(default_factory=lambda: ["13:00", "17:00"])
     output_directory: str | None = None
     #: Where a source recording rests once its video is produced and on
     #: YouTube -- the done-shelf ("Ferdig"). Created on first use; excluded
@@ -143,6 +147,11 @@ class DailyConfig(_Section):
     #: for a new recording. Null disables the sweep.
     archive_directory: str | None = None
     selection: Literal["newest", "oldest"] = "newest"
+
+    @field_validator("reel_publish_times")
+    @classmethod
+    def _clock_times(cls, values: list[str]) -> list[str]:
+        return [cls._clock_time(value) for value in values]
 
     @field_validator("production_time", "publish_time")
     @classmethod

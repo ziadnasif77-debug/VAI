@@ -12,6 +12,9 @@ daily:
   publish_time: "10:00"
   max_long_videos: 1
   max_reels: 2
+  # The Reels publish too (owner, 2026-08-29): uploaded with the night's
+  # batch, public at these Oslo times -- the day spread out, not crowded.
+  reel_publish_times: ["13:00", "17:00"]
   # Where each finished video is copied (owner named it, 2026-08-29).
   # Excluded from discovery like the done-shelf: output is never input.
   output_directory: "D:/Gaming 2026/Output"
