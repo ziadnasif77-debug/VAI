@@ -116,6 +116,62 @@ class ApplicationConfig(_Section):
 
 
 # ---------------------------------------------------------------------------
+# editorial.yaml (V2: "المخرج داخل الزمن", branch A)
+# ---------------------------------------------------------------------------
+
+
+class SemanticWeights(_Section):
+    motion: float = 0.35
+    audio: float = 0.25
+    events: float = 0.30
+    scene: float = 0.10
+
+
+class SemanticLevels(_Section):
+    calm: float = 0.35
+    normal: float = 0.55
+    tension: float = 0.70
+    high: float = 0.85
+
+
+class SemanticConfig(_Section):
+    hz: int = Field(default=2, ge=1, le=10)
+    weights: SemanticWeights = Field(default_factory=SemanticWeights)
+    tension_window_seconds: float = Field(default=8.0, gt=0)
+    event_pad_seconds: float = Field(default=2.0, ge=0)
+    levels: SemanticLevels = Field(default_factory=SemanticLevels)
+    min_segment_seconds: float = Field(default=4.0, gt=0)
+
+
+class PacingBand(_Section):
+    min: float = Field(gt=0)
+    max: float = Field(gt=0)
+
+
+class PacingBands(_Section):
+    calm: PacingBand = Field(default_factory=lambda: PacingBand(min=8.0, max=15.0))
+    normal: PacingBand = Field(default_factory=lambda: PacingBand(min=4.0, max=8.0))
+    tension: PacingBand = Field(default_factory=lambda: PacingBand(min=2.5, max=4.0))
+    high: PacingBand = Field(default_factory=lambda: PacingBand(min=1.2, max=2.5))
+    climax: PacingBand = Field(default_factory=lambda: PacingBand(min=0.8, max=1.8))
+
+
+class EditorialPacingConfig(_Section):
+    dynamic: bool = True
+    bands: PacingBands = Field(default_factory=PacingBands)
+    min_piece_seconds: float = Field(default=0.8, gt=0)
+
+
+class EditorialConfig(_Section):
+    """V2's editorial layer. The constitutional rule -- chronology is
+    immutable after selection -- lives in code (timeline validation), not
+    in a flag anyone could flip."""
+
+    semantic: SemanticConfig = Field(default_factory=SemanticConfig)
+    pacing: EditorialPacingConfig = Field(default_factory=EditorialPacingConfig)
+
+
+# ---------------------------------------------------------------------------
 # daily.yaml
 # ---------------------------------------------------------------------------
 
@@ -1809,6 +1865,7 @@ class AppConfig(_Section):
     qa: QaConfig = Field(default_factory=QaConfig)
     critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
     daily: DailyConfig = Field(default_factory=DailyConfig)
+    editorial: EditorialConfig = Field(default_factory=EditorialConfig)
     publishing: PublishingConfig
     interaction: InteractionConfig = Field(default_factory=InteractionConfig)
     presets: dict[str, PresetConfig]

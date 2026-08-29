@@ -272,11 +272,54 @@ class EdlWorker:
             ]
             for media_id in states
         }
-        return guard_clips(
+        # V2 P1: the semantic timeline sets each clip's cut-length cap by
+        # the level of ITS OWN stretch -- calm breathes, a climax cuts fast.
+        # Dynamic off, or no evidence: the static tier caps stand untouched.
+        from backend.editorial import pacing_engine
+        from backend.semantic.timeline import load_timeline
+
+        timelines = {}
+        if context.config.editorial.pacing.dynamic:
+            for media_id in states:
+                length = durations.get(media_id)
+                if not length:
+                    continue
+                try:
+                    timelines[media_id] = load_timeline(
+                        context.database,
+                        media_id,
+                        duration_seconds=float(length),
+                        config=context.config,
+                        cache_dir=context.paths.analysis / "semantic",
+                    )
+                except Exception:
+                    logger.exception(
+                        "Semantic timeline unavailable; static caps stand",
+                        extra={"media_id": media_id},
+                    )
+
+        def dynamic_cap(clip):
+            from backend.timeline.screen_guard import _cap_for
+
+            static = _cap_for(
+                clip,
+                max_seconds=guard.max_clip_seconds,
+                high_tier_max_seconds=45.0,
+                low_tier_max_seconds=100.0,
+            )
+            return pacing_engine.cap_for(
+                clip,
+                timelines.get(clip.media_id),
+                context.config,
+                fallback=static,
+            )
+
+        guarded = guard_clips(
             planned,
             states_by_media=states,
             scenes_by_media=scenes,
             events_by_media=events,
+            cap_fn=dynamic_cap if timelines else None,
             min_observations=guard.min_observations,
             bridge_interior_seconds=guard.bridge_interior_seconds,
             recording_start_guard_seconds=guard.recording_start_guard_seconds,
@@ -286,6 +329,10 @@ class EdlWorker:
             low_tier_max_seconds=guard.low_tier_max_seconds,
             min_piece_seconds=guard.min_piece_seconds,
         )
+        from backend.timeline.validation import ensure_chronological
+
+        ensure_chronological(guarded)
+        return guarded
 
     def _captions(self, context: WorkerContext, timeline: Timeline):
         """Transcript segments for every recording the edit draws on (§71).

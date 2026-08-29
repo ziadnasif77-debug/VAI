@@ -57,6 +57,7 @@ def guard_clips(
     min_observations: int = 2,
     bridge_interior_seconds: float = 4.0,
     events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
+    cap_fn=None,
 ) -> list[PlannedClip]:
     """Both refinements, in the order that keeps them honest.
 
@@ -87,6 +88,7 @@ def guard_clips(
     return _split_long_clips(
         excised,
         scenes_by_media,
+        cap_fn=cap_fn,
         max_seconds=max_clip_seconds,
         high_tier_max_seconds=high_tier_max_seconds,
         low_tier_max_seconds=low_tier_max_seconds,
@@ -393,15 +395,22 @@ def _split_long_clips(
     high_tier_max_seconds: float = 45.0,
     low_tier_max_seconds: float = 100.0,
     min_piece: float = 8.0,
+    cap_fn=None,
 ) -> list[PlannedClip]:
     refined: list[PlannedClip] = []
     for clip in clips:
-        cap = _cap_for(
-            clip,
-            max_seconds=max_seconds,
-            high_tier_max_seconds=high_tier_max_seconds,
-            low_tier_max_seconds=low_tier_max_seconds,
-        )
+        if cap_fn is not None:
+            # V2's dynamic pacing: the semantic level of THIS stretch sets
+            # the cut length. The static tier caps remain the fallback the
+            # function may return.
+            cap = float(cap_fn(clip))
+        else:
+            cap = _cap_for(
+                clip,
+                max_seconds=max_seconds,
+                high_tier_max_seconds=high_tier_max_seconds,
+                low_tier_max_seconds=low_tier_max_seconds,
+            )
         if clip.source_end - clip.source_start <= cap:
             refined.append(clip)
             continue

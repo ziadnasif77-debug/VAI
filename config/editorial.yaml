@@ -1,0 +1,46 @@
+# V2 editorial intelligence (docs: "المخرج داخل الزمن", branch A, 2026-08-29).
+#
+# The constitutional rule enforced in code, not here: chronology is
+# immutable after selection. Everything below shapes durations and
+# decisions *inside* time.
+
+editorial:
+  semantic:
+    # Half-second grid: enough for pacing, cheap to store.
+    hz: 2
+    # Lane blend for intensity[t]. All inputs are percentile-normalised
+    # WITHIN the session first (§23's lesson, generalised): a quiet game
+    # still has a shape.
+    weights:
+      motion: 0.35
+      audio: 0.25
+      events: 0.30
+      scene: 0.10
+    # Sustained-tension envelope: EMA window over intensity.
+    tension_window_seconds: 8.0
+    # Event influence decays this far either side of the event span.
+    event_pad_seconds: 2.0
+    # shape(): intensity percentile ceilings per level, ascending.
+    levels:
+      calm: 0.35
+      normal: 0.55
+      tension: 0.70
+      high: 0.85
+      # above high -> climax
+    # A level run shorter than this merges into its neighbour.
+    min_segment_seconds: 4.0
+
+  pacing:
+    # The dynamic engine. Off = V1 behaviour untouched.
+    dynamic: true
+    # Target cut lengths per semantic level (owner's bands, long-form
+    # defaults; CLIMAX floor raised from the short-form 0.3).
+    bands:
+      calm:    { min: 8.0, max: 15.0 }
+      normal:  { min: 4.0, max: 8.0 }
+      tension: { min: 2.5, max: 4.0 }
+      high:    { min: 1.2, max: 2.5 }
+      climax:  { min: 0.8, max: 1.8 }
+    # Splitting a hot clip needs real scene seams; a piece may not fall
+    # below this even at CLIMAX (readability floor).
+    min_piece_seconds: 0.8

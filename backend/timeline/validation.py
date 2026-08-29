@@ -35,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from backend.core.duration import DurationPolicy
 from backend.core.errors import ErrorCode, ValidationError
@@ -323,11 +324,46 @@ def video_track_of(timeline: Timeline):
     return timeline.track(TrackKind.VIDEO)
 
 
+def ensure_chronological(clips: Sequence[Any]) -> None:
+    """V2's constitutional rule: chronology is immutable after selection.
+
+    The owner's law, verbatim: no engine may reorder events; a stronger
+    moment never precedes what happened before it. The single exception is
+    the cold-open hook -- a clip carrying ``role == "hook"`` may sit at
+    index zero as a declared preview of what is coming; anywhere else it
+    obeys time like everything.
+
+    Raises ``ValidationError(chronology_violated)`` rather than warning:
+    a plan that rewrites time is not a worse plan, it is not a plan this
+    product ships.
+    """
+    body = list(clips)
+    if body and getattr(body[0], "role", "") == "hook":
+        body = body[1:]
+    previous_key: tuple[str, float] | None = None
+    for clip in body:
+        key = (str(clip.media_id), float(clip.source_start))
+        out_of_order = (
+            previous_key is not None
+            and key[0] == previous_key[0]
+            and key[1] < previous_key[1] - 1e-6
+        )
+        if out_of_order:
+            raise ValidationError(
+                "chronology_violated: a clip precedes footage that happened "
+                f"before it ({key[1]:.1f}s after {previous_key[1]:.1f}s).",
+                code=ErrorCode.INVALID_EDL,
+                details={"at_source_seconds": key[1]},
+            )
+        previous_key = key
+
+
 __all__ = [
     "GAP_TOLERANCE_SECONDS",
     "Finding",
     "Severity",
     "ValidationReport",
+    "ensure_chronological",
     "require_valid",
     "validate",
     "video_track_of",

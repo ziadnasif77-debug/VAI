@@ -136,7 +136,13 @@ class StoryWorker:
             )
 
         context.report(1.0, f"{len(plan.moments)} clips selected")
-        return {**_serialise(plan), "moments_considered": len(moments)}
+        _ensure_plan_chronology(plan)
+        return {
+            **_serialise(plan),
+            "moments_considered": len(moments),
+            # §80 (V2 P1): the session's natural form beside the plan.
+            "session_shape": _session_shape(context, plan),
+        }
 
     def _director(
         self, context: WorkerContext, intent: EditingIntent, target: float
@@ -281,3 +287,50 @@ def _serialise(plan: NarrativePlan) -> dict[str, Any]:
 
 
 __all__ = ["StoryWorker"]
+
+
+def _session_shape(context, plan) -> list[dict]:
+    """§80: the session's natural form beside the plan that shaped it (V2 P1).
+
+    Read from the Semantic Timeline of the plan's primary recording. Any
+    failure is an empty list -- the shape is a lens, never a gate.
+    """
+    try:
+        from backend.database.repositories.media import MediaRepository
+        from backend.semantic.timeline import load_timeline
+
+        media_ids = {moment.media_id for moment in plan.moments}
+        if len(media_ids) != 1:
+            return []
+        media_id = next(iter(media_ids))
+        media = MediaRepository(context.database).get(media_id)
+        duration = getattr(media.metadata, "duration_seconds", None) if media else None
+        if not duration:
+            return []
+        timeline = load_timeline(
+            context.database,
+            media_id,
+            duration_seconds=float(duration),
+            config=context.config,
+            cache_dir=context.paths.analysis / "semantic",
+        )
+        return timeline.summary()
+    except Exception:
+        logger.exception("Session shape unavailable; the plan ships without it")
+        return []
+
+
+def _ensure_plan_chronology(plan) -> None:
+    """V2's constitution, enforced where the plan is born."""
+    from backend.timeline.validation import ensure_chronological
+
+    class _AsClip:
+        __slots__ = ("media_id", "role", "source_start")
+
+        def __init__(self, moment):
+            self.media_id = moment.media_id
+            self.source_start = moment.context_start
+            self.role = moment.metadata.get("role", "body")
+
+    ensure_chronological([_AsClip(moment) for moment in plan.moments])
+
