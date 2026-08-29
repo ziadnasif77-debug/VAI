@@ -36,7 +36,7 @@ from backend.database.repositories.timeline import TimelineRepository
 from backend.database.repositories.transcript import TranscriptRepository
 from backend.effects.models import EffectInstance
 from backend.pipeline.workers.base import WorkerContext
-from backend.rendering import audio_mix, jl
+from backend.rendering import audio_mix, jl, sfx
 from backend.rendering.composite import composite
 from backend.rendering.composition import build_composition, resolution_for
 from backend.rendering.encoder import EncodeTarget, select_encoder
@@ -483,7 +483,10 @@ class RenderWorker:
             return None
 
         # §73: the user's own directory inside the project, and nowhere else.
-        music = audio_mix.find_music(context.paths.assets / "music")
+        music = audio_mix.find_music(
+            context.paths.assets / "music",
+            mean_intensity=self._mean_intensity(context),
+        )
         return audio_mix.plan_mix(
             game=game_audio,
             microphone=None,
@@ -537,11 +540,13 @@ class RenderWorker:
             name = params.get("asset")
             if not name:
                 continue
-            asset = assets / str(name)
-            if not asset.is_file():
+            asset = sfx.resolve_stinger_asset(
+                str(name), assets, context.data_root, context.ffmpeg
+            )
+            if asset is None:
                 logger.warning(
-                    "A planned sound effect has no local asset",
-                    extra={"asset": str(asset), "project_id": context.project_id},
+                    "A planned sound effect has no local asset and no recipe",
+                    extra={"asset": str(name), "project_id": context.project_id},
                 )
                 continue
             clip = by_id.get(row["clip_id"] or "")
@@ -559,11 +564,51 @@ class RenderWorker:
             stingers.append(
                 audio_mix.Stinger(
                     path=asset,
-                    at_seconds=max(0.0, at),
+                    # A riser belongs *before* its peak; lead_seconds is the
+                    # doctrine's silence-then-payoff shape (§14).
+                    at_seconds=max(0.0, at - float(params.get("lead_seconds", 0.0))),
                     gain_db=float(params.get("gain_db", -6.0)),
                 )
             )
+        stingers.extend(self._transition_whooshes(context, timeline, duration_seconds))
         return stingers
+
+    def _mean_intensity(self, context) -> float | None:
+        """The story's own pacing measurement, for the music shelf (§15)."""
+        try:
+            pacing = context.stage_result(JobStage.STORY).get("pacing")
+            value = (pacing or {}).get("mean_intensity")
+            return float(value) if value is not None else None
+        except Exception:
+            return None
+
+    def _transition_whooshes(self, context, timeline, duration_seconds) -> list:
+        """§14's transition sound, placed where the picture already dips.
+
+        The time-jump grammar marks its joins with fade metadata; a whoosh at
+        each marked join is the audio half of the same sentence, from the
+        same evidence, with nothing new decided here.
+        """
+        placed = []
+        try:
+            whoosh = sfx.resolve_stinger_asset(
+                "whoosh.wav", context.paths.assets, context.data_root, context.ffmpeg
+            )
+            if whoosh is None:
+                return []
+            for clip in timeline.video_clips():
+                fade = float(clip.metadata.get("fade_in_seconds") or 0.0)
+                if fade <= 0.0:
+                    continue
+                at = max(0.0, clip.timeline_start - 0.35)
+                if at >= duration_seconds:
+                    continue
+                placed.append(
+                    audio_mix.Stinger(path=whoosh, at_seconds=at, gain_db=-10.0)
+                )
+        except Exception:
+            logger.exception("Transition whooshes unavailable; the dips stay silent")
+        return placed
 
     def _programme_audio(
         self,

@@ -772,3 +772,80 @@ class TestRelativeThresholds:
 
         decorative = [i for i in plan.instances if i.effect.value not in {"transition", "fade"}]
         assert not decorative
+
+
+class TestStingerVoices:
+    """§14: the sound is chosen by what happened, not one file for everything."""
+
+    def _sound_effects(self, plan):
+        return [item for item in plan.instances if item.effect is EffectType.SOUND_EFFECT]
+
+    def _solo(self, config: AppConfig) -> AppConfig:
+        """Only the stinger enabled: the per-moment budget is not the subject."""
+        library = {
+            effect: (
+                spec
+                if effect is EffectType.SOUND_EFFECT
+                else spec.model_copy(update={"enabled": False})
+            )
+            for effect, spec in config.effects.library.items()
+        }
+        effects = config.effects.model_copy(update={"library": library})
+        return config.model_copy(update={"effects": effects})
+
+    def test_a_matched_event_picks_its_voice_over_the_type(self, config: AppConfig) -> None:
+        # EPIC maps to impact.wav; the clutch *event* is more specific and wins.
+        moments = [
+            moment(
+                0,
+                moment_type=MomentType.EPIC,
+                start=0.0,
+                duration=6.0,
+                events=[GameEventType.CLUTCH],
+            )
+        ]
+        plan = EffectPlanner(self._solo(config)).plan(
+            moments, intent(), video_duration_seconds=600
+        )
+
+        placed = self._sound_effects(plan)
+        assert placed and placed[0].params["asset"] == "hit.wav"
+        assert "voices" not in placed[0].params
+
+    def test_a_boss_moment_carries_the_riser_and_its_lead(self, config: AppConfig) -> None:
+        moments = [
+            moment(
+                0,
+                moment_type=MomentType.BOSS,
+                start=0.0,
+                duration=6.0,
+                events=[GameEventType.BOSS_FIGHT],
+            )
+        ]
+        plan = EffectPlanner(self._solo(config)).plan(
+            moments, intent(), video_duration_seconds=600
+        )
+
+        placed = self._sound_effects(plan)
+        assert placed and placed[0].params["asset"] == "riser.wav"
+        assert placed[0].params["lead_seconds"] == 2.0
+
+    def test_no_voice_and_no_default_drops_the_row_on_record(self, config: AppConfig) -> None:
+        spec = config.effects.library[EffectType.SOUND_EFFECT]
+        silent = _tuned(
+            config,
+            EffectType.SOUND_EFFECT,
+            params={**spec.params, "voices": {}, "asset": None},
+        )
+        moments = [
+            moment(0, moment_type=MomentType.CLUTCH, start=0.0, duration=6.0, events=[])
+        ]
+        plan = EffectPlanner(self._solo(silent)).plan(
+            moments, intent(), video_duration_seconds=600
+        )
+
+        assert not self._sound_effects(plan)
+        assert any(
+            reason.startswith("sound_effect") and "no voice" in reason
+            for reason in plan.rejected
+        )

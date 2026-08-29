@@ -559,3 +559,89 @@ class TestSoundEffects:
         plan = self._plan(tmp_path, [])
 
         assert "sfx" not in plan.filter_complex
+
+
+class _SynthFFmpeg:
+    """Just enough runner: synthesis "succeeds" by touching the destination."""
+
+    def base_arguments(self):
+        return ["ffmpeg"]
+
+    def run(self, argv, timeout_seconds=None, **_):
+        Path(argv[-1]).write_bytes(b"RIFFfake")
+
+
+class TestSynthesisedResolver:
+    """resolve_stinger_asset: the project's own file wins; recipes answer next."""
+
+    def test_a_project_file_wins_over_the_recipe(self, tmp_path: Path) -> None:
+        from backend.rendering import sfx
+
+        project = tmp_path / "assets"
+        project.mkdir()
+        theirs = project / "hit.wav"
+        theirs.write_bytes(b"their sound")
+
+        found = sfx.resolve_stinger_asset("hit.wav", project, tmp_path / "data", _SynthFFmpeg())
+
+        assert found == theirs
+        # Nothing was synthesised: their file answered outright.
+        assert not (tmp_path / "data" / "assets").exists()
+
+    def test_a_recipe_name_synthesises_on_first_use(self, tmp_path: Path) -> None:
+        from backend.rendering import sfx
+
+        found = sfx.resolve_stinger_asset(
+            "impact.wav", tmp_path / "assets", tmp_path / "data", _SynthFFmpeg()
+        )
+
+        assert found is not None and found.is_file()
+        assert found == sfx.sfx_dir(tmp_path / "data") / "impact.wav"
+
+    def test_an_unknown_name_is_honestly_missing(self, tmp_path: Path) -> None:
+        from backend.rendering import sfx
+
+        assert (
+            sfx.resolve_stinger_asset(
+                "airhorn.wav", tmp_path / "assets", tmp_path / "data", _SynthFFmpeg()
+            )
+            is None
+        )
+
+
+class TestMusicShelves:
+    """§15: the edit's own mean intensity picks the shelf, when shelves exist."""
+
+    def _shelved(self, tmp_path: Path) -> Path:
+        for shelf in ("low", "build", "peak"):
+            (tmp_path / shelf).mkdir()
+            (tmp_path / shelf / f"{shelf}.mp3").write_bytes(b"")
+        return tmp_path
+
+    def test_a_calm_edit_gets_the_calm_bed(self, tmp_path: Path) -> None:
+        found = audio_mix.find_music(self._shelved(tmp_path), mean_intensity=0.3)
+        assert [path.name for path in found] == ["low.mp3"]
+
+    def test_a_hot_edit_gets_the_peak_shelf(self, tmp_path: Path) -> None:
+        found = audio_mix.find_music(self._shelved(tmp_path), mean_intensity=0.7)
+        assert [path.name for path in found] == ["peak.mp3"]
+
+    def test_the_middle_is_the_build(self, tmp_path: Path) -> None:
+        found = audio_mix.find_music(self._shelved(tmp_path), mean_intensity=0.5)
+        assert [path.name for path in found] == ["build.mp3"]
+
+    def test_a_missing_shelf_falls_back_to_whatever_exists(self, tmp_path: Path) -> None:
+        (tmp_path / "low").mkdir()
+        (tmp_path / "low" / "quiet.mp3").write_bytes(b"")
+
+        found = audio_mix.find_music(tmp_path, mean_intensity=0.9)
+
+        assert [path.name for path in found] == ["quiet.mp3"]
+
+    def test_a_flat_directory_behaves_exactly_as_before(self, tmp_path: Path) -> None:
+        (tmp_path / "song.mp3").write_bytes(b"")
+
+        assert [p.name for p in audio_mix.find_music(tmp_path, mean_intensity=0.9)] == [
+            "song.mp3"
+        ]
+        assert [p.name for p in audio_mix.find_music(tmp_path)] == ["song.mp3"]

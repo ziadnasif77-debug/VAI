@@ -127,4 +127,31 @@ def ensure_sfx(data_root: Path, ffmpeg: Any) -> dict[str, Path]:
     return produced
 
 
-__all__ = ["RECIPES", "SFX_VERSION", "SfxRecipe", "ensure_sfx", "generation_arguments", "sfx_dir"]
+def resolve_stinger_asset(
+    name: str, project_assets: Path, data_root: Path, ffmpeg: Any
+) -> Path | None:
+    """The file a planned stinger should play, project's own voice first.
+
+    A file the person dropped into the project's assets wins outright --
+    their sound, their taste. When there is none and the name matches a
+    recipe, the synthesised set answers, generated on first use. Anything
+    else is honestly missing.
+    """
+    candidate = project_assets / name
+    if candidate.is_file():
+        return candidate
+    stem = Path(name).stem.lower()
+    if any(recipe.name == stem for recipe in RECIPES):
+        return ensure_sfx(data_root, ffmpeg).get(stem)
+    return None
+
+
+__all__ = [
+    "RECIPES",
+    "SFX_VERSION",
+    "SfxRecipe",
+    "ensure_sfx",
+    "generation_arguments",
+    "resolve_stinger_asset",
+    "sfx_dir",
+]

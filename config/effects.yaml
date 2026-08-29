@@ -482,15 +482,33 @@ effects:
       enabled: true
       engine: ffmpeg
       category: audio
-      description: "Stinger on a beat. Local assets only; nothing is downloaded."
+      description: "Stinger on a beat, voiced by what happened (§14). Synthesised locally; nothing is downloaded."
       params:
-        asset: null            # from the project's assets/ directory
+        # No single default: the voice comes from the mapping below, chosen
+        # by the moment's matched events first, then its type. Values are
+        # parameter overrides; assets resolve from the project's assets/sfx
+        # first, then the synthesised set (backend/rendering/sfx.py).
+        asset: null
         gain_db: -6.0
         duration_seconds: 1.0
         # Ducks the music but never the player's voice (§72 priority order).
         duck_music: true
+        voices:
+          # events -- more specific than the moment's type, consulted first
+          multi_kill: {asset: hit.wav, gain_db: -8.0, duration_seconds: 0.4}
+          clutch: {asset: hit.wav, gain_db: -8.0, duration_seconds: 0.4}
+          victory: {asset: hit.wav, gain_db: -8.0, duration_seconds: 0.4}
+          defeat: {asset: whoosh.wav, gain_db: -10.0, duration_seconds: 1.1}
+          # moment types
+          epic: {asset: impact.wav, gain_db: -6.0, duration_seconds: 0.9}
+          chaos: {asset: impact.wav, gain_db: -6.0, duration_seconds: 0.9}
+          fail: {asset: whoosh.wav, gain_db: -10.0, duration_seconds: 1.1}
+          funny: {asset: whoosh.wav, gain_db: -10.0, duration_seconds: 1.1}
+          # A riser belongs before its peak: lead_seconds slides it back so
+          # the climb lands on the moment, not after it (§14).
+          boss: {asset: riser.wav, gain_db: -12.0, duration_seconds: 2.0, lead_seconds: 2.0}
       triggers:
-        moment_types: [epic, clutch, funny, fail, victory]
+        moment_types: [epic, clutch, funny, fail, victory, chaos, boss]
         events: [multi_kill, clutch, victory, defeat]
         min_score: 0.7
       limits:

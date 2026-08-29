@@ -427,15 +427,30 @@ def plan_mix(
     return plan
 
 
-def find_music(directory: Path) -> list[Path]:
-    """Local music files, in a stable order (§73).
+def find_music(directory: Path, *, mean_intensity: float | None = None) -> list[Path]:
+    """Local music files, in a stable order (§73), intensity-aware (§15).
 
     Nothing is downloaded and no catalogue is consulted. A directory the user
     filled is the only source, which is what keeps the finished video free of
     a licence nobody agreed to.
+
+    When the person sorts their music into ``low/``, ``build/`` and ``peak/``
+    subfolders, the edit's own mean intensity picks the shelf -- a calm
+    session gets the calm bed. Flat directories behave exactly as before,
+    and a missing shelf falls back to whatever shelves exist.
     """
     if not directory.is_dir():
         return []
+    if mean_intensity is not None:
+        shelf = (
+            "peak" if mean_intensity >= 0.6 else "low" if mean_intensity < 0.45 else "build"
+        )
+        for name in (shelf, "build", "low", "peak"):
+            candidate = directory / name
+            if candidate.is_dir():
+                chosen = find_music(candidate)
+                if chosen:
+                    return chosen
     return sorted(
         path
         for path in directory.iterdir()

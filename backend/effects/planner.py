@@ -408,6 +408,14 @@ class EffectPlanner:
                     for event in candidate.matched_events
                     if event.value in definition.spec.triggers.events
                 )
+            if candidate.effect is EffectType.SOUND_EFFECT:
+                _stinger_voice(candidate, params)
+                if not params.get("asset"):
+                    rejected.append(
+                        f"{candidate.effect.value} @ {candidate.start_seconds:.1f}s: "
+                        "no voice maps to this moment and no default asset is set"
+                    )
+                    continue
             instance = EffectInstance(
                 effect=candidate.effect,
                 engine=definition.engine,
@@ -495,6 +503,31 @@ def _countable(definition: EffectDefinition, moment: PlannedMoment) -> int:
     """How many of the moment's events this effect's triggers can tally."""
     listened = set(definition.spec.triggers.events)
     return sum(1 for event in moment.events if event.value in listened)
+
+
+def _stinger_voice(candidate: EffectCandidate, params: dict[str, object]) -> None:
+    """S14: the sound is chosen by what happened, not one file for everything.
+
+    ``voices`` maps event names and moment types to a voice -- an asset name,
+    or a dict of parameter overrides (asset, gain, a riser's lead). Matched
+    events are more specific than the moment's type, so they are consulted
+    first. A moment nothing maps to keeps whatever default ``asset`` the
+    config set -- and when that is null too, the caller drops the row: a
+    stinger with no sound is not an effect, it is a warning waiting to fire.
+    """
+    voices = params.pop("voices", None)
+    if not isinstance(voices, dict):
+        return
+    keys = [event.value for event in candidate.matched_events]
+    keys.append(candidate.moment_type.value)
+    for key in keys:
+        voice = voices.get(key)
+        if isinstance(voice, str):
+            params["asset"] = voice
+            return
+        if isinstance(voice, dict):
+            params.update(voice)
+            return
 
 
 def _pop_label(
