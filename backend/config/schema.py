@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.core.duration import SECONDS_PER_MINUTE, DurationPolicy
 from backend.core.models.enums import (
@@ -89,6 +89,25 @@ class ApplicationConfig(_Section):
     name: str = "AI Gaming Video Editor"
     environment: Literal["development", "test", "production"] = "development"
     data_root: str | None = None
+    #: The only places a recording may be imported from. Empty means
+    #: unrestricted (tests, fresh clones); non-empty is an exclusive
+    #: allowlist enforced at the ingestion service, so every entry point --
+    #: the UI, the API, a script -- hits the same wall. The owner's rule,
+    #: verbatim: videos come from one place and there must be no way to
+    #: fetch them from anywhere else on the machine.
+    media_source_roots: list[str] = Field(default_factory=list)
+
+    @field_validator("media_source_roots")
+    @classmethod
+    def _absolute_roots(cls, roots: list[str]) -> list[str]:
+        from pathlib import Path
+
+        for root in roots:
+            if not root or not Path(root).expanduser().is_absolute():
+                raise ValueError(
+                    "application.media_source_roots entries must be absolute paths."
+                )
+        return roots
     directories: DirectoriesConfig = Field(default_factory=DirectoriesConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)

@@ -218,3 +218,113 @@ class TestRemoval:
         media_service.remove_media(media.id, delete_file=True)
         assert not copied.exists()
         assert sample_video.exists()
+class TestExclusiveSourceRoot:
+    """The owner's rule: recordings come from one place, and nowhere else.
+
+    The shared config fixture turns the rule off (fixture footage lives in
+    tmp_path); these tests turn it back on and aim imports at a vault.
+    """
+
+    def _service(self, database, paths, config, vault: Path) -> MediaIngestionService:
+        application = config.application.model_copy(
+            update={"media_source_roots": [str(vault)]}
+        )
+        return MediaIngestionService(
+            database, paths, config.model_copy(update={"application": application})
+        )
+
+    def _clip(self, directory: Path, sample_video: Path, name: str = "rec.mp4") -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / name
+        target.write_bytes(sample_video.read_bytes())
+        return target
+
+    def test_inside_the_vault_imports(
+        self, database, paths, config, project_id, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        clip = self._clip(vault / "session one", sample_video)
+        service = self._service(database, paths, config, vault)
+
+        media = service.import_media(project_id, MediaImport(path=str(clip)))
+
+        assert media.id.startswith("media-")
+
+    def test_outside_the_vault_is_refused_by_name(
+        self, database, paths, config, project_id, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        elsewhere = self._clip(tmp_path / "elsewhere", sample_video)
+        service = self._service(database, paths, config, vault)
+
+        with pytest.raises(MediaError) as caught:
+            service.import_media(project_id, MediaImport(path=str(elsewhere)))
+
+        assert caught.value.code is ErrorCode.PATH_NOT_ALLOWED
+        assert "exclusively" in str(caught.value)
+
+    def test_dot_dot_hops_do_not_escape(
+        self, database, paths, config, project_id, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        outside = self._clip(tmp_path / "outside", sample_video)
+        sneaky = vault / ".." / "outside" / outside.name
+        service = self._service(database, paths, config, vault)
+
+        with pytest.raises(MediaError) as caught:
+            service.import_media(project_id, MediaImport(path=str(sneaky)))
+
+        assert caught.value.code is ErrorCode.PATH_NOT_ALLOWED
+
+    def test_the_refusal_happens_before_existence_is_checked(
+        self, database, paths, config, project_id, tmp_path
+    ) -> None:
+        # Whether something exists outside the vault is not the app's
+        # business: a missing outside path is refused as OUTSIDE, not as
+        # missing.
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        service = self._service(database, paths, config, vault)
+
+        with pytest.raises(MediaError) as caught:
+            service.import_media(
+                project_id, MediaImport(path=str(tmp_path / "ghost" / "no.mp4"))
+            )
+
+        assert caught.value.code is ErrorCode.PATH_NOT_ALLOWED
+
+    def test_case_differences_are_the_same_place_on_windows(
+        self, database, paths, config, project_id, sample_video, tmp_path
+    ) -> None:
+        import sys
+
+        if not sys.platform.startswith("win"):
+            pytest.skip("case-insensitive path identity is a Windows property")
+        vault = tmp_path / "Vault"
+        clip = self._clip(vault, sample_video)
+        service = self._service(database, paths, config, vault)
+        swapped = str(clip).replace("Vault", "VAULT")
+
+        media = service.import_media(project_id, MediaImport(path=swapped))
+
+        assert media.id.startswith("media-")
+
+    def test_an_empty_allowlist_keeps_the_old_behaviour(
+        self, media_service, project_id, sample_video
+    ) -> None:
+        # The shared fixture clears the roots; anywhere-import still works.
+        media = media_service.import_media(
+            project_id, MediaImport(path=str(sample_video))
+        )
+        assert media.id.startswith("media-")
+
+    def test_the_shipped_configuration_names_the_owners_folder(self) -> None:
+        from backend.config.loader import load_config, reset_config_cache
+
+        reset_config_cache()
+        shipped = load_config()
+        reset_config_cache()
+
+        assert shipped.application.media_source_roots == ["D:/Gaming 2026"]

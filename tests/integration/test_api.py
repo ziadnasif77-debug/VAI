@@ -368,6 +368,24 @@ class TestTheFilePicker:
 
         assert seen == ["D:/Gaming 2026"]
 
+    def test_the_picker_home_is_the_exclusive_source(self, tmp_path) -> None:
+        # Pure arithmetic of where the dialog opens under the owner's rule.
+        from backend.api.routers.system import _picker_home
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        inside = vault / "sessions"
+        inside.mkdir()
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        roots = [str(vault)]
+
+        assert _picker_home(str(inside), roots) == str(inside)
+        assert _picker_home(str(outside), roots) == str(vault)
+        assert _picker_home(None, roots) == str(vault)
+        assert _picker_home(str(outside), []) == str(outside)
+        assert _picker_home(None, [str(tmp_path / "missing")]) is None
+
     def test_only_one_dialog_at_a_time(self, api_client, monkeypatch) -> None:
         from backend.api.routers import system
 

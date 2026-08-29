@@ -14,6 +14,14 @@ application:
   environment: development
   data_root: null
 
+  # The owner's standing rule (2026-08-29): recordings are imported from this
+  # one place and nowhere else on the machine. The ingestion service refuses
+  # any path outside these roots -- UI, API and scripts alike -- before it
+  # even checks the file exists.
+  media_source_roots:
+    - "D:/Gaming 2026"
+
+
   directories:
     projects: projects
     # Model weights are **shared between the projects on this machine**, so

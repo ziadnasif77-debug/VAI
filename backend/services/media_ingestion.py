@@ -10,6 +10,7 @@ even then the copy is written once and then treated as read-only (§42).
 
 from __future__ import annotations
 
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -150,6 +151,37 @@ class MediaIngestionService:
 
     # -- internals ------------------------------------------------------
 
+    def _require_allowed_root(self, path: Path) -> None:
+        r"""The owner's exclusivity rule: recordings come from one place.
+
+        Enforced here, at the one chokepoint every import passes through, so
+        the UI's file picker, the API and every script hit the same wall.
+        The path is resolved first -- ``..`` hops and symlinks must not be a
+        way around the rule -- and compared case-insensitively, because this
+        is a Windows machine and ``d:\gaming 2026`` is the same place.
+        Refusal happens before the file is even stat'ed: whether something
+        exists outside the allowed root is not this application's business.
+
+        An empty allowlist disables the rule (tests, fresh clones); the
+        shipped configuration names exactly one root.
+        """
+        roots = self._config.application.media_source_roots
+        if not roots:
+            return
+        resolved = os.path.normcase(str(path.expanduser().resolve()))
+        for root in roots:
+            allowed = os.path.normcase(str(Path(root).expanduser().resolve()))
+            if resolved == allowed or resolved.startswith(allowed + os.sep):
+                return
+        raise MediaError(
+            "Recordings are imported exclusively from "
+            + ", ".join(str(Path(root)) for root in roots)
+            + "; this path is outside it.",
+            code=ErrorCode.PATH_NOT_ALLOWED,
+            details={"path": str(path), "allowed_roots": list(roots)},
+            recoverable=False,
+        )
+
     def _validate_source(self, request: MediaImport) -> Path:
         """Check the path exists, is a file, is non-empty and is a known container."""
         path = Path(request.path).expanduser()
@@ -160,6 +192,7 @@ class MediaIngestionService:
                 details={"path": str(path)},
                 recoverable=False,
             )
+        self._require_allowed_root(path)
         if not path.exists():
             raise MediaError(
                 f"File not found: {path}",

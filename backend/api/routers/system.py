@@ -19,14 +19,16 @@ take the API with it.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.api.dependencies import AppState, get_state
 from backend.core.errors import ErrorCode, GamingEditorError
 from backend.core.logging import LogChannel, get_logger
 
@@ -76,6 +78,31 @@ class PickFileResponse(BaseModel):
     path: str | None
 
 
+def _picker_home(initial_dir: str | None, roots: list[str]) -> str | None:
+    """Where the dialog opens: inside the exclusive source, when one is set.
+
+    The owner's rule pins imports to one folder; a picker that opens
+    anywhere else invites choosing a path the service will refuse. A
+    remembered directory is honoured only when it sits inside an allowed
+    root; otherwise the first allowed root is the home. With no roots
+    configured the remembered directory passes through untouched. The
+    dialog itself can still browse -- the OS owns it; the ingestion
+    service remains the wall.
+    """
+    if not roots:
+        return initial_dir
+    if initial_dir and Path(initial_dir).is_dir():
+        resolved = os.path.normcase(str(Path(initial_dir).resolve()))
+        for root in roots:
+            allowed = os.path.normcase(str(Path(root).resolve()))
+            if resolved == allowed or resolved.startswith(allowed + os.sep):
+                return initial_dir
+    for root in roots:
+        if Path(root).is_dir():
+            return str(Path(root))
+    return None
+
+
 def _pick_file(initial_dir: str | None) -> str | None:
     """Open the native dialog and wait for the person. Module-level so tests
     can substitute it -- a test suite that pops file dialogs cannot run."""
@@ -118,7 +145,9 @@ def _pick_file(initial_dir: str | None) -> str | None:
 
 
 @router.post("/pick-file", response_model=PickFileResponse)
-def pick_file(request: PickFileRequest) -> PickFileResponse:
+def pick_file(
+    request: PickFileRequest, state: AppState = Depends(get_state)
+) -> PickFileResponse:
     """Open the operating system's file dialog and return what was chosen.
 
     Synchronous on purpose: the request lasts as long as the person is
@@ -132,7 +161,12 @@ def pick_file(request: PickFileRequest) -> PickFileResponse:
             recoverable=True,
         )
     try:
-        chosen = _pick_file(request.initial_dir)
+        chosen = _pick_file(
+            _picker_home(
+                request.initial_dir,
+                list(state.config.application.media_source_roots),
+            )
+        )
     finally:
         _dialog_lock.release()
     if chosen:

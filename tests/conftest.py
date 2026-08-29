@@ -124,6 +124,12 @@ def config(config_dir: Path) -> Iterator[AppConfig]:
     loaded = load_config(config_dir)
     yield loaded.model_copy(
         update={
+            # The exclusive-source rule points at the owner's real recordings
+            # folder; fixture footage lives in tmp_path, so the rule is off
+            # here and exercised by its own tests, same as every switch above.
+            "application": loaded.application.model_copy(
+                update={"media_source_roots": []}
+            ),
             "analysis": loaded.analysis.model_copy(
                 update={
                     "narration": loaded.analysis.narration.model_copy(update={"enabled": False})
