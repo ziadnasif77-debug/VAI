@@ -659,7 +659,7 @@ class DailyProducer:
         """One vertical upload, scheduled. Split out so tests can fake it."""
         from backend.core.models.publishing import PublishRequest, VideoMetadata
         from backend.publishing import build_token_provider
-        from backend.publishing.youtube import YoutubePublisher
+        from backend.publishing.youtube import YouTubePublisher
 
         tokens = build_token_provider(self._config, self._paths.data_root)
         if tokens is None:
@@ -675,7 +675,7 @@ class DailyProducer:
             visibility="public",
             publish_at=publish_at,
         )
-        publisher = YoutubePublisher(tokens)
+        publisher = YouTubePublisher(tokens)
         result = publisher.publish(
             PublishRequest(
                 project_id="daily-reel",
