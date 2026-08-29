@@ -342,6 +342,63 @@ class TestScheduledPublication:
         assert "publishAt" not in body["status"]
 
 
+class TestNothingBeforeTheFind:
+    """The owner's rule: confirm a video exists before starting anything.
+
+    The cheap check -- ledger plus a folder walk -- runs first; a day with
+    nothing eligible must leave the system untouched: no project created,
+    no media imported, no job queued, and (by §13's lazy construction,
+    pinned here at the worker layer) no model ever built.
+    """
+
+    def test_an_empty_day_engages_nothing(
+        self, database, paths, config, tmp_path
+    ) -> None:
+        vault = tmp_path / "empty"
+        vault.mkdir()
+        producer = _producer(database, paths, config, vault=vault)
+
+        tick(producer, datetime(2026, 8, 29, 2, 5, tzinfo=OSLO))
+
+        assert database.fetch_all("SELECT id FROM projects", ()) == []
+        assert database.fetch_all("SELECT id FROM media", ()) == []
+        assert database.fetch_all("SELECT id FROM analysis_jobs", ()) == []
+        row = database.fetch_one("SELECT report FROM daily_runs WHERE day = ?", ("2026-08-29",))
+        assert row is not None, "the check itself is still recorded"
+
+    def test_a_met_cap_engages_nothing_either(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        _recording(vault, "one.mkv", sample_video, mtime=1_000)
+        _recording(vault, "two.mkv", sample_video, mtime=2_000)
+        producer = _producer(database, paths, config, vault=vault)
+        producer.discover("2026-08-29")
+        assert producer.produce("2026-08-29") is not None
+        jobs_after_first = len(database.fetch_all("SELECT id FROM analysis_jobs", ()))
+
+        assert producer.produce("2026-08-29") is None
+        assert (
+            len(database.fetch_all("SELECT id FROM analysis_jobs", ()))
+            == jobs_after_first
+        ), "a met cap queues nothing new"
+
+    def test_every_model_bearing_worker_starts_as_an_empty_shell(self) -> None:
+        # §13's lazy construction is what makes the 02:00 check free: the
+        # worker registry holds shells, and a provider exists only once its
+        # stage actually runs. If someone makes a provider eager, this is
+        # the test that names the bill.
+        from backend.pipeline.workers import default_workers
+
+        workers = default_workers()
+        for worker in workers.values():
+            provider = getattr(worker, "_provider", None)
+            assert provider is None, (
+                f"{type(worker).__name__} built its provider at construction; "
+                "models must not exist before a stage runs"
+            )
+
+
 class TestDailyReport:
     """§12: the day accounts for itself, including for doing nothing."""
 

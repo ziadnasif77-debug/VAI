@@ -230,6 +230,10 @@ class DailyProducer:
         long_videos, _reels = self.counts_for(day)
         daily = self._config.daily
         if long_videos >= daily.max_long_videos:
+            logger.info(
+                "Daily cap already met; nothing was started",
+                extra={"day": day, "long_videos": long_videos},
+            )
             return None
         candidates = self._db.fetch_all(
             "SELECT source_path, signature FROM production_ledger WHERE state = ?",
@@ -237,6 +241,14 @@ class DailyProducer:
         )
         existing = [row for row in candidates if Path(row["source_path"]).is_file()]
         if not existing:
+            # The cheap check came first and found nothing, so nothing else
+            # runs: no project, no import, no probe, and -- by §13's lazy
+            # construction -- no model was ever built. The owner's rule:
+            # confirm the video exists before starting anything at all.
+            logger.info(
+                "Daily check found no eligible recording; nothing was started",
+                extra={"day": day},
+            )
             return None
         newest_first = daily.selection == "newest"
         existing.sort(
