@@ -409,19 +409,27 @@ def _lay_out(clips: Sequence[PlannedClip], project_id: str) -> list[TimelineClip
     last = len(clips) - 1
     for index, clip in enumerate(clips):
         edge = index in (0, last)
+        # Both coordinate systems must agree to the millisecond, so the
+        # timeline span is DERIVED from the rounded source bounds -- rounding
+        # each independently of a raw running cursor can drift 1.5ms, past
+        # the model's 1ms invariant, once cut points carry sub-millisecond
+        # float times (scene starts, event onsets).
+        source_in = round(clip.source_start, 3)
+        source_out = round(clip.source_end, 3)
+        span = round(source_out - source_in, 3)
         laid_out.append(
             TimelineClip(
                 id=derived_id(
-                    "timeline_clip", project_id, clip.media_id, index, round(clip.source_start, 3)
+                    "timeline_clip", project_id, clip.media_id, index, source_in
                 ),
                 media_id=clip.media_id,
                 moment_id=clip.moment_id,
                 track=TrackKind.VIDEO,
                 clip_index=index,
-                source_in=round(clip.source_start, 3),
-                source_out=round(clip.source_end, 3),
-                timeline_start=round(cursor, 3),
-                timeline_end=round(cursor + clip.seconds, 3),
+                source_in=source_in,
+                source_out=source_out,
+                timeline_start=cursor,
+                timeline_end=round(cursor + span, 3),
                 transition_in=TransitionType.FADE if index == 0 else TransitionType.CUT,
                 transition_out=TransitionType.FADE if index == last else TransitionType.CUT,
                 moment_type=clip.moment_type,
@@ -436,7 +444,7 @@ def _lay_out(clips: Sequence[PlannedClip], project_id: str) -> list[TimelineClip
                 },
             )
         )
-        cursor += clip.seconds
+        cursor = round(cursor + span, 3)
     return laid_out
 
 
