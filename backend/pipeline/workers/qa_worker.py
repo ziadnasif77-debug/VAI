@@ -129,9 +129,45 @@ class QaWorker:
             "uncertainties": uncertainties,
         }
 
-    #: Notes that record an action the pipeline took on purpose. They stay
-    #: in their stage's result for §80; they are not uncertainty.
-    _ACTION_NOTE_PREFIXES = ("variety: ", "flatness: ", "arc: ")
+    #: Notes that record an action or a decision the pipeline took on
+    #: purpose. They stay in their stage's result for §80; they are not
+    #: uncertainty.
+    _ACTION_NOTE_PREFIXES = (
+        "variety: ",
+        "flatness: ",
+        "arc: ",
+        "theme: ",
+        "merged ",
+        "added ",
+        "trimmed ",
+        "extended ",
+        "the Director chose",
+        "chronological: ",
+    )
+
+    @classmethod
+    def _is_uncertainty(cls, note: object) -> bool:
+        """Whether a stage note belongs on the §34 uncertainty list.
+
+        The list is what the pipeline was *unsure or degraded* about. Three
+        kinds of note are records, not doubts, and scoring them punished the
+        machine for working -- measured live: a video with a clean pacing
+        report and zero QA warnings scored 38, because twenty-one of its
+        thirty-one "uncertainties" were the Critic's per-clip "keep"
+        verdicts and most of the rest were counts of work done.
+
+        * structured objects (the Critic's decision rows) -- decisions;
+        * notes opening with an action or decision prefix -- work done;
+        * notes opening with a tally ("18 sound effect(s) placed") -- the
+          §80 ledger of what ran.
+        """
+        if not isinstance(note, str) or not note:
+            return False
+        if note.startswith(cls._ACTION_NOTE_PREFIXES):
+            return False
+        if note[0].isdigit():
+            return False
+        return not note.startswith("the overlay was rendered")
 
     def _doctrine_summary(self, context: WorkerContext, report) -> tuple[int, list[str]]:
         """A 0-100 score and the uncertainty list, both derived, both stated.
@@ -150,15 +186,10 @@ class QaWorker:
             if job is None or not job.result:
                 continue
             for note in job.result.get("notes") or []:
-                text = str(note)
-                # The run-breaker's notes describe fixes made, not doubts
-                # held -- §80 transparency, already on the story record.
-                # Scoring them as uncertainty punished the machine for
-                # repairing: measured live, a better edit scored 24 where
-                # its broken predecessor scored 52.
-                if text.startswith(self._ACTION_NOTE_PREFIXES):
+                if not self._is_uncertainty(note):
                     continue
-                if text and text not in notes:
+                text = str(note)
+                if text not in notes:
                     notes.append(text)
             if stage is JobStage.CRITIQUE and job.result.get("skipped"):
                 notes.append(f"critique skipped: {job.result.get('reason')}")

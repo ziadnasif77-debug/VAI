@@ -340,6 +340,30 @@ class TestDoctrineSummary:
         assert quality == 100
         assert uncertainties == []
 
+    def test_records_and_decisions_are_not_uncertainty(self) -> None:
+        from backend.pipeline.workers.qa_worker import QaWorker
+
+        records = [
+            {"clip": 3, "action": "keep", "seconds": 0.0, "reason": ""},
+            "variety: swapped a surprise at 1189s for a chaos at 465s",
+            "theme: A Heart-Pounding Battle",
+            "18 sound effect(s) placed",
+            "4 effect(s) baked into the picture",
+            "the overlay was rendered as 6 stretch(es) covering 196 frames",
+            "merged 4 join(s) inside continuous footage",
+            "the Director chose the clips; time chose the order",
+            "chronological: no hook, so time only runs forwards",
+        ]
+        doubts = [
+            "no local music was found, so the mix carries none",
+            "no separate microphone track; speech is inside the gameplay audio",
+            "climax carried by the session's peak (a skill moment, score 0.57)",
+            "the Director was consulted and its answer was not usable",
+        ]
+
+        assert not any(QaWorker._is_uncertainty(note) for note in records)
+        assert all(QaWorker._is_uncertainty(note) for note in doubts)
+
 
 class TestDoctrineEndpoints:
     """§27 and §34 as views over stored results, graceful on empty projects."""
