@@ -116,6 +116,68 @@ class ApplicationConfig(_Section):
 
 
 # ---------------------------------------------------------------------------
+# daily.yaml
+# ---------------------------------------------------------------------------
+
+
+class DailyConfig(_Section):
+    """The owner's daily production & publishing policy (2026-08-29).
+
+    One long video and at most two Reels per Europe/Oslo day; production at
+    ``production_time``, publication at ``publish_time`` -- scheduled on the
+    platform itself so nothing goes public early. ``output_directory`` is
+    named by the owner later: null skips the copy and the daily report says
+    so, because assuming a path is exactly what the policy forbids.
+    """
+
+    enabled: bool = False
+    timezone: str = "Europe/Oslo"
+    production_time: str = "02:00"
+    publish_time: str = "10:00"
+    max_long_videos: int = Field(default=1, ge=0, le=10)
+    max_reels: int = Field(default=2, ge=0, le=20)
+    output_directory: str | None = None
+    selection: Literal["newest", "oldest"] = "newest"
+
+    @field_validator("production_time", "publish_time")
+    @classmethod
+    def _clock_time(cls, value: str) -> str:
+        parts = value.split(":")
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            raise ValueError("Times are HH:MM on a 24-hour clock.")
+        hour, minute = int(parts[0]), int(parts[1])
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError("Times are HH:MM on a 24-hour clock.")
+        return f"{hour:02d}:{minute:02d}"
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_zone(cls, value: str) -> str:
+        from zoneinfo import ZoneInfo
+
+        ZoneInfo(value)  # raises for an unknown zone
+        return value
+
+    @field_validator("output_directory")
+    @classmethod
+    def _not_the_system_drive(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        from pathlib import Path
+
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            raise ValueError("daily.output_directory must be an absolute path.")
+        drive = path.drive.rstrip(":").upper()
+        if drive == "C":
+            raise ValueError(
+                "daily.output_directory refuses the system drive: this "
+                "machine's standing rule is that nothing is written to it."
+            )
+        return str(path)
+
+
+# ---------------------------------------------------------------------------
 # output.yaml
 # ---------------------------------------------------------------------------
 
@@ -1711,6 +1773,7 @@ class AppConfig(_Section):
     captions: CaptionsConfig
     qa: QaConfig = Field(default_factory=QaConfig)
     critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
+    daily: DailyConfig = Field(default_factory=DailyConfig)
     publishing: PublishingConfig
     interaction: InteractionConfig = Field(default_factory=InteractionConfig)
     presets: dict[str, PresetConfig]

@@ -1,0 +1,22 @@
+# The owner's DAILY VIDEO PRODUCTION & PUBLISHING POLICY (2026-08-29),
+# standing. Production fires at 02:00 Europe/Oslo, publication lands at
+# 10:00 Europe/Oslo (scheduled on YouTube itself, so the video goes public
+# at that instant and never before), and the day never exceeds one long
+# video and two Reels. Times follow Norway's clock, summer and winter --
+# the zoneinfo database owns the DST arithmetic, never a fixed UTC offset.
+
+daily:
+  enabled: true
+  timezone: Europe/Oslo
+  production_time: "02:00"
+  publish_time: "10:00"
+  max_long_videos: 1
+  max_reels: 2
+  # Where each finished video is copied. The owner names this later; null
+  # means the copy step is skipped and the daily report says so. Never
+  # assumed, never hardcoded.
+  output_directory: null
+  # Which eligible recording a day picks: the newest session first --
+  # fresh content for a daily channel -- with the backlog kept for the
+  # days that follow, exactly as the policy orders.
+  selection: newest

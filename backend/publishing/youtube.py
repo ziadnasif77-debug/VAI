@@ -342,12 +342,25 @@ def _snippet(metadata: VideoMetadata) -> dict[str, Any]:
     if metadata.language and metadata.language != "auto":
         snippet["defaultLanguage"] = metadata.language
         snippet["defaultAudioLanguage"] = metadata.language
+    status: dict[str, Any] = {
+        "privacyStatus": metadata.visibility.value,
+        "selfDeclaredMadeForKids": metadata.made_for_kids,
+    }
+    if metadata.publish_at is not None:
+        # YouTube's contract: a scheduled video is private until the platform
+        # itself makes it public at publishAt. Sending "public" alongside a
+        # schedule is rejected, so the schedule wins over the visibility --
+        # the video still ends up public, at the appointed time and not a
+        # second before, which is the entire point.
+        status["privacyStatus"] = "private"
+        status["publishAt"] = (
+            metadata.publish_at.astimezone(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
     return {
         "snippet": snippet,
-        "status": {
-            "privacyStatus": metadata.visibility.value,
-            "selfDeclaredMadeForKids": metadata.made_for_kids,
-        },
+        "status": status,
     }
 
 

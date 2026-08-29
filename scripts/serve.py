@@ -281,6 +281,11 @@ def main() -> int:
             state.close()
             return 2
 
+    from backend.services.daily_producer import DailyScheduler
+
+    daily = DailyScheduler(config, state.paths)
+    daily.start()  # a no-op unless config/daily.yaml says enabled
+
     worker: JobWorker | None = None
     if not arguments.no_worker:
         # The worker recovers interrupted jobs itself, on its own thread,
@@ -330,6 +335,7 @@ def main() -> int:
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     finally:
+        daily.stop()
         if worker is not None:
             worker.stop()
         state.close()

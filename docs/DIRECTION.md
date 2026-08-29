@@ -57,6 +57,7 @@ extremes cancel themselves.
 | Capability awareness (never request unsupported effects) | realisable-set registry; §92 prompt/version registry |
 | EDIT_PLAN as machine-readable output | the EDL (§40–§42) — it *is* the edit plan |
 | Named highlight tiers on every score | moments/scoring.py `tier_for` — master/major/good/supporting on the ten-dimension score; a second scoring system beside the first would only raise which one is real |
+| Daily production & publishing policy (owner, 2026-08-29) | services/daily_producer.py: production ledger + 02:00/10:00 Europe/Oslo clock, 1 long + 2 Reels caps, platform-side scheduled publishing, idempotent by the `daily_runs` mutex |
 | Quality score 0–100 + uncertainty list | qa_worker `_doctrine_summary` — arithmetic over failures, warnings and every §95 note upstream stages attached, plus those notes verbatim |
 | Pacing tiers driving cut length (§7) | screen_guard `_cap_for` over `scoring.tier_for`: master/major slabs cap at 45 s, good at 75, filler at 100 |
 | Escalation ladders + per-effect cooldowns (§9) | planner: `escalation` rungs scale strength by same-type count; `cooldown_seconds` suppresses on record ("cooldown" in the rejected reasons) |

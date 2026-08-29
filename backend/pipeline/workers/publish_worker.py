@@ -61,6 +61,13 @@ class PublishWorker:
             # before any of the writing existed, and published a video
             # titled with the raw project name.
             payload = {**payload, "metadata": self._suggested(context).model_dump()}
+        if payload.get("publish_at_utc"):
+            # The daily policy's scheduled publication: the instant rides in
+            # the payload (set once, at queueing) and lands in the metadata
+            # the platform sees, whether the metadata was regenerated or not.
+            metadata = dict(payload.get("metadata") or {})
+            metadata["publish_at"] = payload["publish_at_utc"]
+            payload = {**payload, "metadata": metadata}
         # The render is resolved before the request is built: "publish the
         # latest" becomes a concrete id here, and that id -- not an empty
         # string -- is what the history must name.

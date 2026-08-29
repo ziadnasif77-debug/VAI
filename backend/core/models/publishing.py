@@ -80,6 +80,11 @@ class VideoMetadata(_Base):
     thumbnail_path: str | None = None
     chapters: list[Chapter] = Field(default_factory=list)
     made_for_kids: bool = False
+    #: When set, the platform itself flips the video public at this UTC
+    #: instant (YouTube's ``status.publishAt``); until then it is private by
+    #: the platform's own rule. The daily policy's "never before 10:00"
+    #: rides on this, so an app crash after upload cannot publish early.
+    publish_at: datetime | None = None
 
     @field_validator("tags")
     @classmethod
