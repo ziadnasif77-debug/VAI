@@ -139,6 +139,41 @@ def _avoid_dead_openings(
 #: applies to these only -- a corroborated MENU is a menu regardless of events.
 _STILLNESS = frozenset({FrameState.PAUSE, FrameState.TRANSITION})
 
+#: How much life a strong event radiates into a stillness span, each side.
+_VETO_NEIGHBOURHOOD_SECONDS = 4.0
+
+
+def _minus_neighbourhoods(
+    span: StateSpan, events: Sequence[tuple[float, float]]
+) -> list[StateSpan]:
+    """The parts of a stillness span no strong event reaches."""
+    pieces = [(span.start_seconds, span.end_seconds)]
+    for start, end in events:
+        lo = start - _VETO_NEIGHBOURHOOD_SECONDS
+        hi = end + _VETO_NEIGHBOURHOOD_SECONDS
+        next_pieces: list[tuple[float, float]] = []
+        for piece_start, piece_end in pieces:
+            if hi <= piece_start or lo >= piece_end:
+                next_pieces.append((piece_start, piece_end))
+                continue
+            if piece_start < lo:
+                next_pieces.append((piece_start, lo))
+            if hi < piece_end:
+                next_pieces.append((hi, piece_end))
+        pieces = next_pieces
+    if pieces == [(span.start_seconds, span.end_seconds)]:
+        return [span]
+    return [
+        StateSpan(
+            state=span.state,
+            start_seconds=start,
+            end_seconds=end,
+            observations=span.observations,
+        )
+        for start, end in pieces
+        if end - start >= 1.0
+    ]
+
 
 def _weighed(
     states_by_media: Mapping[str, Sequence[StateSpan]],
@@ -156,10 +191,14 @@ def _weighed(
       "menu" spans (the phone overlay, misread at a 12 s stride) were doing
       most of the shredding. Probes that measure pixels directly declare
       ``observations=3`` and keep their authority.
-    * **The event veto.** A stillness span that overlaps a detected game
-      event is not dead: a sniper scope, an aimed standoff, a cutscene kill
-      all hold the frame while the game plainly lives. Events are the richer
-      evidence, so the stillness yields.
+    * **The event veto, by neighbourhood.** A stillness span holding a
+      detected game event is alive *around that event* -- a sniper scope, an
+      aimed standoff, a cutscene kill. Measured before this was a
+      neighbourhood: one near_death at 98.5 s blessed a 24.6 s frozen span
+      whole, and QA then flagged 14 s of motionless video. So the event
+      keeps ±``_VETO_NEIGHBOURHOOD_SECONDS`` alive and the rest of the
+      stillness stays dead. Callers pass only *strong* events -- the
+      generic ``unexpected_event`` blesses nothing.
     """
     weighed: dict[str, list[StateSpan]] = {}
     for media_id, spans in states_by_media.items():
@@ -174,11 +213,11 @@ def _weighed(
             if span.observations < min_observations:
                 weak += 1
                 continue
-            if span.state in _STILLNESS and any(
-                start < span.end_seconds and span.start_seconds < end
-                for start, end in events
-            ):
-                vetoed += 1
+            if span.state in _STILLNESS and events:
+                remains = _minus_neighbourhoods(span, events)
+                if len(remains) != 1 or remains[0] is not span:
+                    vetoed += 1
+                kept.extend(remains)
                 continue
             kept.append(span)
         if weak or vetoed:

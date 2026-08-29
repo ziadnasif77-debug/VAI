@@ -66,11 +66,23 @@ def _finding(findings, check: str):
 
 
 class TestMenusInTheEdit:
-    def test_a_menu_inside_a_clip_is_flagged(self, timeline, config) -> None:
-        # 105 s is inside clip 1 (100-120 s of the source).
-        findings = _inspect(timeline, config, observations=[(MEDIA, 105.0, ["menu", "ui"])])
+    def test_a_corroborated_menu_run_is_flagged(self, timeline, config) -> None:
+        # Two observations inside clip 1 (100-120 s): a section, not a blip.
+        findings = _inspect(
+            timeline,
+            config,
+            observations=[(MEDIA, 105.0, ["menu", "ui"]), (MEDIA, 112.0, ["menu"])],
+        )
 
         assert _finding(findings, "accidental_menu_section").status is QAStatus.WARNING
+
+    def test_a_single_observation_is_a_blip_not_a_section(self, timeline, config) -> None:
+        # The guard's evidence floor, applied here too: one sampled frame --
+        # a phone overlay, a busy HUD -- flagged seventeen "sections" on a
+        # real edit. Weak evidence counts nowhere, or everywhere.
+        findings = _inspect(timeline, config, observations=[(MEDIA, 105.0, ["menu", "ui"])])
+
+        assert _finding(findings, "accidental_menu_section").status is QAStatus.PASSED
 
     def test_a_menu_the_edit_left_out_is_not_flagged(self, timeline, config) -> None:
         # 60 s is between clips: the recording has a menu, the video does not.

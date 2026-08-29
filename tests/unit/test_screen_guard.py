@@ -440,12 +440,26 @@ class TestEvidenceBeforeKnives:
 
         assert [(c.source_start, c.source_end) for c in kept] == [(100.0, 140.0)]
 
-    def test_stillness_overlapping_an_event_yields(self) -> None:
-        # A sniper scope holds the frame while the game plainly lives.
+    def test_stillness_yields_around_the_event_only(self) -> None:
+        # A sniper scope holds the frame while the game plainly lives -- but
+        # only the neighbourhood of the shot is alive. One near_death at
+        # 98.5 s once blessed a 24.6 s frozen span whole, and QA flagged 14 s
+        # of motionless video: the event radiates ±4 s, the rest stays dead.
         clip = self._clip(100.0, 140.0)
         frozen = StateSpan(FrameState.PAUSE, 110.0, 130.0, observations=3)
 
         kept = self._run([clip], [frozen], events=[(112.0, 118.0)])
+
+        # dead remainder 122-130 still cuts; the event's stretch survives
+        assert len(kept) == 2
+        assert kept[0].source_end <= 122.5 and kept[0].source_end >= 121.5
+        assert kept[1].source_start >= 129.5
+
+    def test_stillness_fully_inside_the_neighbourhood_survives_whole(self) -> None:
+        clip = self._clip(100.0, 140.0)
+        hold = StateSpan(FrameState.PAUSE, 111.0, 117.0, observations=3)
+
+        kept = self._run([clip], [hold], events=[(112.0, 116.0)])
 
         assert [(c.source_start, c.source_end) for c in kept] == [(100.0, 140.0)]
 

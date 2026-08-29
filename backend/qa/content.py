@@ -122,21 +122,41 @@ def _menu_sections(timeline: Timeline, inputs: ContentInputs) -> Finding:
     Menus are not a defect in a recording -- every session has them. They are a
     defect in a *video*, and the difference is whether a clip covers one.
     """
-    offenders: list[dict[str, Any]] = []
+    # The same evidence floor the screen guard cuts by: one sampled frame
+    # is a claim, not a section. Menu observations convict in RUNS -- at
+    # least two of them within a sampling stride of each other -- because a
+    # single misread (a phone overlay, a busy HUD) flagged seventeen
+    # "sections" on a real edit while the guard rightly refused to cut any
+    # of them. Consistency: weak evidence counts nowhere, or everywhere.
+    menu_hits: list[tuple[str, float, list[str]]] = []
     for media_id, timestamp, labels in inputs.observations:
-        if not _is_menu(labels):
-            continue
-        clip = _clip_covering(timeline, media_id, timestamp)
-        if clip is not None:
-            offenders.append(
-                {
-                    "clip_index": clip.clip_index,
-                    "timeline_seconds": round(
-                        clip.timeline_start + (timestamp - clip.source_in), 2
-                    ),
-                    "labels": [label for label in labels if _is_menu([label])],
-                }
+        if _is_menu(labels):
+            menu_hits.append(
+                (media_id, timestamp, [label for label in labels if _is_menu([label])])
             )
+    menu_hits.sort(key=lambda hit: (hit[0], hit[1]))
+
+    offenders: list[dict[str, Any]] = []
+    run: list[tuple[str, float, list[str]]] = []
+    for hit in [*menu_hits, ("", -1.0, [])]:
+        if run and (hit[0] != run[-1][0] or hit[1] - run[-1][1] > 20.0):
+            if len(run) >= 2:
+                for media_id, timestamp, labels in run:
+                    clip = _clip_covering(timeline, media_id, timestamp)
+                    if clip is not None:
+                        offenders.append(
+                            {
+                                "clip_index": clip.clip_index,
+                                "timeline_seconds": round(
+                                    clip.timeline_start + (timestamp - clip.source_in),
+                                    2,
+                                ),
+                                "labels": labels,
+                            }
+                        )
+            run = []
+        if hit[0]:
+            run.append(hit)
 
     if not offenders:
         return passed("accidental_menu_section", "no menu or loading screen in the edit")
