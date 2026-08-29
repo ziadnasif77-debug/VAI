@@ -177,12 +177,28 @@ def _montage_extras(
             if moment is not best and moment.score >= config.montage_min_score
         ),
         key=lambda moment: -moment.score,
-    )[: config.montage_clips - 1]
+    )
+    # §42 lives downstream and it is right: the same footage twice is a
+    # defect. A flash that overlaps the fitted hook's own span -- moments
+    # from one busy stretch overlap constantly -- would be swallowed there
+    # anyway, so it is refused here, and flashes must not overlap each other
+    # for the same reason.
+    taken: list[tuple[str, float, float]] = [
+        (best.media_id, best.context_start, best.context_end)
+    ]
     slices = []
     for moment in ranked:
+        if len(slices) >= config.montage_clips - 1:
+            break
         end = min(moment.start_seconds + config.montage_slice_seconds, moment.end_seconds)
         if end - moment.start_seconds < 1.0:
             continue
+        if any(
+            media == moment.media_id and moment.start_seconds < used_end and used_start < end
+            for media, used_start, used_end in taken
+        ):
+            continue
+        taken.append((moment.media_id, moment.start_seconds, end))
         slices.append(
             replace_moment(
                 moment,
