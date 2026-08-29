@@ -364,6 +364,37 @@ def _story_order(
     return ordered, beats, notes
 
 
+def _sequence_repaired(
+    selection: OptimisationResult,
+    pool: Sequence[Moment],
+    *,
+    config: NarrativeConfig,
+    policy: DurationPolicy,
+    target_seconds: float,
+    notes: list[str],
+) -> OptimisationResult:
+    """The selection after the run-breaker, with its changes on record."""
+    if not config.optimizer.sequence_repair:
+        return selection
+    repaired, repair_notes = repair_sequence(
+        selection.moments,
+        pool,
+        pacing_config=config.pacing,
+        config=config.optimizer,
+        target_seconds=target_seconds,
+        tolerance=policy.tolerance_for(target_seconds),
+    )
+    if not repair_notes:
+        return selection
+    notes.extend(repair_notes)
+    return dataclasses.replace(
+        selection,
+        moments=tuple(repaired),
+        total_seconds=sum(m.context_duration for m in repaired),
+        notes=(*selection.notes, *repair_notes),
+    )
+
+
 def _directed(
     pool: Sequence[Moment],
     selection: OptimisationResult,
@@ -396,6 +427,22 @@ def _directed(
     shown = list(selection.moments)
     ordered, beats, notes = _story_order(shown, config)
     if blueprint is None or blueprint.is_empty:
+        # An unusable answer must not also cost the run-breaker: this exit
+        # skipped the repair entirely and a rerun shipped four same-type
+        # clips in a row past a limit of two.
+        exit_notes: list[str] = []
+        repaired = _sequence_repaired(
+            selection,
+            pool,
+            config=config,
+            policy=policy,
+            target_seconds=target_seconds,
+            notes=exit_notes,
+        )
+        if exit_notes:
+            selection = repaired
+            ordered, beats, notes = _story_order(list(selection.moments), config)
+            notes.extend(exit_notes)
         # Reaching here at all means a Director was configured and consulted --
         # `build_plan` only calls `_directed` when it was handed one -- so the
         # silence would be the plan hiding a decision. The worker logs the
@@ -415,7 +462,20 @@ def _directed(
             roles[id(shown[beat.moment])] = beat.role
     if not roles:
         # Nothing usable survived the mapping, which is the same outcome as no
-        # Director at all.
+        # Director at all -- including the repair that outcome gets.
+        exit_notes = []
+        repaired = _sequence_repaired(
+            selection,
+            pool,
+            config=config,
+            policy=policy,
+            target_seconds=target_seconds,
+            notes=exit_notes,
+        )
+        if exit_notes:
+            selection = repaired
+            ordered, beats, notes = _story_order(list(selection.moments), config)
+            notes.extend(exit_notes)
         return selection, ordered, beats, [*notes, "the Director's plan named nothing usable"]
 
     notes = list(notes)
@@ -435,30 +495,20 @@ def _directed(
             media_durations=media_durations,
         )
 
-    if config.optimizer.sequence_repair:
-        # The Director's drops and the refill rebuild the selection, so the
-        # repair that ran before the model saw anything is history by now --
-        # measured live: a repaired selection went in, six same-type clips
-        # in a row came out. This is the last hand on the clip list, so the
-        # run-breaking happens here; the id-keyed roles survive for every
-        # moment the repair keeps, and a swapped-in moment takes the
-        # deterministic beat exactly as a refilled one does.
-        repaired, repair_notes = repair_sequence(
-            selection.moments,
-            pool,
-            pacing_config=config.pacing,
-            config=config.optimizer,
-            target_seconds=target_seconds,
-            tolerance=policy.tolerance_for(target_seconds),
-        )
-        if repair_notes:
-            selection = dataclasses.replace(
-                selection,
-                moments=tuple(repaired),
-                total_seconds=sum(m.context_duration for m in repaired),
-                notes=(*selection.notes, *repair_notes),
-            )
-            notes.extend(repair_notes)
+    # The Director's drops and the refill rebuild the selection, so a repair
+    # that runs before the model saw anything is history by now -- measured
+    # live: a repaired selection went in, six same-type clips in a row came
+    # out. This is the last hand on the clip list; the id-keyed roles survive
+    # for every moment the repair keeps, and a swapped-in moment takes the
+    # deterministic beat exactly as a refilled one does.
+    selection = _sequence_repaired(
+        selection,
+        pool,
+        config=config,
+        policy=policy,
+        target_seconds=target_seconds,
+        notes=notes,
+    )
 
     # Beats for the selection as it now stands -- which may hold moments the
     # Director never saw, if the optimiser refilled. Those keep the

@@ -201,6 +201,7 @@ class EdlWorker:
         from ai.ocr import create_ocr_provider
         from backend.analysis import frame_state
         from backend.analysis.recorder_probe import recorder_spans
+        from backend.analysis.source_dead import dead_source_spans
         from backend.database.repositories.media import MediaRepository
         from backend.database.repositories.scenes import SceneRepository
         from backend.database.repositories.vision import VisionRepository
@@ -228,6 +229,21 @@ class EdlWorker:
                         ffmpeg=context.ffmpeg,
                         ocr=ocr,
                         scratch_dir=context.paths.analysis / "recorder-probe",
+                    )
+                )
+                # QA has been reporting the recording's own black and frozen
+                # stretches after every render (three warnings on a real
+                # session, all tracing to the source). Same detectors, same
+                # thresholds, run once and cached -- so the guard cuts them
+                # instead of QA lamenting them (S36).
+                spans.extend(
+                    dead_source_spans(
+                        Path(record.source_path),
+                        ffmpeg=context.ffmpeg,
+                        config=context.config,
+                        cache_dir=context.paths.analysis / "source-dead",
+                        media_id=media_id,
+                        duration_seconds=durations.get(media_id),
                     )
                 )
             states[media_id] = spans

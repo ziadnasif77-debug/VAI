@@ -8,6 +8,7 @@ absence: a hook opening on the record-button click at second 0.0, and a
 from __future__ import annotations
 
 from itertools import pairwise
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -285,3 +286,100 @@ class TestDeadInteriors:
         )
 
         assert guarded == []
+class TestSourceDeadSpans:
+    """The source's own black/frozen stretches, measured once and cached."""
+
+    def test_a_cached_verdict_skips_the_decode(self, tmp_path: Path, config) -> None:
+        import json
+
+        from backend.analysis.source_dead import dead_source_spans
+
+        source = tmp_path / "rec.mkv"
+        source.write_bytes(b"x" * 64)
+        stat = source.stat()
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        (cache / "media-1.json").write_text(
+            json.dumps(
+                {
+                    "signature": f"{stat.st_size}:{int(stat.st_mtime)}",
+                    "black": [[10.0, 16.4]],
+                    "freeze": [[100.0, 106.7]],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        class _Boom:
+            def base_arguments(self, **_):
+                raise AssertionError("the decode must not run on a cache hit")
+
+        spans = dead_source_spans(
+            source,
+            ffmpeg=_Boom(),
+            config=config,
+            cache_dir=cache,
+            media_id="media-1",
+            duration_seconds=1200.0,
+        )
+
+        assert [(s.start_seconds, s.end_seconds) for s in spans] == [
+            (9.7, 16.7),
+            (99.7, 107.0),
+        ]
+        assert all(not s.state.is_gameplay for s in spans)
+
+    def test_a_measured_verdict_is_written_back(
+        self, tmp_path: Path, config, monkeypatch
+    ) -> None:
+        from backend.analysis.source_dead import dead_source_spans
+        from backend.qa import technical
+
+        source = tmp_path / "rec.mkv"
+        source.write_bytes(b"x" * 64)
+
+        monkeypatch.setattr(
+            technical,
+            "decode",
+            lambda *a, **k: technical.DecodeMeasurements(
+                decoded=True, black_runs=((5.0, 11.4),), freeze_runs=()
+            ),
+        )
+
+        spans = dead_source_spans(
+            source,
+            ffmpeg=object(),
+            config=config,
+            cache_dir=tmp_path / "cache",
+            media_id="media-2",
+            duration_seconds=600.0,
+        )
+
+        assert len(spans) == 1
+        assert (tmp_path / "cache" / "media-2.json").is_file()
+
+    def test_a_failed_decode_is_an_empty_answer(
+        self, tmp_path: Path, config, monkeypatch
+    ) -> None:
+        from backend.analysis.source_dead import dead_source_spans
+        from backend.qa import technical
+
+        source = tmp_path / "rec.mkv"
+        source.write_bytes(b"x" * 64)
+        monkeypatch.setattr(
+            technical,
+            "decode",
+            lambda *a, **k: technical.DecodeMeasurements(decoded=False, error="boom"),
+        )
+
+        assert (
+            dead_source_spans(
+                source,
+                ffmpeg=object(),
+                config=config,
+                cache_dir=tmp_path / "cache",
+                media_id="media-3",
+                duration_seconds=None,
+            )
+            == []
+        )
