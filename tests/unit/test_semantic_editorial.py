@@ -218,3 +218,29 @@ class TestJumpCutTightening:
         )
 
         assert len(pieces) == 1, "V1 judgement: no seam, no arithmetic midpoint"
+
+
+class TestExclusiveKeepsShortDisjointPieces:
+    def test_a_short_disjoint_piece_is_an_editorial_decision(self) -> None:
+        from backend.timeline.builder import _exclusive
+
+        pieces = [
+            PlannedClip(media_id="m", source_start=10.0, source_end=11.2),
+            PlannedClip(media_id="m", source_start=11.5, source_end=12.9),
+        ]
+        kept, notes = _exclusive(pieces)
+
+        assert len(kept) == 2, "disjoint climax pieces survive whole"
+        assert notes == []
+
+    def test_a_deduped_fragment_below_the_floor_still_drops(self) -> None:
+        from backend.timeline.builder import _exclusive
+
+        clips = [
+            PlannedClip(media_id="m", source_start=10.0, source_end=30.0),
+            PlannedClip(media_id="m", source_start=28.5, source_end=31.0),
+        ]
+        kept, notes = _exclusive(clips)
+
+        assert len(kept) == 1, "a 1s leftover of a swallowed clip is a glitch"
+        assert any("already in the edit" in note for note in notes)

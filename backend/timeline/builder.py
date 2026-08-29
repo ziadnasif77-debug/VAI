@@ -293,13 +293,16 @@ def _exclusive(clips: Sequence[PlannedClip]) -> tuple[list[PlannedClip], list[st
                     next_pieces.append((taken_end, piece_end))
             pieces = next_pieces
         best = max(pieces, key=lambda piece: piece[1] - piece[0], default=None)
-        if best is None or best[1] - best[0] < MIN_EXCLUSIVE_SECONDS:
+        removed = clip.seconds - (best[1] - best[0]) if best else clip.seconds
+        # The fragment floor applies only where dedup actually cut something:
+        # a clip that arrives short AND disjoint is an editorial decision
+        # (V2's climax pieces run 0.8-1.8s by design), not a glitchy leftover.
+        if best is None or (removed > 1e-9 and best[1] - best[0] < MIN_EXCLUSIVE_SECONDS):
             notes.append(
                 f"dropped a {clip.seconds:.1f}s clip at "
                 f"{clip.source_start:.1f}s: its footage was already in the edit"
             )
             continue
-        removed = clip.seconds - (best[1] - best[0])
         if removed > 0.25:
             notes.append(
                 f"trimmed {removed:.1f}s from the clip at {clip.source_start:.1f}s: "
