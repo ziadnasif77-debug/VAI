@@ -129,7 +129,16 @@ class SemanticTimeline:
                 merged[0].start_seconds, merged[1].end_seconds, merged[1].level
             )
             merged = merged[1:]
-        return merged
+        # Sliver absorption can leave same-level neighbours; one run each.
+        coalesced: list[ShapeSegment] = []
+        for segment in merged:
+            if coalesced and coalesced[-1].level == segment.level:
+                coalesced[-1] = ShapeSegment(
+                    coalesced[-1].start_seconds, segment.end_seconds, segment.level
+                )
+                continue
+            coalesced.append(segment)
+        return coalesced
 
     def summary(self) -> list[dict[str, Any]]:
         return [

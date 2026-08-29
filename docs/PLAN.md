@@ -114,6 +114,7 @@ Development order follows SPEC §126.
 | P2 | **Timeline UX** | trim/split/move/delete controls in the UI over the §42 API, refusals shown verbatim | ✅ **done** |
 | P2 | **Upload metadata** | evidence-built title/description/tags/chapters/thumbnail, `POST /metadata/suggest`, wired into Export | ✅ **done** |
 | P2 | **Profile authoring** | docs/PROFILES.md + `scripts/profile_report.py` signature miner | ✅ **done** |
+| V2-P1 | **Semantic Timeline + Dynamic Pacing** | 2Hz fused heat lanes per session; cut caps follow the stretch's level; chronology constitution (`ensure_chronological`, hook-at-0 the sole exception) | ✅ **done** |
 
 ### Phase F — preferences ✅ done
 
