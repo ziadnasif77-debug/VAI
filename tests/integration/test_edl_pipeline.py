@@ -44,6 +44,25 @@ def ocr_provider() -> FakeOcrProvider:
 
 
 @pytest.fixture
+def config(config):
+    """The shared config with the screen guard off: this file tests §40-§42.
+
+    The guard's whole job is to move and drop clip boundaries -- advance dead
+    openings, split slabs at seams, drop slivers shorter than a shot -- which
+    by design breaks the plan↔timeline parity these tests assert. On this
+    fixture's seconds-long recording the 4 s recording-start guard swallows a
+    real clip whole, so with it on, every test here would be asserting on the
+    guard, not on the EDL. Same precedent as the narration/Director/Critic
+    switches in the shared fixture: a component that edits the clip list is
+    exercised in its own tests (``test_screen_guard.py``), and
+    ``TestScreenGuardWire`` below keeps the worker-side wire honest.
+    """
+    guard = config.narrative.screen_guard.model_copy(update={"enabled": False})
+    narrative = config.narrative.model_copy(update={"screen_guard": guard})
+    return config.model_copy(update={"narrative": narrative})
+
+
+@pytest.fixture
 def runner(database, paths, config, speech_provider, vision_provider, ocr_provider):
     workers = workers_through("edl")
     workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
@@ -54,7 +73,12 @@ def runner(database, paths, config, speech_provider, vision_provider, ocr_provid
 
 def _project_with(media_service, project_manager, clip: Path, *, mode=VideoMode.STORY):
     project = project_manager.create(
-        ProjectCreate(name="EDL", target_duration_seconds=600, mode=mode)
+        # Captions became opt-in at import (owner: an unticked box writes
+        # nothing on the frame). This file's caption tests are about §71
+        # timing, so the project opts in the way a captioned project does.
+        ProjectCreate(
+            name="EDL", target_duration_seconds=600, mode=mode, captions_enabled=True
+        )
     )
     media = media_service.import_media(project.id, MediaImport(path=str(clip)))
     return project, media
@@ -411,3 +435,46 @@ class TestNothingToEdit:
         runner.run_project(project.id)
 
         assert TimelineRepository(database).clip_count(project.id) == 0
+class TestScreenGuardWire:
+    """The guard, re-enabled: the EDL worker really consults it (§77).
+
+    The guard's arithmetic lives in ``test_screen_guard.py``; what only the
+    pipeline can show is that the worker feeds it the stored states and seams
+    and honours its verdict. On a recording this short the recording-start
+    guard dominates: every surviving clip opens at or past it, or nothing
+    survives and the stage says so in as many words.
+    """
+
+    def test_no_stored_clip_opens_inside_the_start_guard(
+        self, media_service, project_manager, database, paths, config,
+        speech_provider, vision_provider, ocr_provider, reaction_clip: Path,
+    ) -> None:
+        from backend.interaction.service import InteractionService
+
+        guard = config.narrative.screen_guard.model_copy(update={"enabled": True})
+        narrative = config.narrative.model_copy(update={"screen_guard": guard})
+        guarded = config.model_copy(update={"narrative": narrative})
+
+        workers = workers_through("edl")
+        workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
+        workers[JobStage.VISION] = VisionWorker(vision_provider)
+        workers[JobStage.OCR] = OcrWorker(ocr_provider)
+        runner = PipelineRunner(database, paths, guarded, workers=workers)
+
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+        InteractionService(database, guarded).handle(project.id, "use a hook")
+        outcomes = {o.job.stage: o for o in runner.run_project(project.id)}
+
+        assert JobStage.EDL in outcomes
+        result = outcomes[JobStage.EDL].job.result
+        if result.get("skipped"):
+            assert "dead screen" in result["reason"]
+            return
+        clips = TimelineRepository(database).list_clips(project.id)
+        assert clips
+        floor = guard.recording_start_guard_seconds
+        for clip in clips:
+            assert clip.source_in >= floor - 1e-6, (
+                f"a clip opens at {clip.source_in:.2f}s, inside the "
+                f"{floor:.0f}s recording-start guard"
+            )

@@ -111,7 +111,14 @@ def rendered(render_runner, render_database, render_paths, render_config, module
     projects = ProjectManager(render_database, render_paths, render_config)
     media = MediaIngestionService(render_database, render_paths, render_config)
     project = projects.create(
-        ProjectCreate(name="Render", target_duration_seconds=600, mode=VideoMode.STORY)
+        ProjectCreate(
+            # Captions are opt-in at import now; the burn-in test below is
+            # this file's §71 subject, so the project opts in.
+            name="Render",
+            target_duration_seconds=600,
+            mode=VideoMode.STORY,
+            captions_enabled=True,
+        )
     )
     media.import_media(project.id, MediaImport(path=str(module_clip)))
     outcomes = {outcome.job.stage: outcome for outcome in render_runner.run_project(project.id)}
