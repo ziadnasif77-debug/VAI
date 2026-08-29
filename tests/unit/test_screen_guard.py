@@ -48,7 +48,7 @@ class TestDeadOpenings:
         assert guarded[0].source_end == 40.0
 
     def test_an_opening_inside_a_menu_advances_past_it(self) -> None:
-        states = [StateSpan(FrameState.MENU, 10.0, 22.0)]
+        states = [StateSpan(FrameState.MENU, 10.0, 22.0, observations=2)]
 
         guarded = guard_clips(
             [_clip(12.0, 60.0)],
@@ -61,8 +61,8 @@ class TestDeadOpenings:
 
     def test_chained_dead_spans_are_walked_through(self) -> None:
         states = [
-            StateSpan(FrameState.MENU, 10.0, 20.0),
-            StateSpan(FrameState.LOADING, 20.2, 30.0),
+            StateSpan(FrameState.MENU, 10.0, 20.0, observations=2),
+            StateSpan(FrameState.LOADING, 20.2, 30.0, observations=2),
         ]
 
         guarded = guard_clips(
@@ -75,7 +75,7 @@ class TestDeadOpenings:
         assert guarded[0].source_start == pytest.approx(30.4)
 
     def test_unknown_is_not_evidence_of_a_menu(self) -> None:
-        states = [StateSpan(FrameState.UNKNOWN, 0.0, 60.0)]
+        states = [StateSpan(FrameState.UNKNOWN, 0.0, 60.0, observations=2)]
 
         guarded = guard_clips(
             [_clip(10.0, 60.0)],
@@ -86,7 +86,7 @@ class TestDeadOpenings:
         assert guarded[0].source_start == 10.0
 
     def test_a_clip_that_is_only_its_dead_opening_is_dropped(self) -> None:
-        states = [StateSpan(FrameState.MENU, 0.0, 38.0)]
+        states = [StateSpan(FrameState.MENU, 0.0, 38.0, observations=2)]
 
         guarded = guard_clips(
             [_clip(5.0, 42.0)],
@@ -100,7 +100,7 @@ class TestDeadOpenings:
     def test_a_clean_opening_is_untouched(self) -> None:
         guarded = guard_clips(
             [_clip(120.0, 160.0)],
-            states_by_media={"media-1": [StateSpan(FrameState.MENU, 10.0, 20.0)]},
+            states_by_media={"media-1": [StateSpan(FrameState.MENU, 10.0, 20.0, observations=2)]},
             scenes_by_media={},
         )
 
@@ -230,7 +230,7 @@ class TestRecorderProbe:
         )
 
     def test_a_desktop_span_blocks_a_clip_opening(self) -> None:
-        states = [StateSpan(FrameState.DESKTOP, 0.0, 12.0)]
+        states = [StateSpan(FrameState.DESKTOP, 0.0, 12.0, observations=2)]
 
         guarded = guard_clips(
             [_clip(5.0, 60.0)],
@@ -247,7 +247,7 @@ class TestDeadInteriors:
     recorder sail through mid-clip on a real rerun."""
 
     def test_a_mid_clip_dead_span_is_excised(self) -> None:
-        states = [StateSpan(FrameState.DESKTOP, 18.5, 24.5)]
+        states = [StateSpan(FrameState.DESKTOP, 18.5, 24.5, observations=2)]
 
         guarded = guard_clips(
             [_clip(12.9, 41.6)],
@@ -264,7 +264,7 @@ class TestDeadInteriors:
         ]
 
     def test_a_short_stub_before_the_dead_span_is_dropped(self) -> None:
-        states = [StateSpan(FrameState.DESKTOP, 15.0, 30.0)]
+        states = [StateSpan(FrameState.DESKTOP, 15.0, 30.0, observations=2)]
 
         guarded = guard_clips(
             [_clip(12.9, 60.0)],
@@ -277,7 +277,7 @@ class TestDeadInteriors:
         assert bounds == [(pytest.approx(30.4), 60.0)]
 
     def test_a_clip_entirely_dead_disappears(self) -> None:
-        states = [StateSpan(FrameState.DESKTOP, 10.0, 60.0)]
+        states = [StateSpan(FrameState.DESKTOP, 10.0, 60.0, observations=2)]
 
         guarded = guard_clips(
             [_clip(15.0, 40.0)],
@@ -393,3 +393,96 @@ class TestSourceDeadSpans:
             )
             == []
         )
+class TestEvidenceBeforeKnives:
+    """The mercy rules, born from a 596 s plan that shipped as 189 s."""
+
+    def _clip(self, start: float, end: float) -> PlannedClip:
+        return PlannedClip(
+            media_id="media-1", source_start=start, source_end=end,
+            moment_type=MomentType.CHAOS, score=0.6,
+        )
+
+    def _run(self, clips, states, *, events=None, **kw):
+        return guard_clips(
+            clips,
+            states_by_media={"media-1": states},
+            scenes_by_media={"media-1": []},
+            recording_start_guard_seconds=0.0,
+            events_by_media={"media-1": events} if events else None,
+            **kw,
+        )
+
+    def test_a_single_observation_span_may_warn_but_not_cut(self) -> None:
+        # Nine of these did most of the live shredding: one sampled frame
+        # misread as a menu, stretched into a span, carving real gameplay.
+        clip = self._clip(100.0, 140.0)
+        weak = StateSpan(FrameState.MENU, 115.0, 125.0)  # observations=1
+
+        kept = self._run([clip], [weak])
+
+        assert [(c.source_start, c.source_end) for c in kept] == [(100.0, 140.0)]
+
+    def test_a_corroborated_span_still_cuts(self) -> None:
+        clip = self._clip(100.0, 140.0)
+        strong = StateSpan(FrameState.MENU, 115.0, 125.0, observations=2)
+
+        kept = self._run([clip], [strong])
+
+        assert len(kept) == 2, "real menus are still excised"
+
+    def test_a_short_interior_stretch_is_bridged(self) -> None:
+        # A two-second map glance is life; cutting it costs a hard cut plus
+        # a sliver the piece floor then kills.
+        clip = self._clip(100.0, 140.0)
+        glance = StateSpan(FrameState.MENU, 118.0, 120.5, observations=3)
+
+        kept = self._run([clip], [glance])
+
+        assert [(c.source_start, c.source_end) for c in kept] == [(100.0, 140.0)]
+
+    def test_stillness_overlapping_an_event_yields(self) -> None:
+        # A sniper scope holds the frame while the game plainly lives.
+        clip = self._clip(100.0, 140.0)
+        frozen = StateSpan(FrameState.PAUSE, 110.0, 130.0, observations=3)
+
+        kept = self._run([clip], [frozen], events=[(112.0, 118.0)])
+
+        assert [(c.source_start, c.source_end) for c in kept] == [(100.0, 140.0)]
+
+    def test_a_corroborated_menu_ignores_the_event_veto(self) -> None:
+        # The veto is for stillness kinds only: a menu with events behind it
+        # is still a menu on screen.
+        clip = self._clip(100.0, 140.0)
+        menu = StateSpan(FrameState.MENU, 110.0, 130.0, observations=3)
+
+        kept = self._run([clip], [menu], events=[(112.0, 118.0)])
+
+        assert len(kept) == 2
+
+    def test_zero_pieces_rescues_the_widest_live_window(self) -> None:
+        # Excision that erases a detected moment silently is worse than a
+        # short breath of dead time. The widest live stretch survives,
+        # widened to the piece floor.
+        clip = self._clip(100.0, 130.0)
+        states = [
+            StateSpan(FrameState.MENU, 100.0, 112.0, observations=3),
+            StateSpan(FrameState.MENU, 117.0, 130.0, observations=3),
+        ]
+
+        kept = self._run([clip], states)
+
+        assert len(kept) == 1
+        piece = kept[0]
+        assert piece.seconds >= 8.0 - 1e-6
+        assert piece.source_start >= 100.0 and piece.source_end <= 130.0
+        # The opening guard advanced the start past dead #1 (to 112.4)
+        # before excision, so the rescued window anchors on the live core
+        # that remained and widens rightward with the least dead possible.
+        assert 112.0 <= piece.source_start <= 113.0
+        assert piece.source_end >= 117.0, "the live core stays inside"
+
+    def test_truly_dead_still_dies(self) -> None:
+        clip = self._clip(100.0, 130.0)
+        wall = StateSpan(FrameState.MENU, 99.0, 131.0, observations=4)
+
+        assert self._run([clip], [wall]) == []

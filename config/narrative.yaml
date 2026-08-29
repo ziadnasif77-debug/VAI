@@ -105,6 +105,10 @@ narrative:
   screen_guard:
     enabled: true
     recording_start_guard_seconds: 4.0
+    # One sampled frame may warn; it may not cut (S80: evidence-weighted).
+    min_observations: 2
+    # Interior dead stretches shorter than this are bridged, not excised.
+    bridge_interior_seconds: 4.0
     dead_state_pad_seconds: 0.4
     max_clip_seconds: 75.0
     min_piece_seconds: 8.0

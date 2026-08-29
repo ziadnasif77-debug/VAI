@@ -257,10 +257,24 @@ class EdlWorker:
                 )
             states[media_id] = spans
             scenes[media_id] = SceneRepository(context.database).list_for_media(media_id)
+        events = {
+            media_id: [
+                (float(row["start_seconds"]), float(row["end_seconds"]))
+                for row in context.database.fetch_all(
+                    "SELECT start_seconds, end_seconds FROM game_events "
+                    "WHERE media_id = ?",
+                    (media_id,),
+                )
+            ]
+            for media_id in states
+        }
         return guard_clips(
             planned,
             states_by_media=states,
             scenes_by_media=scenes,
+            events_by_media=events,
+            min_observations=guard.min_observations,
+            bridge_interior_seconds=guard.bridge_interior_seconds,
             recording_start_guard_seconds=guard.recording_start_guard_seconds,
             dead_state_pad_seconds=guard.dead_state_pad_seconds,
             max_clip_seconds=guard.max_clip_seconds,

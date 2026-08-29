@@ -75,7 +75,13 @@ def final_report(project_id: str, state: AppState = Depends(get_state)) -> dict[
             "warnings": edl.get("warnings") or [],
         },
         "effect_plan": edl.get("effects"),
-        "audio_plan": {"notes": [n for n in (render.get("notes") or []) if "audio" in str(n).lower() or "music" in str(n).lower() or "microphone" in str(n).lower()]},
+        "audio_plan": {
+            "notes": [
+                n
+                for n in (render.get("notes") or [])
+                if any(k in str(n).lower() for k in ("audio", "music", "microphone"))
+            ]
+        },
         "text_plan": {"captions": edl.get("captions")},
         "thumbnail_plan": {"path": _thumbnail_path(state, project_id)},
         "youtube": (publish.get("request") or {}).get("metadata")

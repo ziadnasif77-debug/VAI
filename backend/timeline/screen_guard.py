@@ -54,6 +54,9 @@ def guard_clips(
     high_tier_max_seconds: float = 45.0,
     low_tier_max_seconds: float = 100.0,
     min_piece_seconds: float = 8.0,
+    min_observations: int = 2,
+    bridge_interior_seconds: float = 4.0,
+    events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
 ) -> list[PlannedClip]:
     """Both refinements, in the order that keeps them honest.
 
@@ -61,6 +64,12 @@ def guard_clips(
     and a clip whose remainder falls under ``min_piece_seconds`` is dropped
     rather than shipped as a stub.
     """
+
+    states_by_media = _weighed(
+        states_by_media,
+        min_observations=min_observations,
+        events_by_media=events_by_media or {},
+    )
     opened = _avoid_dead_openings(
         clips,
         states_by_media,
@@ -73,6 +82,7 @@ def guard_clips(
         states_by_media,
         pad=dead_state_pad_seconds,
         min_piece=min_piece_seconds,
+        bridge_seconds=bridge_interior_seconds,
     )
     return _split_long_clips(
         excised,
@@ -125,12 +135,72 @@ def _avoid_dead_openings(
     return refined
 
 
+#: States that assert stillness rather than an interface: the event veto
+#: applies to these only -- a corroborated MENU is a menu regardless of events.
+_STILLNESS = frozenset({FrameState.PAUSE, FrameState.TRANSITION})
+
+
+def _weighed(
+    states_by_media: Mapping[str, Sequence[StateSpan]],
+    *,
+    min_observations: int,
+    events_by_media: Mapping[str, Sequence[tuple[float, float]]],
+) -> dict[str, list[StateSpan]]:
+    """Evidence before knives: which dead spans may cut at all.
+
+    Two disqualifications, both measured on a real GTA session that a 596 s
+    plan left as 189 s of video:
+
+    * **Corroboration.** A dead state seen by fewer than ``min_observations``
+      sampled frames is a warning, not a scalpel -- nine single-observation
+      "menu" spans (the phone overlay, misread at a 12 s stride) were doing
+      most of the shredding. Probes that measure pixels directly declare
+      ``observations=3`` and keep their authority.
+    * **The event veto.** A stillness span that overlaps a detected game
+      event is not dead: a sniper scope, an aimed standoff, a cutscene kill
+      all hold the frame while the game plainly lives. Events are the richer
+      evidence, so the stillness yields.
+    """
+    weighed: dict[str, list[StateSpan]] = {}
+    for media_id, spans in states_by_media.items():
+        events = events_by_media.get(media_id, ())
+        kept: list[StateSpan] = []
+        weak = 0
+        vetoed = 0
+        for span in spans:
+            if span.state.is_gameplay:
+                kept.append(span)
+                continue
+            if span.observations < min_observations:
+                weak += 1
+                continue
+            if span.state in _STILLNESS and any(
+                start < span.end_seconds and span.start_seconds < end
+                for start, end in events
+            ):
+                vetoed += 1
+                continue
+            kept.append(span)
+        if weak or vetoed:
+            logger.info(
+                "Dead spans disqualified before cutting",
+                extra={
+                    "media_id": media_id,
+                    "single_observation": weak,
+                    "event_vetoed": vetoed,
+                },
+            )
+        weighed[media_id] = kept
+    return weighed
+
+
 def _excise_dead_interiors(
     clips: Sequence[PlannedClip],
     states_by_media: Mapping[str, Sequence[StateSpan]],
     *,
     pad: float,
     min_piece: float,
+    bridge_seconds: float = 4.0,
 ) -> list[PlannedClip]:
     """Cut the dead stretches out of a clip's middle, not only its opening.
 
@@ -150,6 +220,10 @@ def _excise_dead_interiors(
                 if span.state not in _OPENABLE
                 and span.start_seconds < clip.source_end
                 and span.end_seconds > clip.source_start
+                # The bridge: a short dead stretch inside a live clip is
+                # kept -- a two-second map glance costs less than the hard
+                # cut and the sliver the piece floor would then kill.
+                and span.end_seconds - span.start_seconds >= bridge_seconds
             ),
             key=lambda span: span.start_seconds,
         )
@@ -165,6 +239,18 @@ def _excise_dead_interiors(
         if clip.source_end - cursor >= min_piece:
             pieces.append((cursor, clip.source_end))
         if not pieces:
+            rescued = _rescue(clip, dead, min_piece=min_piece)
+            if rescued is not None:
+                logger.warning(
+                    "Excision would erase a detected moment; kept its best window",
+                    extra={
+                        "media_id": clip.media_id,
+                        "start": round(rescued.source_start, 1),
+                        "seconds": round(rescued.seconds, 1),
+                    },
+                )
+                refined.append(rescued)
+                continue
             logger.info(
                 "Dropped a clip that was mostly dead screen",
                 extra={"media_id": clip.media_id, "start": round(clip.source_start, 1)},
@@ -186,6 +272,39 @@ def _excise_dead_interiors(
         for start, end in pieces:
             refined.append(replace(clip, source_start=start, source_end=end))
     return refined
+
+
+def _rescue(
+    clip: PlannedClip, dead: Sequence[StateSpan], *, min_piece: float
+) -> PlannedClip | None:
+    """The zero-piece case: keep the widest live window instead of vanishing.
+
+    A planned clip is a *detected moment* -- events fired, scores agreed.
+    Dropping it because excision left only slivers silently erases content
+    the analysis promised. The compromise: take the widest live stretch and
+    widen it to the piece floor, accepting the least dead time necessary,
+    and say so at warning level. Only a clip with no live stretch of at
+    least two seconds truly dies.
+    """
+    cursor = clip.source_start
+    live: list[tuple[float, float]] = []
+    for span in dead:
+        if span.start_seconds > cursor:
+            live.append((cursor, min(span.start_seconds, clip.source_end)))
+        cursor = max(cursor, span.end_seconds)
+    if cursor < clip.source_end:
+        live.append((cursor, clip.source_end))
+    live = [(s, e) for s, e in live if e - s >= 2.0]
+    if not live:
+        return None
+    start, end = max(live, key=lambda piece: piece[1] - piece[0])
+    shortfall = min_piece - (end - start)
+    if shortfall > 0:
+        grow_left = min(shortfall / 2, start - clip.source_start)
+        start -= grow_left
+        end = min(end + (shortfall - grow_left), clip.source_end)
+        start = max(clip.source_start, min(start, end - 2.0))
+    return replace(clip, source_start=start, source_end=end)
 
 
 def _cap_for(

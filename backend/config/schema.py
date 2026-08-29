@@ -937,6 +937,17 @@ class ScreenGuardConfig(_Section):
     #: behind the record button is desktop chrome, and no named event has
     #: ever been detected there.
     recording_start_guard_seconds: float = Field(default=4.0, ge=0)
+    #: Evidence floor for CUTTING. A dead state seen by a single sampled
+    #: frame is a claim, not a conviction: measured live, nine one-observation
+    #: "menu" spans -- GTA's phone overlay misread at a 12 s sampling stride
+    #: -- shredded a 596 s plan to 189 s. Below this count a dead span may
+    #: not excise or drop anything (probes that measure pixels directly
+    #: report observations=3 and keep their full authority).
+    min_observations: int = Field(default=2, ge=1)
+    #: An interior dead stretch shorter than this is bridged, not excised: a
+    #: two-second map glance is life, and cutting it costs a hard cut plus a
+    #: sliver that the piece floor then kills.
+    bridge_interior_seconds: float = Field(default=4.0, ge=0)
     #: Breathing room after a dead span before the clip opens.
     dead_state_pad_seconds: float = Field(default=0.4, ge=0)
     #: A clip longer than this is split at stored scene seams. The doctrine's

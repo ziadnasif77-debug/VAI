@@ -128,10 +128,13 @@ def recorder_spans(
         end = offset + _FORWARD_SECONDS
         if spans and start <= spans[-1].end_seconds:
             spans[-1] = StateSpan(
-                FrameState.DESKTOP, spans[-1].start_seconds, max(spans[-1].end_seconds, end)
+                FrameState.DESKTOP,
+                spans[-1].start_seconds,
+                max(spans[-1].end_seconds, end),
+                observations=3,
             )
         else:
-            spans.append(StateSpan(FrameState.DESKTOP, start, end))
+            spans.append(StateSpan(FrameState.DESKTOP, start, end, observations=3))
     logger.info(
         "Recorder chrome found at the opening",
         extra={"hits": len(hits), "dead_until": round(spans[-1].end_seconds, 1)},

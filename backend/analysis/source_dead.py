@@ -218,6 +218,9 @@ def _to_spans(runs: list, state: FrameState) -> list[StateSpan]:
             state=state,
             start_seconds=max(0.0, float(begin) - _PAD_SECONDS),
             end_seconds=float(end) + _PAD_SECONDS,
+            # Measured pixels, not a sampled guess: full cutting authority
+            # under the guard's evidence floor.
+            observations=3,
         )
         for begin, end in runs
     ]
