@@ -160,6 +160,10 @@ class EditorialPacingConfig(_Section):
     dynamic: bool = True
     bands: PacingBands = Field(default_factory=PacingBands)
     min_piece_seconds: float = Field(default=0.8, gt=0)
+    #: Source seconds dropped between the pieces of a hot slab (a stretch cut
+    #: below the normal band's cap). Contiguous pieces replay as one shot; the
+    #: skip is what makes the cut a felt jump-cut, and it tightens the action.
+    jump_cut_gap_seconds: float = Field(default=0.35, ge=0)
 
 
 class EditorialConfig(_Section):

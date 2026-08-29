@@ -44,3 +44,6 @@ editorial:
     # Splitting a hot clip needs real scene seams; a piece may not fall
     # below this even at CLIMAX (readability floor).
     min_piece_seconds: 0.8
+    # Source seconds skipped between the pieces of a hot slab: the skip is
+    # what makes the cut a felt jump-cut, and it tightens continuous action.
+    jump_cut_gap_seconds: 0.35

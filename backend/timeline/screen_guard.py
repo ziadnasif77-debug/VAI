@@ -26,8 +26,10 @@ database in the room.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
+from itertools import pairwise
 from typing import Any, Final
 
 from backend.analysis.frame_state import StateSpan
@@ -57,6 +59,9 @@ def guard_clips(
     min_observations: int = 2,
     bridge_interior_seconds: float = 4.0,
     events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
+    seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
+    jump_cut_gap: float = 0.0,
+    jump_cut_below: float = 0.0,
     cap_fn=None,
 ) -> list[PlannedClip]:
     """Both refinements, in the order that keeps them honest.
@@ -90,6 +95,9 @@ def guard_clips(
         scenes_by_media,
         cap_fn=cap_fn,
         events_by_media=events_by_media or {},
+        seam_hints_by_media=seam_hints_by_media or {},
+        jump_cut_gap=jump_cut_gap,
+        jump_cut_below=jump_cut_below,
         max_seconds=max_clip_seconds,
         high_tier_max_seconds=high_tier_max_seconds,
         low_tier_max_seconds=low_tier_max_seconds,
@@ -398,6 +406,9 @@ def _split_long_clips(
     min_piece: float = 8.0,
     cap_fn=None,
     events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
+    seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
+    jump_cut_gap: float = 0.0,
+    jump_cut_below: float = 0.0,
 ) -> list[PlannedClip]:
     refined: list[PlannedClip] = []
     for clip in clips:
@@ -424,19 +435,23 @@ def _split_long_clips(
             scenes_by_media.get(clip.media_id, ()),
             max_seconds=cap,
             min_piece=piece_floor,
-            # Cut on the beat: a strong game event's onset is as real a seam
-            # as a scene change -- night footage proved scenes alone go
-            # sparse exactly where the action burns.
+            # Cut on the beat: a strong game event's onset is as real a
+            # seam as a scene change, and where a hot stretch has neither
+            # (40s of continuous action produced zero of both), the semantic
+            # lane's own local peaks are the beat -- night footage proved
+            # scenes go sparse exactly where the action burns.
             extra_seams=[
                 start
                 for start, _end in (events_by_media or {}).get(clip.media_id, ())
-            ],
+            ]
+            + list((seam_hints_by_media or {}).get(clip.media_id, ())),
         )
-        if not cuts:
+        if not cuts and cap_fn is None:
+            # The static path keeps V1's judgement: no seam, ship the slab.
             refined.append(clip)
             continue
         logger.info(
-            "Split a slab at its scene seams",
+            "Split a slab at its seams",
             extra={
                 "media_id": clip.media_id,
                 "seconds": round(clip.source_end - clip.source_start, 1),
@@ -444,11 +459,37 @@ def _split_long_clips(
             },
         )
         bounds = [clip.source_start, *cuts, clip.source_end]
+        if cap_fn is not None:
+            # The dynamic cap is a promise, not a wish: any piece the seams
+            # left over the cap divides evenly (even pieces land at or above
+            # half the cap, so the scaled floor holds by construction).
+            bounds = _even_within_cap(bounds, cap)
+        # A hot slab's pieces skip a sliver of source between them: played
+        # contiguously they would be one unbroken shot no viewer could feel;
+        # the skip is the jump-cut, and it tightens continuous action the
+        # way an editor would.
+        gap = jump_cut_gap if cap_fn is not None and cap < jump_cut_below else 0.0
         for index in range(len(bounds) - 1):
+            start = bounds[index]
+            if gap and index and bounds[index + 1] - (start + gap) >= 0.7 * piece_floor:
+                start += gap
             refined.append(
-                replace(clip, source_start=bounds[index], source_end=bounds[index + 1])
+                replace(clip, source_start=start, source_end=bounds[index + 1])
             )
     return refined
+
+
+def _even_within_cap(bounds: list[float], cap: float) -> list[float]:
+    """Bounds with every over-cap span divided into equal cap-fitting pieces."""
+    out = [bounds[0]]
+    for a, b in pairwise(bounds):
+        span = b - a
+        if span > cap:
+            pieces = math.ceil(span / cap)
+            size = span / pieces
+            out.extend(a + size * k for k in range(1, pieces))
+        out.append(b)
+    return out
 
 
 def _cut_points(
@@ -459,11 +500,11 @@ def _cut_points(
     min_piece: float,
     extra_seams: Sequence[float] = (),
 ) -> list[float]:
-    """Scene starts inside the clip, greedily thinned to honest pieces.
+    """Seams inside the clip, greedily fitted to honest pieces.
 
-    Every piece must fit the cap and clear the floor; when the scenes are too
-    sparse for that, the clip stays whole -- an arithmetic midpoint is not a
-    seam, and shipping the slab is better than cutting mid-action.
+    Every piece must clear the floor and stretch as close to the cap as the
+    seams allow; when they are too sparse even for that, the long piece ships
+    whole -- an arithmetic midpoint is not a seam.
     """
     seam_times = [
         float(getattr(scene, "start_seconds", 0.0)) for scene in scenes
@@ -473,24 +514,38 @@ def _cut_points(
         for t in seam_times
         if clip.source_start + min_piece <= t <= clip.source_end - min_piece
     )
+    # Cut as LATE as the cap allows: each piece stretches toward the cap
+    # and lands on the last seam that still fits. Cutting at every eligible
+    # seam -- the first version -- shredded calm stretches to the floor the
+    # moment the seams were dense.
     cuts: list[float] = []
     previous = clip.source_start
-    for candidate in candidates:
+    viable: float | None = None
+    index = 0
+    while index < len(candidates):
+        candidate = candidates[index]
         if candidate - previous < min_piece:
+            index += 1
             continue
-        if candidate - previous > max_seconds:
-            # The stretch before this seam already breaks the cap; take the
-            # latest earlier candidate we skipped, or accept the long piece.
-            pass
-        cuts.append(candidate)
-        previous = candidate
+        if candidate - previous <= max_seconds:
+            viable = candidate
+            index += 1
+            continue
+        if viable is None:
+            # No seam fits under the cap; a long honest piece beats an
+            # arithmetic midpoint mid-action.
+            cuts.append(candidate)
+            previous = candidate
+            index += 1
+            continue
+        cuts.append(viable)
+        previous = viable
+        viable = None  # re-judge this candidate against the new start
+    if viable is not None and clip.source_end - previous > max_seconds:
+        cuts.append(viable)
     # Thin from the end until the tail piece is honest.
     while cuts and clip.source_end - cuts[-1] < min_piece:
         cuts.pop()
-    if not cuts:
-        return []
-    # If any piece still exceeds the cap, cutting helped anyway; only refuse
-    # when nothing changed.
     return cuts
 
 

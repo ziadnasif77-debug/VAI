@@ -314,11 +314,22 @@ class EdlWorker:
                 fallback=static,
             )
 
+        # Where a hot stretch has neither a scene change nor an event --
+        # 40 continuous seconds of action produced zero of both -- the
+        # semantic lane's own local peaks are the beat the cut lands on.
+        seam_hints = {
+            media_id: _lane_peaks(timeline)
+            for media_id, timeline in timelines.items()
+        }
+
         guarded = guard_clips(
             planned,
             states_by_media=states,
             scenes_by_media=scenes,
             events_by_media=events,
+            seam_hints_by_media=seam_hints,
+            jump_cut_gap=context.config.editorial.pacing.jump_cut_gap_seconds,
+            jump_cut_below=context.config.editorial.pacing.bands.normal.max,
             cap_fn=dynamic_cap if timelines else None,
             min_observations=guard.min_observations,
             bridge_interior_seconds=guard.bridge_interior_seconds,
@@ -399,3 +410,14 @@ class EdlWorker:
 
 
 __all__ = ["EdlWorker"]
+
+
+def _lane_peaks(timeline) -> list[float]:
+    """Local maxima of the fused intensity lane, as candidate seam times."""
+    lane = timeline.lanes.get("intensity", [])
+    step = 1.0 / timeline.hz
+    return [
+        index * step
+        for index in range(1, len(lane) - 1)
+        if lane[index] > lane[index - 1] and lane[index] >= lane[index + 1]
+    ]

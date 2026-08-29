@@ -7,6 +7,8 @@ the one law no engine may break -- chronology is immutable after selection.
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from backend.core.errors import ValidationError
@@ -157,3 +159,62 @@ class TestChronologyConstitution:
         a = PlannedClip(media_id="a", source_start=100, source_end=110)
         b = PlannedClip(media_id="b", source_start=5, source_end=15)
         ensure_chronological([a, b])
+
+
+class TestJumpCutTightening:
+    """A hot slab with no natural seams still honours its cap -- the pieces
+    skip a sliver of source between them, which is the felt jump-cut."""
+
+    def _slab(self, seconds=40.0):
+        return PlannedClip(media_id="m", source_start=100.0, source_end=100.0 + seconds)
+
+    def test_a_seamless_hot_slab_is_capped_and_tightened(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        pieces = _split_long_clips(
+            [self._slab()],
+            scenes_by_media={},
+            max_seconds=75.0,
+            cap_fn=lambda clip: 2.5,
+            jump_cut_gap=0.35,
+            jump_cut_below=8.0,
+        )
+
+        assert len(pieces) >= 14, "40s at cap 2.5 cuts into many pieces"
+        for piece in pieces:
+            assert piece.source_end - piece.source_start <= 2.5 + 1e-6
+        skips = [
+            after.source_start - before.source_end
+            for before, after in pairwise(pieces)
+        ]
+        assert all(abs(skip - 0.35) < 1e-6 for skip in skips), "every seam skips"
+
+    def test_a_calm_slab_keeps_its_breath(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        pieces = _split_long_clips(
+            [self._slab()],
+            scenes_by_media={},
+            max_seconds=75.0,
+            cap_fn=lambda clip: 15.0,
+            jump_cut_gap=0.35,
+            jump_cut_below=8.0,
+        )
+
+        assert 2 <= len(pieces) <= 3, "40s at cap 15 divides evenly, no shred"
+        skips = [
+            after.source_start - before.source_end
+            for before, after in pairwise(pieces)
+        ]
+        assert all(skip == 0.0 for skip in skips), "calm pieces stay contiguous"
+
+    def test_the_static_path_still_ships_a_seamless_slab_whole(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        pieces = _split_long_clips(
+            [self._slab(90.0)],
+            scenes_by_media={},
+            max_seconds=75.0,
+        )
+
+        assert len(pieces) == 1, "V1 judgement: no seam, no arithmetic midpoint"
