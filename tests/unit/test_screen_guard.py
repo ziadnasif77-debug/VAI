@@ -485,15 +485,28 @@ class TestEvidenceBeforeKnives:
 
         kept = self._run([clip], states)
 
+        # Menus wall the live core in on both sides: v2 refuses to borrow
+        # interface seconds -- QA counted every borrowed menu frame against
+        # the first rescue design -- so the short live core ships as-is.
         assert len(kept) == 1
         piece = kept[0]
-        assert piece.seconds >= 8.0 - 1e-6
-        assert piece.source_start >= 100.0 and piece.source_end <= 130.0
-        # The opening guard advanced the start past dead #1 (to 112.4)
-        # before excision, so the rescued window anchors on the live core
-        # that remained and widens rightward with the least dead possible.
         assert 112.0 <= piece.source_start <= 113.0
-        assert piece.source_end >= 117.0, "the live core stays inside"
+        assert 116.5 <= piece.source_end <= 117.5
+        assert piece.seconds >= 3.0
+
+    def test_rescue_pads_into_stillness_but_never_menus(self) -> None:
+        # Same shape, but the walls are PAUSE stillness: borrowing a breath
+        # of held frame is fine, and the window reaches the piece floor.
+        clip = self._clip(100.0, 130.0)
+        states = [
+            StateSpan(FrameState.PAUSE, 100.0, 112.0, observations=3),
+            StateSpan(FrameState.PAUSE, 117.0, 130.0, observations=3),
+        ]
+
+        kept = self._run([clip], states)
+
+        assert len(kept) == 1
+        assert kept[0].seconds >= 8.0 - 1e-6
 
     def test_truly_dead_still_dies(self) -> None:
         clip = self._clip(100.0, 130.0)

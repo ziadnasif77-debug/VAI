@@ -339,10 +339,25 @@ def _rescue(
     start, end = max(live, key=lambda piece: piece[1] - piece[0])
     shortfall = min_piece - (end - start)
     if shortfall > 0:
-        grow_left = min(shortfall / 2, start - clip.source_start)
+        # Widening may borrow seconds from *stillness* only -- a pause reads
+        # as a breath; a menu or the desktop reads as a broken edit, and QA
+        # counted every borrowed interface frame against the last rescue
+        # design. When the interface walls the window in, a short live core
+        # beats a padded one: three seconds of game over eight of menus.
+        left_wall = clip.source_start
+        right_wall = clip.source_end
+        for span in dead:
+            if span.state not in _STILLNESS:
+                if span.end_seconds <= start:
+                    left_wall = max(left_wall, span.end_seconds)
+                if span.start_seconds >= end:
+                    right_wall = min(right_wall, span.start_seconds)
+        grow_left = min(shortfall / 2, start - left_wall)
         start -= grow_left
-        end = min(end + (shortfall - grow_left), clip.source_end)
-        start = max(clip.source_start, min(start, end - 2.0))
+        end = min(end + (shortfall - grow_left), right_wall)
+        start = max(left_wall, min(start, end - 2.0))
+    if end - start < 3.0:
+        return None
     return replace(clip, source_start=start, source_end=end)
 
 
