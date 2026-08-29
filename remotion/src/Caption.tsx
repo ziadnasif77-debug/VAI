@@ -37,14 +37,18 @@ export const Caption: React.FC<Props> = ({caption, style, height}) => {
   const frame = local + caption.from;
   const last = caption.durationInFrames;
 
-  const opacity = style.animated
-    ? interpolate(
-        local,
-        [0, FADE_FRAMES, Math.max(FADE_FRAMES, last - FADE_FRAMES), last],
-        [0, 1, 1, 0],
-        {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'},
-      )
-    : 1;
+  // interpolate() demands a STRICTLY increasing range; a caption squeezed
+  // into a short piece gets a shrunken fade instead of a crash.
+  const fade = Math.max(1, Math.min(FADE_FRAMES, Math.floor((last - 1) / 2)));
+  const opacity =
+    style.animated && last > 2
+      ? interpolate(
+          local,
+          [0, fade, last - fade, last],
+          [0, 1, 1, 0],
+          {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'},
+        )
+      : 1;
 
   // A small rise on entry. Enough to read as deliberate, not enough to draw
   // attention away from the gameplay it is drawn over.

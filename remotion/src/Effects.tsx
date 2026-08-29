@@ -271,11 +271,18 @@ const Meme: React.FC<Props> = ({effect, width, height}) => {
   );
 };
 
-/** Shared entry/exit ramp, in frames. */
-const fadeInOut = (local: number, duration: number, ramp = 4): number =>
-  interpolate(
+/** Shared entry/exit ramp, in frames. The ramp shrinks for short elements:
+ * interpolate() demands a STRICTLY increasing input range, and a jump-cut
+ * piece can hand an effect fewer frames than two full ramps. */
+const fadeInOut = (local: number, duration: number, ramp = 4): number => {
+  if (duration <= 2) {
+    return 1;
+  }
+  const r = Math.max(1, Math.min(ramp, Math.floor((duration - 1) / 2)));
+  return interpolate(
     local,
-    [0, ramp, Math.max(ramp, duration - ramp), duration],
+    [0, r, duration - r, duration],
     [0, 1, 1, 0],
     {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'},
   );
+};
