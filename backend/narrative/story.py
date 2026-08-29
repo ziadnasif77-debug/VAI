@@ -172,10 +172,15 @@ def build_plan(
     if selection.is_empty:
         return _empty(mode, target_seconds, policy, notes=selection.notes)
 
-    if config.optimizer.sequence_repair:
-        # Before the Director or the beats see anything: both index into and
-        # label exactly this list, and a repair after them would un-name what
-        # they named.
+    if config.optimizer.sequence_repair and not (
+        mode is VideoMode.STORY and director is not None
+    ):
+        # For the deterministic paths the beats label exactly this list, so
+        # the repair runs before them. The directed path is different: the
+        # Director must be shown the selection untouched (its beat indices
+        # point into that list), and its drops plus the refill rebuild the
+        # selection anyway -- so that path repairs inside _directed, after
+        # the refill, as the last hand on the clip list.
         repaired, repair_notes = repair_sequence(
             selection.moments,
             moments,
@@ -429,6 +434,31 @@ def _directed(
             target_seconds=target_seconds,
             media_durations=media_durations,
         )
+
+    if config.optimizer.sequence_repair:
+        # The Director's drops and the refill rebuild the selection, so the
+        # repair that ran before the model saw anything is history by now --
+        # measured live: a repaired selection went in, six same-type clips
+        # in a row came out. This is the last hand on the clip list, so the
+        # run-breaking happens here; the id-keyed roles survive for every
+        # moment the repair keeps, and a swapped-in moment takes the
+        # deterministic beat exactly as a refilled one does.
+        repaired, repair_notes = repair_sequence(
+            selection.moments,
+            pool,
+            pacing_config=config.pacing,
+            config=config.optimizer,
+            target_seconds=target_seconds,
+            tolerance=policy.tolerance_for(target_seconds),
+        )
+        if repair_notes:
+            selection = dataclasses.replace(
+                selection,
+                moments=tuple(repaired),
+                total_seconds=sum(m.context_duration for m in repaired),
+                notes=(*selection.notes, *repair_notes),
+            )
+            notes.extend(repair_notes)
 
     # Beats for the selection as it now stands -- which may hold moments the
     # Director never saw, if the optimiser refilled. Those keep the

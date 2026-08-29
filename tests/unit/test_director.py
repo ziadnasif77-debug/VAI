@@ -35,6 +35,13 @@ PROMPT_ID = "narrative.blueprint"
 POLICY = load_config().duration_policy
 
 
+#: Types cycle so no fixture accidentally encodes a same-type run -- the
+#: sequence repair (§38 at selection) would rightly break one, and these
+#: tests are about indexing and order, not variety. None of the three is a
+#: hook source, so §37 stays out of the order these tests assert on.
+_TYPE_CYCLE = (MomentType.SKILL, MomentType.CHAOS, MomentType.TENSION)
+
+
 def _moment(start: float, *, duration: float = 20.0, media_id: str = "m") -> Moment:
     event = GameEvent(
         event_type=GameEventType.KILL,
@@ -46,7 +53,7 @@ def _moment(start: float, *, duration: float = 20.0, media_id: str = "m") -> Mom
     )
     return Moment(
         media_id=media_id,
-        moment_type=MomentType.SKILL,
+        moment_type=_TYPE_CYCLE[int(start / 200.0) % len(_TYPE_CYCLE)],
         start_seconds=start,
         end_seconds=start + duration,
         context_start=start,
