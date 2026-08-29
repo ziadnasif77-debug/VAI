@@ -53,3 +53,9 @@ Thumbs.db
 # Owner-only credentials: the OAuth client secret and the granted YouTube
 # token. The packager refuses to ship this directory; git must never see it.
 .credentials/
+
+# Animation runtime by-products: rendered frames, Godot's editor cache, and
+# the synthesised stand-in audio -- all regenerated, never reviewed.
+/animation/out/
+/animation/godot/.godot/
+/animation/assets/
