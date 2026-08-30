@@ -58,6 +58,7 @@ def guard_clips(
     bridge_interior_seconds: float = 4.0,
     events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
     seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
+    level_stops_by_media: Mapping[str, Sequence[float]] | None = None,
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
     cap_fn=None,
@@ -94,6 +95,7 @@ def guard_clips(
         cap_fn=cap_fn,
         events_by_media=events_by_media or {},
         seam_hints_by_media=seam_hints_by_media or {},
+        level_stops_by_media=level_stops_by_media or {},
         jump_cut_gap=jump_cut_gap,
         jump_cut_below=jump_cut_below,
         max_seconds=max_clip_seconds,
@@ -405,6 +407,7 @@ def _split_long_clips(
     cap_fn=None,
     events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
     seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
+    level_stops_by_media: Mapping[str, Sequence[float]] | None = None,
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
 ) -> list[PlannedClip]:
@@ -427,6 +430,7 @@ def _split_long_clips(
                     clip,
                     cap_fn=cap_fn,
                     seams=seams,
+                    stops=(level_stops_by_media or {}).get(clip.media_id, ()),
                     min_piece=min_piece,
                     jump_cut_gap=jump_cut_gap,
                     jump_cut_below=jump_cut_below,
@@ -480,6 +484,7 @@ def _walk(
     *,
     cap_fn,
     seams: Sequence[float],
+    stops: Sequence[float] = (),
     min_piece: float,
     jump_cut_gap: float,
     jump_cut_below: float,
@@ -515,6 +520,13 @@ def _walk(
             pieces.append(replace(clip, source_start=position, source_end=end))
             break
         target = position + cap
+        # A shot does not span a change of level. Where the session turns
+        # calmer or hotter inside this piece, that turn is the piece's end --
+        # otherwise a clip starting in a quiet second runs seven seconds deep
+        # into a climax at the quiet second's pace.
+        turns = [t for t in stops if position + floor <= t < target]
+        if turns:
+            target = min(turns)
         # Land on the last real seam that still fits the cap; without one the
         # cut falls on the cap itself rather than shipping an over-long slab.
         candidates = [t for t in seams if position + floor <= t <= target]

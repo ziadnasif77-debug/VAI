@@ -283,3 +283,27 @@ class TestTheWalkFollowsTheHeat:
         )
 
         assert len(pieces) == 1, "V1 judgement: no seam, no arithmetic midpoint"
+
+
+class TestAShotDoesNotSpanALevelChange:
+    def test_the_piece_ends_where_the_session_turns(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        # Calm until 40s, climax after. Without the stop, the piece starting
+        # at 30 would run to 45 at the calm pace, seven seconds deep into the
+        # heat it cannot feel.
+        pieces = _split_long_clips(
+            [PlannedClip(media_id="m", source_start=0.0, source_end=60.0)],
+            scenes_by_media={},
+            max_seconds=75.0,
+            cap_fn=lambda piece: 15.0 if piece.source_start < 40.0 else 1.5,
+            level_stops_by_media={"m": [0.0, 40.0]},
+            jump_cut_gap=0.35,
+            jump_cut_below=8.0,
+        )
+
+        crossing = [
+            p for p in pieces if p.source_start < 40.0 < p.source_end
+        ]
+        assert not crossing, "no shot straddles the turn"
+        assert any(abs(p.source_end - 40.0) < 1e-6 for p in pieces), "one ends on it"

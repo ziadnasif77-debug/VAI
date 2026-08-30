@@ -321,6 +321,12 @@ class EdlWorker:
             media_id: _lane_peaks(timeline)
             for media_id, timeline in timelines.items()
         }
+        # Where the session changes level, a shot ends: those edges are the
+        # session's own shape, read once here and handed to the guard.
+        level_stops = {
+            media_id: [segment.start_seconds for segment in timeline.shape()]
+            for media_id, timeline in timelines.items()
+        }
 
         guarded = guard_clips(
             planned,
@@ -328,6 +334,7 @@ class EdlWorker:
             scenes_by_media=scenes,
             events_by_media=events,
             seam_hints_by_media=seam_hints,
+            level_stops_by_media=level_stops,
             jump_cut_gap=context.config.editorial.pacing.jump_cut_gap_seconds,
             jump_cut_below=context.config.editorial.pacing.bands.normal.max,
             cap_fn=dynamic_cap if timelines else None,
