@@ -15,6 +15,7 @@ from backend.core.models.jobs import (
     DELIVERY_STAGES,
     EDIT_STAGES,
     MANUAL_STAGES,
+    STAGE_DEPENDENCIES,
     automatic_stages,
     dependencies_of,
     dependents_of,
@@ -155,6 +156,29 @@ class TestQueueing:
     ) -> None:
         jobs = job_manager.queue_import_chain(project_id, media_id)
         assert {job.stage for job in jobs} == set(PER_MEDIA_STAGES)
+
+    def test_every_analysis_stage_is_actually_queued(self) -> None:
+        """The assertion above compares one constant with itself.
+
+        SEMANTIC was declared in ANALYSIS_STAGES and in the dependency graph
+        and left out of PER_MEDIA_STAGES for a whole phase. Nothing queued it,
+        MOMENTS depends on it, and every project created in that time stopped
+        at GAME_EVENTS holding a MOMENTS job that could never run. The test
+        that should have caught it was comparing the queue against the same
+        set the queue is built from.
+        """
+        missing = [
+            stage.value for stage in ANALYSIS_STAGES if stage not in PER_MEDIA_STAGES
+        ]
+        assert not missing, f"analysis stages nothing queues: {missing}"
+
+    def test_no_queued_stage_waits_on_one_that_is_never_queued(self) -> None:
+        queued = set(PER_MEDIA_STAGES) | set(EDIT_STAGES) | set(DELIVERY_STAGES)
+        for stage in queued:
+            for prerequisite in STAGE_DEPENDENCIES.get(stage, ()):
+                assert prerequisite in queued, (
+                    f"{stage.value} waits on {prerequisite.value}, which nothing queues"
+                )
 
     def test_queueing_is_idempotent(
         self, job_manager: JobManager, project_id: str, media_id: str

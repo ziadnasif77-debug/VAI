@@ -52,6 +52,13 @@ PER_MEDIA_STAGES: frozenset[JobStage] = frozenset(
         JobStage.VISION,
         JobStage.OCR,
         JobStage.GAME_EVENTS,
+        # V2-P1b built the semantic spine as a stage of its own and added it
+        # to ANALYSIS_STAGES and to the dependency graph -- and not here, the
+        # only set that actually queues work. MOMENTS depends on it, so every
+        # project created after that phase stopped dead at GAME_EVENTS with a
+        # MOMENTS job that could never become runnable. It went unseen because
+        # the gate projects had their semantic stage queued by hand.
+        JobStage.SEMANTIC,
         JobStage.MOMENTS,
     }
 )
