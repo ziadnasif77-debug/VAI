@@ -78,6 +78,35 @@ class TestTheContract:
         for lane in AWAITING_CONSUMER:
             assert lane in LANES, f"{lane} is awaited but never built"
 
+    def test_a_lane_that_found_its_consumer_leaves_the_register(self) -> None:
+        """The half the first version never asked.
+
+        ``audio`` sat in this register for a whole phase after P5's audio
+        director began reading it, because the only assertion was that an
+        awaited lane exists -- which stayed true the entire time. A register
+        of what has not been built yet is worth nothing if it does not notice
+        when something gets built.
+        """
+        import re
+        from pathlib import Path
+
+        readers = {}
+        for path in (Path(__file__).parents[2] / "backend").rglob("*.py"):
+            if path.parts[-2] == "semantic":
+                # The builder writes every lane and the reader indexes them by
+                # name; neither is a consumer.
+                continue
+            source = path.read_text(encoding="utf-8")
+            for lane in re.findall(
+                r'(?:lane|value_at|window)\(\s*"([a-z_]+)"', source
+            ):
+                readers.setdefault(lane, []).append(path.name)
+
+        for lane in AWAITING_CONSUMER:
+            assert lane not in readers, (
+                f"{lane} is read by {readers.get(lane)} and still listed as awaiting one"
+            )
+
     def test_the_window_and_the_lane_agree(self, config) -> None:
         timeline = _world(config)
 

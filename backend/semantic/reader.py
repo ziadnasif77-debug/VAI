@@ -52,9 +52,17 @@ LANES: Final[tuple[str, ...]] = (
 #: Lanes with no consumer yet, and the phase that will read them. A lane may
 #: sit here; it may not sit nowhere. Delete the entry when the consumer lands.
 AWAITING_CONSUMER: Final[dict[str, str]] = {
-    "audio": "P5 audio director",
-    "events": "P4 emphasis (event density)",
-    "novelty": "P4 emphasis (repetition)",
+    # One entry, and it took a test to get here. "audio" sat in this register
+    # for a whole phase after P5's audio director began reading it; "events"
+    # was listed as awaiting P4 while P7's fatigue check was already reading
+    # it. Both were removed by the test below, which is the point of it: a
+    # register of what has not been built yet is worth nothing if it does not
+    # notice when something gets built.
+    #
+    # Novelty is genuinely unread. P4 was going to use it for repetition and
+    # did not; P7 answers that question from what the vision model saw in the
+    # finished render instead, which is a better source for it.
+    "novelty": "P8 style bible (how much a channel repeats itself)",
 }
 
 
