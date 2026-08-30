@@ -55,6 +55,13 @@ DECLARERS: Final[tuple[str, ...]] = (
     "backend/config/loader.py",
 )
 
+#: Files that talk *about* settings without reading any. This one names the
+#: keys it exists to catch, in the docstring above -- which made it their
+#: consumer and cleared them. An auditor that exonerates its own suspects by
+#: describing them is worse than no auditor: `audio.music.change_on_section`
+#: sat orphaned and unreported for a whole phase because of this line.
+NOT_CONSUMERS: Final[tuple[str, ...]] = ("scripts/config_coverage.py",)
+
 #: Renderer parameter maps are open by design: ``effects.library.*.params.*``
 #: is handed to a builder as a dict, so its leaves are data rather than
 #: settings and have no identifier to look for.
@@ -108,6 +115,8 @@ def read_corpus(root: Path) -> Corpus:
             try:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
+                continue
+            if relative.endswith(NOT_CONSUMERS):
                 continue
             if relative.endswith(DECLARERS):
                 corpus.declarers[relative] = text

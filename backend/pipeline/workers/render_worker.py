@@ -455,8 +455,19 @@ class RenderWorker:
         """
         config = context.config.audio
         repository = TimelineRepository(context.database)
-        captions = repository.list_captions(context.project_id)
-        spoken = [(caption.timeline_start, caption.timeline_end) for caption in captions]
+        timeline_for_audio = timeline
+        # Speech from the TRANSCRIPT, not from captions. Captions are opt-in,
+        # so a video shipped without them had no ducking at all whatever the
+        # configuration said -- the setting was honoured and the evidence it
+        # needed was simply never fetched.
+        spoken = self._spoken_spans(context, timeline_for_audio)
+        if not spoken:
+            captions = repository.list_captions(context.project_id)
+            spoken = [
+                (caption.timeline_start, caption.timeline_end) for caption in captions
+            ]
+
+        plan = self._audio_plan(context, timeline_for_audio, spoken, duration_seconds)
 
         music_envelope = None
         game_envelope = None
@@ -478,15 +489,54 @@ class RenderWorker:
                 work_dir / "duck_game.wav",
             )
 
+        if config.ducking.enabled and plan.event_spans:
+            # Under the game's own loud moments, at last. `event_spans` has
+            # existed since Phase 12 and `game_event_duck_db` has been
+            # configured beside it; the only caller was a unit test.
+            loud = audio_mix.merge_spans(
+                [
+                    audio_mix.DuckSpan(
+                        start=start,
+                        end=end,
+                        depth_db=config.ducking.game_event_duck_db,
+                    )
+                    for start, end in plan.event_spans
+                ]
+            )
+            music_envelope = audio_mix.write_envelope(
+                audio_mix.build_envelope(
+                    audio_mix.merge_spans(
+                        [
+                            *(
+                                audio_mix.speech_spans(spoken, config)
+                                if spoken
+                                else []
+                            ),
+                            *loud,
+                            *(
+                                audio_mix.DuckSpan(
+                                    start=item.start_seconds,
+                                    end=item.end_seconds,
+                                    depth_db=_silence_db(),
+                                )
+                                for item in plan.silences
+                            ),
+                        ]
+                    ),
+                    duration_seconds=duration_seconds,
+                    config=config,
+                ),
+                work_dir / "duck_music.wav",
+            )
+
         game_audio = self._programme_audio(context, timeline, sources, work_dir)
         if game_audio is None:
             return None
 
         # §73: the user's own directory inside the project, and nowhere else.
-        music = audio_mix.find_music(
-            context.paths.assets / "music",
-            mean_intensity=self._mean_intensity(context),
-        )
+        # With sections planned, each one asks its own shelf; without them the
+        # whole-video average picks one bed, which is what shipped before.
+        music = self._music_for(context, plan)
         return audio_mix.plan_mix(
             game=game_audio,
             microphone=None,
@@ -497,6 +547,103 @@ class RenderWorker:
             duration_seconds=duration_seconds,
             stingers=self._stingers(context, timeline, duration_seconds),
         )
+
+    def _spoken_spans(self, context: WorkerContext, timeline) -> list[tuple[float, float]]:
+        """Speech in TIMELINE seconds, from the transcript the analysis stored.
+
+        Mapped clip by clip: the transcript speaks in source time and the mix
+        works in programme time, and the only reason ducking used captions
+        before is that captions were already in programme time.
+        """
+        spans: list[tuple[float, float]] = []
+        for clip in timeline.video_clips():
+            for row in context.database.fetch_all(
+                "SELECT start_seconds, end_seconds FROM transcript_segments "
+                "WHERE media_id = ? AND end_seconds > ? AND start_seconds < ?",
+                (clip.media_id, clip.source_in, clip.source_out),
+            ):
+                start = max(float(row["start_seconds"]), clip.source_in)
+                end = min(float(row["end_seconds"]), clip.source_out)
+                if end <= start:
+                    continue
+                offset = clip.timeline_start - clip.source_in
+                spans.append((start + offset, end + offset))
+        spans.sort()
+        return spans
+
+    def _audio_plan(self, context: WorkerContext, timeline, spoken, duration_seconds):
+        """What the soundtrack should do, or an empty plan (§95)."""
+        from backend.audio_director.plan import AudioPlan, plan_audio
+
+        try:
+            reader = self._programme_reader(context, timeline, duration_seconds)
+            beats = [
+                (
+                    float(row["anchor_seconds"]),
+                    1.0,
+                )
+                for row in context.database.fetch_all(
+                    "SELECT DISTINCT anchor_seconds FROM timeline_effects "
+                    "WHERE project_id = ? AND group_role = 'payoff' "
+                    "AND anchor_seconds IS NOT NULL",
+                    (context.project_id,),
+                )
+            ]
+            return plan_audio(
+                reader=reader,
+                duration_seconds=duration_seconds,
+                spoken=spoken,
+                beats=beats,
+                config=context.config,
+            )
+        except Exception:
+            logger.exception("No audio plan; the mix falls back to one bed")
+            return AudioPlan()
+
+    def _programme_reader(self, context: WorkerContext, timeline, duration_seconds):
+        """The session's lanes in PROGRAMME seconds.
+
+        The mix works in the finished video's time and every reader before
+        this spoke source time, which is why sound could not ask what the
+        session was doing at 2:41 of the edit.
+        """
+        from backend.database.repositories.media import MediaRepository
+        from backend.semantic.programme import ProgrammeReader
+        from backend.semantic.timeline import load_timeline
+
+        media_repository = MediaRepository(context.database)
+        readers = {}
+        for media_id in timeline.media_ids():
+            media = media_repository.get(media_id)
+            duration = getattr(media.metadata, "duration_seconds", None) if media else None
+            if not duration:
+                continue
+            readers[media_id] = load_timeline(
+                context.database,
+                media_id,
+                duration_seconds=float(duration),
+                config=context.config,
+            )
+        return ProgrammeReader.build(
+            timeline.video_clips(),
+            readers,
+            duration_seconds=duration_seconds,
+            config=context.config,
+        )
+
+    def _music_for(self, context: WorkerContext, plan) -> list:
+        """The music files, by section when there are sections."""
+        from backend.audio_director.plan import shelf_directory
+
+        root = context.paths.assets / "music"
+        if not plan.sections:
+            return audio_mix.find_music(root, mean_intensity=self._mean_intensity(context))
+        chosen: list = []
+        for section in plan.sections:
+            files = audio_mix.find_music(shelf_directory(root, section.shelf))
+            if files:
+                chosen.append(files[0])
+        return chosen or audio_mix.find_music(root)
 
     def _stingers(
         self, context: WorkerContext, timeline: Timeline, duration_seconds: float
@@ -814,3 +961,9 @@ def _repo_root() -> Path:
 
 
 __all__ = ["RenderWorker"]
+
+
+def _silence_db() -> float:
+    from backend.audio_director.plan import SILENCE_DB
+
+    return SILENCE_DB

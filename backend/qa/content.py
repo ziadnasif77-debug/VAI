@@ -75,6 +75,11 @@ class ContentInputs:
     silences: Sequence[tuple[str, float, float]] = ()
     #: Warnings the narrative stage already produced about its own pacing.
     pacing_warnings: Sequence[str] = ()
+    #: Gaps the audio director put there on purpose, in timeline seconds.
+    #: Without this the system reports its own decisions as defects: a held
+    #: breath before a payoff is exactly what `extreme_silence` was written to
+    #: catch, and it cannot tell the two apart by listening.
+    planned_silences: Sequence[tuple[float, float]] = ()
     #: ``clip_index -> semantic level`` for the finished edit, read from the
     #: same Semantic Timeline the pacing engine cut by. V2's bands make a
     #: 0.8s shot deliberate inside a climax and a defect inside a calm
@@ -188,9 +193,17 @@ def _extreme_silence(
         # Only the part of the silence the edit actually kept counts.
         visible_end = min(end, clip.source_out)
         length = visible_end - start
+        at = clip.timeline_start + (start - clip.source_in)
+        if any(
+            planned_start <= at <= planned_end
+            for planned_start, planned_end in inputs.planned_silences
+        ):
+            # The soundtrack was told to stop here. Reporting it would be the
+            # system marking its own decision as a fault.
+            continue
         if length > longest:
             longest = length
-            where = clip.timeline_start + (start - clip.source_in)
+            where = at
 
     if longest <= limit:
         return passed("extreme_silence", f"longest silence in the edit {longest:.1f}s")
