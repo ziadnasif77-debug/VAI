@@ -335,7 +335,7 @@ EVENT_TYPES: Final[dict[str, str]] = {
     "kill": "قتل",
     "multi_kill": "قتل متعدد",
     "low_health": "صحة منخفضة",
-    "unexpected_event": "حدث مفاجئ",
+    "unknown_event": "حدث مفاجئ",
     "escape": "نجاة",
     "funny_moment": "لحظة مضحكة",
     "victory": "انتصار",

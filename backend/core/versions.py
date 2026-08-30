@@ -22,7 +22,7 @@ ANALYSIS_VERSION: Final[int] = 1
 
 #: Bumped for every database migration. Must equal the highest migration number
 #: in backend/database/migrations.
-SCHEMA_VERSION: Final[int] = 7
+SCHEMA_VERSION: Final[int] = 9
 
 #: Version of the on-disk ``project.json`` manifest format (§43).
 PROJECT_MANIFEST_VERSION: Final[int] = 1

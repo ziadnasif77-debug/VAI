@@ -132,13 +132,13 @@ class TestTheEvidence:
             target_seconds=240.0,
             events={
                 MEDIA: [
-                    _Event(5.0, GameEventType.UNEXPECTED_EVENT),
+                    _Event(5.0, GameEventType.UNKNOWN_EVENT),
                     _Event(10.0, GameEventType.DEFEAT),
                 ]
             },
         )
 
-        # Showing `unexpected_event` invites a story about something nobody
+        # Showing `unknown_event` invites a story about something nobody
         # identified, which is the failure this whole design is against.
         assert evidence.clips[0].events == ("defeat",)
 

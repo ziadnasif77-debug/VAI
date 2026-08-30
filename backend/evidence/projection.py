@@ -111,7 +111,7 @@ class Evidence:
     def named_events(self) -> tuple[Any, ...]:
         """The events something could put a name to.
 
-        `unexpected_event` is the correlator saying it could not, and passing
+        `unknown_event` is the correlator saying it could not, and passing
         that to a reader as though it were a finding is how a model ends up
         telling a story about something nobody identified.
         """

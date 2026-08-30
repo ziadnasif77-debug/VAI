@@ -209,7 +209,7 @@ def _weighed(
       whole, and QA then flagged 14 s of motionless video. So the event
       keeps ±``_VETO_NEIGHBOURHOOD_SECONDS`` alive and the rest of the
       stillness stays dead. Callers pass only *strong* events -- the
-      generic ``unexpected_event`` blesses nothing.
+      generic ``unknown_event`` blesses nothing.
     """
     weighed: dict[str, list[StateSpan]] = {}
     for media_id, spans in states_by_media.items():

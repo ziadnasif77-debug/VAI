@@ -259,7 +259,7 @@ class TestContentGuards:
         assert all(item.params.get("text") == "MULTI KILL" for item in pops)
 
     def test_an_unlistened_event_never_becomes_the_label(self, config: AppConfig) -> None:
-        # Real footage's event stream is dominated by unexpected_event, which
+        # Real footage's event stream is dominated by unknown_event, which
         # rides along in matched_events but is not in text_pop's trigger
         # list. "UNEXPECTED EVENT" on screen would be the software confessing;
         # the moment's own type is the honest label.
@@ -268,7 +268,7 @@ class TestContentGuards:
             moment(
                 0,
                 moment_type=MomentType.VICTORY,
-                events=[GameEventType.UNEXPECTED_EVENT],
+                events=[GameEventType.UNKNOWN_EVENT],
             ),
         )
 

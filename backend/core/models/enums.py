@@ -189,7 +189,12 @@ class GameEventType(str, Enum):
     # was on screen while something was heard, or that a vehicle hit something.
     COMBAT = "combat"
     COLLISION = "collision"
-    UNEXPECTED_EVENT = "unexpected_event"
+    #: Several detectors agreed something was there and none could name it.
+    #: It was called ``unexpected_event`` until V2-P2, which claimed a
+    #: surprise the evidence never established -- and it is the majority
+    #: label on real footage (59% of the gate session). When the system does
+    #: not know what happened it says so, rather than inventing a reading.
+    UNKNOWN_EVENT = "unknown_event"
 
 
 class FrameState(str, Enum):

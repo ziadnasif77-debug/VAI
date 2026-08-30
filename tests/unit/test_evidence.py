@@ -144,7 +144,7 @@ class TestWhatItSays:
             Stores(
                 events={
                     MEDIA: [
-                        _event(10.0, GameEventType.UNEXPECTED_EVENT),
+                        _event(10.0, GameEventType.UNKNOWN_EVENT),
                         _event(20.0, GameEventType.DEFEAT),
                     ]
                 }

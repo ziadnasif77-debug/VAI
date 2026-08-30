@@ -51,6 +51,30 @@ class MomentsWorker:
 
     stage = JobStage.MOMENTS
 
+    def _reader(self, context: WorkerContext, media, duration: float):
+        """The session's lanes, or ``None``.
+
+        Never raises: a stage that cannot read the shape still forms moments,
+        it just forms them the way it did before V2.
+        """
+        if not duration:
+            return None
+        try:
+            from backend.semantic.timeline import load_timeline
+
+            return load_timeline(
+                context.database,
+                media.id,
+                duration_seconds=float(duration),
+                config=context.config,
+            )
+        except Exception:
+            logger.exception(
+                "No semantic timeline for this recording; moments form without it",
+                extra={"media_id": media.id},
+            )
+            return None
+
     def run(self, context: WorkerContext) -> dict[str, Any]:
         media = context.require_media()
         config = context.config.moments
@@ -65,6 +89,11 @@ class MomentsWorker:
         transcript = TranscriptRepository(context.database).list_for_media(media.id)
         scenes = SceneRepository(context.database).list_for_media(media.id)
         vision = VisionRepository(context.database).list_for_media(media.id)
+
+        # V2-P2: the session's own lanes, built by the stage before this one.
+        # Absent (an older project, a recording with no duration) every step
+        # below falls back to what it did before V2 -- §95, not an exception.
+        reader = self._reader(context, media, duration)
 
         context.report(0.2, "Forming moments")
         # Phase 0.6: the vision model has always said which frames were menus,
@@ -90,6 +119,7 @@ class MomentsWorker:
                 transcript=transcript,
                 audio_events=audio,
                 duration_seconds=duration,
+                reader=reader,
             ),
         )
 
@@ -133,6 +163,12 @@ class MomentsWorker:
             moment for moment in scored if moment.score >= config.scoring.minimum_score
         ]
 
+        # The shape of each surviving moment, stored beside it: where its
+        # build begins, where it pays off, where the come-down ends. Read by
+        # pacing, emphasis, audio and the Critic rather than re-derived four
+        # times from four slightly different assumptions.
+        offered = [_with_phases(moment, reader) for moment in offered]
+
         repository = MomentRepository(context.database)
         with context.database.transaction():
             stored = repository.replace_for_media(
@@ -167,3 +203,23 @@ class MomentsWorker:
 
 
 __all__ = ["MomentsWorker"]
+
+
+def _with_phases(moment, reader):
+    """Attach the moment's phases to its metadata (§80)."""
+    from dataclasses import replace
+
+    from backend.moments.phases import classify_phases
+
+    phases = classify_phases(
+        reader,
+        start_seconds=moment.context_start or moment.start_seconds,
+        end_seconds=moment.context_end or moment.end_seconds,
+    )
+    return replace(
+        moment,
+        metadata={
+            **moment.metadata,
+            "phases": [phase.as_dict() for phase in phases],
+        },
+    )

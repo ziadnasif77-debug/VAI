@@ -12,7 +12,7 @@ which is only expressible if detectors report separately first.
 to read and no victory banner whose wording is known, so a generic detector
 cannot honestly say "kill". What it can say is that several independent sources
 noticed the same instant, and that is reported as
-:attr:`GameEventType.UNEXPECTED_EVENT` — the taxonomy's own name for *something
+:attr:`GameEventType.UNKNOWN_EVENT` — the taxonomy's own name for *something
 happened here and we cannot name it*. A profile then turns the same evidence
 into a specific type, which is exactly the §22/§23 bargain: a profile improves
 accuracy and is never required.
@@ -102,7 +102,7 @@ _GENERIC_TEXT_EVENTS: Final[tuple[tuple[str, GameEventType, float], ...]] = (
 #: Reactions that suggest a moment's character (§20 → §21).
 _REACTION_EVENTS: Final[dict[ReactionType, GameEventType]] = {
     ReactionType.LAUGH: GameEventType.FUNNY_MOMENT,
-    ReactionType.SCREAM: GameEventType.UNEXPECTED_EVENT,
+    ReactionType.SCREAM: GameEventType.UNKNOWN_EVENT,
 }
 
 
@@ -163,7 +163,7 @@ def observations_from_vision(
                 continue
             found.append(
                 EventObservation(
-                    event_type=event_type or GameEventType.UNEXPECTED_EVENT,
+                    event_type=event_type or GameEventType.UNKNOWN_EVENT,
                     start_seconds=item.timestamp,
                     end_seconds=item.timestamp,
                     source=VISION,
@@ -228,14 +228,14 @@ def observations_from_ocr(
 def observations_from_audio(events: Iterable[AudioEvent]) -> list[EventObservation]:
     """Turn audio spikes and onsets into "something happened here" (§18 → §21).
 
-    Always :attr:`UNEXPECTED_EVENT`. A loud transient is a fact about the
+    Always :attr:`UNKNOWN_EVENT`. A loud transient is a fact about the
     waveform; calling it a gunshot would be a claim about the game that the
     waveform cannot support on its own (§27 exists for exactly this).
     """
     interesting = {AudioEventType.SPIKE, AudioEventType.TRANSIENT}
     return [
         EventObservation(
-            event_type=GameEventType.UNEXPECTED_EVENT,
+            event_type=GameEventType.UNKNOWN_EVENT,
             start_seconds=event.start_seconds,
             end_seconds=event.end_seconds,
             source=MICROPHONE_SOURCE if event.track_role == MICROPHONE else AUDIO,
@@ -287,7 +287,7 @@ def observations_from_scenes(
     """
     return [
         EventObservation(
-            event_type=GameEventType.UNEXPECTED_EVENT,
+            event_type=GameEventType.UNKNOWN_EVENT,
             start_seconds=scene.start_seconds,
             end_seconds=scene.start_seconds,
             source=SCENE,

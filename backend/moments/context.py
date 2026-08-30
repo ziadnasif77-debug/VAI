@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Any, Final
 
 from ai.providers.base import TranscriptSegment
 from backend.analysis.audio_events import AudioEvent
@@ -75,6 +75,10 @@ class ExpansionSources:
     transcript: Sequence[TranscriptSegment] = ()
     audio_events: Sequence[AudioEvent] = ()
     duration_seconds: float = 0.0
+    #: V2-P2. With it, a moment's context is its own build-up and come-down
+    #: rather than a constant chosen by its type. Without it, the type-shaped
+    #: rolls below, which is what every edit before this used.
+    reader: Any | None = None
 
 
 def expand(
@@ -96,12 +100,83 @@ def expand(
     return expanded
 
 
+def _semantic_roll(
+    moment: Moment, config: ContextExpansionConfig, sources: ExpansionSources
+) -> tuple[float, float] | None:
+    """Pre- and post-roll taken from the moment's own shape, or ``None``.
+
+    The type-shaped rolls this replaces are a reasonable guess -- a defeat
+    gets more lead-in than a rare find -- but they are the same guess for
+    every defeat in every session. A moment's build-up has an actual length,
+    and the lanes know it: read the shape across the widest window the
+    configuration would ever allow, and let the phases say where the climb
+    starts and the come-down ends.
+
+    Bounded by the same ceilings as before, so this can lengthen a clip only
+    within limits §29 already set. Returns ``None`` when the shape is not
+    measurable, which sends the caller back to the old behaviour rather than
+    to a worse guess.
+    """
+    from backend.moments.phases import classify_phases
+
+    reader = sources.reader
+    if reader is None:
+        return None
+    widest_start = max(0.0, moment.start_seconds - config.max_pre_roll_seconds)
+    widest_end = moment.end_seconds + config.max_post_roll_seconds
+    if sources.duration_seconds:
+        widest_end = min(widest_end, sources.duration_seconds)
+    phases = classify_phases(
+        reader, start_seconds=widest_start, end_seconds=widest_end
+    )
+    if len(phases) < 2 or phases[0].name == "unknown":
+        return None
+
+    # The lead-in reaches back to where the build began, never past it into
+    # the previous situation.
+    build = next(
+        (
+            phase
+            for phase in phases
+            if phase.name in ("setup", "anticipation", "escalation")
+        ),
+        None,
+    )
+    pre = 0.0
+    if build is not None and build.start_seconds < moment.start_seconds:
+        pre = min(
+            moment.start_seconds - build.start_seconds, config.max_pre_roll_seconds
+        )
+
+    # The tail runs to the end of the reaction, and stops there: `unknown`
+    # and `dead` after it are footage, not the moment landing.
+    reaction = next(
+        (phase for phase in reversed(phases) if phase.name == "reaction"), None
+    )
+    post = 0.0
+    if reaction is not None and reaction.end_seconds > moment.end_seconds:
+        post = min(
+            reaction.end_seconds - moment.end_seconds, config.max_post_roll_seconds
+        )
+    return pre, post
+
+
 def _expand_one(
     moment: Moment, config: ContextExpansionConfig, sources: ExpansionSources
 ) -> Moment:
-    pre_shape, post_shape = ROLL_SHAPE.get(moment.moment_type, _DEFAULT_SHAPE)
-    pre_roll = min(config.base_pre_roll_seconds * pre_shape, config.max_pre_roll_seconds)
-    post_roll = min(config.base_post_roll_seconds * post_shape, config.max_post_roll_seconds)
+    measured = _semantic_roll(moment, config, sources)
+    if measured is not None:
+        pre_roll, post_roll = measured
+        shaped_from = "shape"
+    else:
+        pre_shape, post_shape = ROLL_SHAPE.get(moment.moment_type, _DEFAULT_SHAPE)
+        pre_roll = min(
+            config.base_pre_roll_seconds * pre_shape, config.max_pre_roll_seconds
+        )
+        post_roll = min(
+            config.base_post_roll_seconds * post_shape, config.max_post_roll_seconds
+        )
+        shaped_from = "type"
 
     limit = sources.duration_seconds or moment.end_seconds + post_roll
     start = max(moment.start_seconds - pre_roll, 0.0)
@@ -146,6 +221,7 @@ def _expand_one(
         {
             "pre_roll_seconds": round(moment.start_seconds - start, 3),
             "post_roll_seconds": round(end - moment.end_seconds, 3),
+            "roll_from": shaped_from,
             "snapped": bool(notes),
             "context_notes": notes,
         },

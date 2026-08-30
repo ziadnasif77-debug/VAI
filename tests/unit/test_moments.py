@@ -89,7 +89,7 @@ class TestFormation:
         events = [
             _event(GameEventType.LOW_HEALTH, 100.0),
             _event(GameEventType.KILL, 104.0),
-            _event(GameEventType.UNEXPECTED_EVENT, 107.0),
+            _event(GameEventType.UNKNOWN_EVENT, 107.0),
         ]
         moments = form_moments(events, config.moments.formation, media_id="m")
         assert len(moments) == 1
@@ -131,7 +131,7 @@ class TestFormation:
         assert (
             moment_type_for(
                 [
-                    _event(GameEventType.UNEXPECTED_EVENT, 0.0),
+                    _event(GameEventType.UNKNOWN_EVENT, 0.0),
                     _event(GameEventType.MULTI_KILL, 1.0),
                 ]
             )
@@ -141,7 +141,7 @@ class TestFormation:
     def test_unnamed_events_produce_a_surprise(self) -> None:
         # §23's honest answer when nothing could say what happened.
         assert (
-            moment_type_for([_event(GameEventType.UNEXPECTED_EVENT, 0.0)])
+            moment_type_for([_event(GameEventType.UNKNOWN_EVENT, 0.0)])
             is MomentType.SURPRISE
         )
 
@@ -151,7 +151,7 @@ class TestFormation:
         moments = form_moments(
             [
                 _event(GameEventType.KILL, 100.0, confidence=0.95),
-                _event(GameEventType.UNEXPECTED_EVENT, 102.0, confidence=0.2),
+                _event(GameEventType.UNKNOWN_EVENT, 102.0, confidence=0.2),
             ],
             config.moments.formation,
             media_id="m",
@@ -574,7 +574,7 @@ class TestScoring:
             moment_type=MomentType.SURPRISE,
             start_seconds=100.0,
             end_seconds=102.0,
-            events=(_event(GameEventType.UNEXPECTED_EVENT, 100.0, confidence=0.2),),
+            events=(_event(GameEventType.UNKNOWN_EVENT, 100.0, confidence=0.2),),
             context_start=95.0,
             context_end=108.0,
         )
@@ -686,7 +686,7 @@ class TestFrameStateKeepsMenusOutOfTheEdit:
         spans = self._spans((100.0, ("menu",)), (104.0, ("menu",)), (108.0, ("menu",)))
 
         formed = form_moments(
-            [_event(GameEventType.UNEXPECTED_EVENT, 102.0)],
+            [_event(GameEventType.UNKNOWN_EVENT, 102.0)],
             config.moments.formation,
             media_id="m",
             non_gameplay=spans,
@@ -714,7 +714,7 @@ class TestFrameStateKeepsMenusOutOfTheEdit:
         spans = self._spans((100.0, ()), (104.0, ()))
 
         formed = form_moments(
-            [_event(GameEventType.UNEXPECTED_EVENT, 102.0)],
+            [_event(GameEventType.UNKNOWN_EVENT, 102.0)],
             config.moments.formation,
             media_id="m",
             non_gameplay=spans,
@@ -793,7 +793,7 @@ class TestFrameStateKeepsMenusOutOfTheEdit:
         spans = self._spans((100.0, ("menu",)), (104.0, ("menu",)))
 
         formed = form_moments(
-            [_event(GameEventType.UNEXPECTED_EVENT, 102.0)],
+            [_event(GameEventType.UNKNOWN_EVENT, 102.0)],
             formation,
             media_id="m",
             non_gameplay=spans,

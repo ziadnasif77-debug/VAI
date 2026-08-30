@@ -29,7 +29,7 @@ _COLUMNS = (
     "id, project_id, media_id, moment_type, start_seconds, end_seconds, context_start, "
     "context_end, score, confidence, dead_time_score, repetition_score, score_breakdown, "
     "explanation, event_ids, needs_review, user_state, thumbnail_path, analysis_version, "
-    "created_at"
+    "created_at, phases"
 )
 
 
@@ -76,6 +76,10 @@ class MomentRepository:
                     "dead_time_score": min(max(moment.dead_time_score, 0.0), 1.0),
                     "repetition_score": min(max(moment.repetition_score, 0.0), 1.0),
                     "score_breakdown": dumps(moment.score_breakdown),
+                    # V2-P2: the moment's own shape, measured rather than
+                    # assumed, for every stage that needs to know where
+                    # inside it the payoff is.
+                    "phases": dumps(moment.metadata.get("phases", [])),
                     "explanation": dumps(list(moment.explanation)),
                     "event_ids": dumps(
                         [event.event_type.value for event in moment.events]
@@ -95,7 +99,8 @@ class MomentRepository:
                 ":id, :project_id, :media_id, :moment_type, :start_seconds, :end_seconds, "
                 ":context_start, :context_end, :score, :confidence, :dead_time_score, "
                 ":repetition_score, :score_breakdown, :explanation, :event_ids, "
-                ":needs_review, :user_state, :thumbnail_path, :analysis_version, :created_at)",
+                ":needs_review, :user_state, :thumbnail_path, :analysis_version, "
+                ":created_at, :phases)",
                 rows,
             )
         return len(rows)
@@ -237,8 +242,25 @@ def _from_row(row: sqlite3.Row) -> Moment:
             "needs_review": bool(row["needs_review"]),
             "user_state": row["user_state"],
             "thumbnail_path": row["thumbnail_path"],
+            "phases": _phases(row),
         },
     )
+
+
+def _phases(row) -> list[dict]:
+    """The stored phases, or none. A moment written before V2-P2 has no
+    column value, and an absent shape is not a flat one."""
+    try:
+        stored = row["phases"]
+    except (IndexError, KeyError):
+        return []
+    if not stored:
+        return []
+    try:
+        loaded = loads(stored)
+    except ValueError:
+        return []
+    return loaded if isinstance(loaded, list) else []
 
 
 __all__ = ["MomentRepository"]

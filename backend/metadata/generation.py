@@ -81,7 +81,7 @@ _PHRASES: Final[dict[str, tuple[str, str]]] = {
     "high_damage": ("destruction", "دمار"),
     "rare_loot": ("rare loot", "غنائم نادرة"),
     "rare_event": ("rare events", "أحداث نادرة"),
-    "unexpected_event": ("surprises", "مفاجآت"),
+    "unknown_event": ("surprises", "مفاجآت"),
     "death": ("deaths", "لحظات موت"),
     "kill": ("kills", "تصفيات"),
     "multi_kill": ("multi-kills", "تصفيات متتالية"),
@@ -343,7 +343,7 @@ _TITLE_EMOJI: Final[dict[str, str]] = {
     "high_damage": "💥",
     "chase": "🚔",
     "surprise": "😮",
-    "unexpected_event": "😮",
+    "unknown_event": "😮",
     "rare_loot": "💎",
     "discovery": "🔍",
 }

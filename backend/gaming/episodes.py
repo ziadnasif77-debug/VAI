@@ -184,7 +184,7 @@ def read(
 
     Args:
         events: correlated game events for a single recording. Unnamed ones
-            are left out entirely -- an `unexpected_event` is the correlator
+            are left out entirely -- an `unknown_event` is the correlator
             saying it could not identify this, and a run of things nobody
             identified is not a situation, it is a gap.
         gap_seconds: how long a same-type run may pause and still be one

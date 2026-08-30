@@ -247,7 +247,7 @@ def _events(clip: TimelineClip, events: Sequence[Any]) -> tuple[str, ...]:
     is one fight. Listing all three tells a model that three things happened,
     and a model told that writes a review of an edit that does not exist.
 
-    `unexpected_event` never appears either way. It is the correlator saying it
+    `unknown_event` never appears either way. It is the correlator saying it
     could not name this, and showing it invites a story about something nobody
     identified.
     """

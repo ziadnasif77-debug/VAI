@@ -68,7 +68,7 @@ CORROBORATION_WEIGHT: Final[float] = 0.5
 #: Types that describe *something happened* without naming it. A specific type
 #: always outranks these when both describe the same instant (§23).
 GENERIC_TYPES: Final[frozenset[GameEventType]] = frozenset(
-    {GameEventType.UNEXPECTED_EVENT, GameEventType.RARE_EVENT}
+    {GameEventType.UNKNOWN_EVENT, GameEventType.RARE_EVENT}
 )
 
 
@@ -310,7 +310,7 @@ def _to_event(
     if event_type is GameEventType.LOW_HEALTH:
         claiming = {item.source for item in cluster if item.event_type is event_type}
         if claiming == {"vision"}:
-            event_type = GameEventType.UNEXPECTED_EVENT
+            event_type = GameEventType.UNKNOWN_EVENT
 
     # Phase 0.2: no detector could name this instant, but the evidence together
     # might. Only reached when the resolved type is generic, so a source that
@@ -515,7 +515,7 @@ _BASE_IMPORTANCE: Final[dict[GameEventType, float]] = {
     GameEventType.COMBAT: 0.6,
     GameEventType.COLLISION: 0.55,
     GameEventType.CHASE: 0.65,
-    GameEventType.UNEXPECTED_EVENT: 0.4,
+    GameEventType.UNKNOWN_EVENT: 0.4,
 }
 
 

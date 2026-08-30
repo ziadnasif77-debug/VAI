@@ -7,7 +7,7 @@ none of them named — and that is where two thirds of this pipeline's events en
 up.
 
 Measured on two real recordings: 61% and 70% of correlated events are
-``unexpected_event``, and on one of them **63 of 116 events are
+``unknown_event``, and on one of them **63 of 116 events are
 ``["audio", "scene"]`` clusters** — an audio spike and a shot change, neither of
 which is allowed to claim anything, and correctly so. A waveform transient is
 not a kill.
@@ -217,7 +217,7 @@ def classify(
     """Name this cluster from its combined evidence, or return ``None``.
 
     ``None`` is the honest and common answer: an audio spike beside a shot
-    change with nothing looking at the screen stays ``unexpected_event``, which
+    change with nothing looking at the screen stays ``unknown_event``, which
     is what the taxonomy has always meant by it. This module exists to stop
     that being the answer two thirds of the time, not to stop it being an
     answer.

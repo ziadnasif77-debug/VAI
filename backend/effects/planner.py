@@ -537,7 +537,7 @@ def _pop_label(
 
     Only an event this effect's triggers actually listen for may name it --
     ``matched_events`` carries *all* of the moment's events, and on real
-    footage that is dominated by ``unexpected_event``, which as an on-screen
+    footage that is dominated by ``unknown_event``, which as an on-screen
     label would read as the software confessing.
     """
     listened = set(definition.spec.triggers.events)

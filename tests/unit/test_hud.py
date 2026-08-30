@@ -54,7 +54,7 @@ STARS = HudIndicator(
     absent_confidence=0.55,
     change_rules=(
         HudChangeRule(
-            event_type=GameEventType.UNEXPECTED_EVENT,
+            event_type=GameEventType.UNKNOWN_EVENT,
             direction="rise",
             at_least=3,
             min_change=1,
@@ -270,7 +270,7 @@ class TestChangesToEvents:
     def test_a_rise_past_the_threshold_becomes_its_event(self) -> None:
         events = changes_to_events([self._change(1.0, 4.0)], _profile())
 
-        assert [event["event_type"] for event in events] == [GameEventType.UNEXPECTED_EVENT]
+        assert [event["event_type"] for event in events] == [GameEventType.UNKNOWN_EVENT]
         assert events[0]["sources"] == ["hud"]
         assert events[0]["metadata"] == {"indicator": "wanted_level", "from": 1.0, "to": 4.0}
 

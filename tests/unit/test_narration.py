@@ -57,7 +57,7 @@ SPEECH = _segments(
 def _incident(**overrides) -> dict:
     payload = {
         "title": "العنكبوت",
-        "event_type": "unexpected_event",
+        "event_type": "unknown_event",
         "start_seconds": 24.8,
         "climax_seconds": 41.1,
         "end_seconds": 79.0,
@@ -78,7 +78,7 @@ class TestWhatItReads:
         found = _read(config, _incident())
 
         assert len(found) == 1
-        assert found[0].event_type is GameEventType.UNEXPECTED_EVENT
+        assert found[0].event_type is GameEventType.UNKNOWN_EVENT
         assert found[0].title == "العنكبوت"
 
     def test_the_span_is_cause_to_reaction_not_the_instant(self, config) -> None:
@@ -250,7 +250,7 @@ class TestWhatItRefuses:
 
         assert len(found) == 1
         assert found[0].title == ""
-        assert found[0].event_type is GameEventType.UNEXPECTED_EVENT
+        assert found[0].event_type is GameEventType.UNKNOWN_EVENT
 
     def test_one_bad_incident_does_not_lose_the_good_ones(self, config) -> None:
         found = _read(config, _incident(start_seconds=9000.0), _incident())

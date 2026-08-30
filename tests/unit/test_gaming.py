@@ -162,7 +162,7 @@ class TestDetectorsWithoutAProfile:
         # it claims nothing on its own and correlation must never promote it.
         found = detectors.observations_from_vision([_observation(5.0, ("driving",))])
 
-        assert [item.event_type for item in found] == [GameEventType.UNEXPECTED_EVENT]
+        assert [item.event_type for item in found] == [GameEventType.UNKNOWN_EVENT]
         assert all(item.context_only for item in found)
         assert correlate(found) == [], "a description of the screen is not an event"
 
@@ -236,7 +236,7 @@ class TestDetectorsWithoutAProfile:
                 )
             ]
         )
-        assert [item.event_type for item in found] == [GameEventType.UNEXPECTED_EVENT]
+        assert [item.event_type for item in found] == [GameEventType.UNKNOWN_EVENT]
         assert found[0].source == detectors.AUDIO
 
     def test_microphone_audio_is_a_distinct_source(self) -> None:
@@ -329,8 +329,8 @@ class TestCorrelation:
         )
         events = correlate(
             [
-                self._observation(GameEventType.UNEXPECTED_EVENT, 100.0, detectors.SCENE),
-                self._observation(GameEventType.UNEXPECTED_EVENT, 100.2, detectors.AUDIO),
+                self._observation(GameEventType.UNKNOWN_EVENT, 100.0, detectors.SCENE),
+                self._observation(GameEventType.UNKNOWN_EVENT, 100.2, detectors.AUDIO),
             ],
             screen_states=screens,
         )
@@ -355,8 +355,8 @@ class TestCorrelation:
         )
         events = correlate(
             [
-                self._observation(GameEventType.UNEXPECTED_EVENT, 100.0, detectors.SCENE),
-                self._observation(GameEventType.UNEXPECTED_EVENT, 100.2, detectors.AUDIO),
+                self._observation(GameEventType.UNKNOWN_EVENT, 100.0, detectors.SCENE),
+                self._observation(GameEventType.UNKNOWN_EVENT, 100.2, detectors.AUDIO),
             ],
             screen_states=screens,
         )
@@ -366,7 +366,7 @@ class TestCorrelation:
         # A project analysed before this existed, or one where vision found
         # nothing, keeps every event it had.
         events = correlate(
-            [self._observation(GameEventType.UNEXPECTED_EVENT, 100.0, detectors.SCENE)]
+            [self._observation(GameEventType.UNKNOWN_EVENT, 100.0, detectors.SCENE)]
         )
         assert len(events) == 1
 
@@ -376,9 +376,9 @@ class TestCorrelation:
         events = correlate(
             [
                 self._observation(GameEventType.KILL, 100.0, detectors.OCR, 0.6),
-                self._observation(GameEventType.UNEXPECTED_EVENT, 100.3, detectors.AUDIO, 0.8, 0.5),
+                self._observation(GameEventType.UNKNOWN_EVENT, 100.3, detectors.AUDIO, 0.8, 0.5),
                 self._observation(
-                    GameEventType.UNEXPECTED_EVENT, 101.2, detectors.MICROPHONE_SOURCE, 0.7
+                    GameEventType.UNKNOWN_EVENT, 101.2, detectors.MICROPHONE_SOURCE, 0.7
                 ),
             ]
         )
@@ -425,7 +425,7 @@ class TestCorrelation:
     def test_a_specific_type_beats_a_generic_one(self) -> None:
         events = correlate(
             [
-                self._observation(GameEventType.UNEXPECTED_EVENT, 10.0, detectors.AUDIO, 0.95),
+                self._observation(GameEventType.UNKNOWN_EVENT, 10.0, detectors.AUDIO, 0.95),
                 self._observation(GameEventType.VICTORY, 10.2, detectors.OCR, 0.5),
             ]
         )
@@ -446,7 +446,7 @@ class TestCorrelation:
         # a run of observations a second apart fragments into several events.
         events = correlate(
             [
-                self._observation(GameEventType.UNEXPECTED_EVENT, at, detectors.AUDIO, 0.7, 0.5)
+                self._observation(GameEventType.UNKNOWN_EVENT, at, detectors.AUDIO, 0.7, 0.5)
                 for at in (10.0, 11.0, 12.0, 13.0, 14.0)
             ]
         )
@@ -457,7 +457,7 @@ class TestCorrelation:
         events = correlate(
             [
                 self._observation(GameEventType.KILL, 100.0, detectors.OCR, 0.6, 1.0),
-                self._observation(GameEventType.UNEXPECTED_EVENT, 101.5, detectors.AUDIO, 0.6, 2.0),
+                self._observation(GameEventType.UNKNOWN_EVENT, 101.5, detectors.AUDIO, 0.6, 2.0),
             ]
         )
         assert events[0].start_seconds == 100.0
@@ -473,14 +473,14 @@ class TestCorrelation:
 
     def test_the_confidence_floor_drops_noise(self) -> None:
         events = correlate(
-            [self._observation(GameEventType.UNEXPECTED_EVENT, 10.0, detectors.SCENE, 0.1)],
+            [self._observation(GameEventType.UNKNOWN_EVENT, 10.0, detectors.SCENE, 0.1)],
             min_confidence=0.5,
         )
         assert events == []
 
     def test_generic_events_are_marked_as_unnamed(self) -> None:
         events = correlate(
-            [self._observation(GameEventType.UNEXPECTED_EVENT, 10.0, detectors.AUDIO, 0.8)]
+            [self._observation(GameEventType.UNKNOWN_EVENT, 10.0, detectors.AUDIO, 0.8)]
         )
         assert not events[0].is_named
         assert events[0].event_type in GENERIC_TYPES
@@ -667,7 +667,7 @@ class TestEvidenceFusion:
     """Phase 0.2: naming an instant no single detector could name.
 
     Measured before this existed: 61% and 70% of correlated events on two real
-    recordings were ``unexpected_event``, and 63 of one recording's 116 events
+    recordings were ``unknown_event``, and 63 of one recording's 116 events
     were ``["audio", "scene"]`` clusters — a waveform transient beside a shot
     change, neither of which may claim anything on its own, and correctly so.
     The same transient *while the vision model reports ``combat``* is something
@@ -677,7 +677,7 @@ class TestEvidenceFusion:
     @staticmethod
     def _observation(at, source, confidence=0.7, event_type=None, **detail):
         return detectors.EventObservation(
-            event_type=event_type or GameEventType.UNEXPECTED_EVENT,
+            event_type=event_type or GameEventType.UNKNOWN_EVENT,
             start_seconds=at,
             end_seconds=at + 0.5,
             source=source,
@@ -708,7 +708,7 @@ class TestEvidenceFusion:
             ]
         )
 
-        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
+        assert events[0].event_type is GameEventType.UNKNOWN_EVENT
         assert "named_by" not in events[0].metadata
 
     def test_a_detector_that_could_see_is_never_overridden(self) -> None:
@@ -749,7 +749,7 @@ class TestEvidenceFusion:
             ]
         )
 
-        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
+        assert events[0].event_type is GameEventType.UNKNOWN_EVENT
 
     def test_a_missing_source_does_not_name_anything(self) -> None:
         # Driving and a shot change with nothing heard is a camera cut in a
@@ -761,7 +761,7 @@ class TestEvidenceFusion:
             ]
         )
 
-        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
+        assert events[0].event_type is GameEventType.UNKNOWN_EVENT
 
     def test_rules_can_be_turned_off_entirely(self) -> None:
         events = correlate(
@@ -772,7 +772,7 @@ class TestEvidenceFusion:
             fusion_rules=(),
         )
 
-        assert events[0].event_type is GameEventType.UNEXPECTED_EVENT
+        assert events[0].event_type is GameEventType.UNKNOWN_EVENT
 
 
 class TestEndToEndDetection:
@@ -872,7 +872,7 @@ class TestClusterDiscipline:
     @staticmethod
     def _claim(at, duration=1.0, source=detectors.AUDIO, confidence=0.6):
         return detectors.EventObservation(
-            event_type=GameEventType.UNEXPECTED_EVENT,
+            event_type=GameEventType.UNKNOWN_EVENT,
             start_seconds=at,
             end_seconds=at + duration,
             source=source,
@@ -882,7 +882,7 @@ class TestClusterDiscipline:
     @staticmethod
     def _context(at, duration=1.0, **detail):
         return detectors.EventObservation(
-            event_type=GameEventType.UNEXPECTED_EVENT,
+            event_type=GameEventType.UNKNOWN_EVENT,
             start_seconds=at,
             end_seconds=at + duration,
             source=detectors.VISION,
@@ -987,7 +987,7 @@ class TestDescriptionPatternRules:
     @staticmethod
     def _observation(at, source, confidence=0.7, event_type=None, **detail):
         return detectors.EventObservation(
-            event_type=event_type or GameEventType.UNEXPECTED_EVENT,
+            event_type=event_type or GameEventType.UNKNOWN_EVENT,
             start_seconds=at,
             end_seconds=at + 0.5,
             source=source,

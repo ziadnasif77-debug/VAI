@@ -64,7 +64,7 @@ EVENT_TO_MOMENT: Final[dict[GameEventType, MomentType]] = {
     GameEventType.HIGH_DAMAGE: MomentType.SKILL,
     GameEventType.COMBAT: MomentType.CHAOS,
     GameEventType.COLLISION: MomentType.CHAOS,
-    GameEventType.UNEXPECTED_EVENT: MomentType.SURPRISE,
+    GameEventType.UNKNOWN_EVENT: MomentType.SURPRISE,
 }
 
 #: How much a type *claims*. When a moment contains several kinds of event, the

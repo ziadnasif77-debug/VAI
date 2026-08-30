@@ -135,7 +135,7 @@ def _describe(moments: Sequence[Moment]) -> str:
     lines = []
     for index, moment in enumerate(moments):
         events = sorted({event.event_type.value for event in moment.events})
-        named = ", ".join(event for event in events if event != "unexpected_event")
+        named = ", ".join(event for event in events if event != "unknown_event")
         lines.append(
             f"{index}. [{format_duration(moment.context_start)}] "
             f"{moment.moment_type.value} "

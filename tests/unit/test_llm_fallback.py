@@ -59,7 +59,7 @@ def _evidence() -> dict[str, Evidence]:
             id="evt-000000000001",
             start_seconds=650.0,
             end_seconds=652.0,
-            detail="unexpected_event detected by audio, scene",
+            detail="unknown_event detected by audio, scene",
             score=0.6,
         ),
     }

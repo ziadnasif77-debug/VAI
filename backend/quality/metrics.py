@@ -92,7 +92,7 @@ class Score:
     excluded: int = 0
     #: Predictions dropped for landing outside the annotated window.
     out_of_window: int = 0
-    #: Unmatched generic claims (`unexpected_event`, `rare_event`) -- the
+    #: Unmatched generic claims (`unknown_event`, `rare_event`) -- the
     #: correlator saying *something happened here* without naming it. A person
     #: cannot label "unexpected", so an unmatched marker is unjudgeable: it is
     #: not counted as a false positive, and not hidden either.

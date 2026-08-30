@@ -102,8 +102,8 @@ class TestWhatIsLeftOut:
     def test_an_event_nobody_could_name_is_not_a_situation(self) -> None:
         # A run of things nobody identified is not a situation, it is a gap.
         reading = _read(
-            _event(10.0, kind=GameEventType.UNEXPECTED_EVENT),
-            _event(20.0, kind=GameEventType.UNEXPECTED_EVENT),
+            _event(10.0, kind=GameEventType.UNKNOWN_EVENT),
+            _event(20.0, kind=GameEventType.UNKNOWN_EVENT),
         )
 
         assert reading.episodes == ()

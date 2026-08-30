@@ -265,7 +265,7 @@ class TestTheWindow:
 
 
 class TestGenericMarkers:
-    """`unexpected_event` is the correlator saying it cannot name this.
+    """`unknown_event` is the correlator saying it cannot name this.
 
     A person cannot label "unexpected", so an unmatched marker is unjudgeable
     -- the same reasoning as a window straddler that finds nothing. One that
@@ -274,7 +274,7 @@ class TestGenericMarkers:
 
     def test_an_unmatched_generic_claim_is_not_a_false_positive(self) -> None:
         score, _, _ = score_events(
-            [Prediction(300.0, 302.0, "unexpected_event", 0.9)],
+            [Prediction(300.0, 302.0, "unknown_event", 0.9)],
             recording(event(100.0, 110.0)),
         )
 
@@ -283,7 +283,7 @@ class TestGenericMarkers:
 
     def test_a_generic_claim_that_finds_a_label_still_counts(self) -> None:
         score, _, _ = score_events(
-            [Prediction(104.0, 106.0, "unexpected_event", 0.9)],
+            [Prediction(104.0, 106.0, "unknown_event", 0.9)],
             recording(event(100.0, 110.0)),
         )
 
@@ -464,19 +464,19 @@ class TestReadAsEpisodes:
         assert {item.label for item in merged} == {"combat", "collision"}
 
     def test_generic_claims_pass_through_and_do_not_break_a_run(self) -> None:
-        # `unexpected_event` is the correlator saying it could not name this.
+        # `unknown_event` is the correlator saying it could not name this.
         # It stays on the table as its own claim -- hiding it would flatter
         # precision -- and the named run continues across it, exactly as the
         # product's own reading does.
         merged = read_as_episodes(
             [
                 Prediction(10.0, 11.0, "combat"),
-                Prediction(14.0, 15.0, "unexpected_event"),
+                Prediction(14.0, 15.0, "unknown_event"),
                 Prediction(18.0, 19.0, "combat"),
             ]
         )
 
-        assert [item.label for item in merged] == ["combat", "unexpected_event"]
+        assert [item.label for item in merged] == ["combat", "unknown_event"]
         assert (merged[0].start_seconds, merged[0].end_seconds) == (10.0, 19.0)
 
     def test_a_label_the_enum_does_not_know_passes_through(self) -> None:

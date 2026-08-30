@@ -261,12 +261,12 @@ class EdlWorker:
             media_id: [
                 (float(row["start_seconds"]), float(row["end_seconds"]))
                 for row in context.database.fetch_all(
-                    # Strong events only: the generic unexpected_event may
+                    # Strong events only: the generic unknown_event may
                     # not bless stillness (see the guard's neighbourhood
                     # veto) -- on real footage it dominates the stream and
                     # would bless everything.
                     "SELECT start_seconds, end_seconds FROM game_events "
-                    "WHERE media_id = ? AND event_type != 'unexpected_event'",
+                    "WHERE media_id = ? AND event_type != 'unknown_event'",
                     (media_id,),
                 )
             ]
