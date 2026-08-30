@@ -45,6 +45,8 @@ qa:
       broken_sequence: true
       extreme_silence: true
       bad_transition: true
+      # Measured on the finished edit, not on the plan the guard then split.
+      clip_density: true
       caption_covers_hud: true
     thresholds:
       max_silence_seconds: 12.0

@@ -297,6 +297,7 @@ class QaWorker:
             pacing_warnings=self._pacing_warnings(context),
             black_runs=_black_runs(technical_findings),
             profile=self._profile(context),
+            clip_levels=self._clip_levels(context, timeline),
         )
         return content.inspect(
             timeline,
@@ -305,6 +306,45 @@ class QaWorker:
             config=context.config.qa,
             caption_config=context.config.captions,
         )
+
+    def _clip_levels(self, context: WorkerContext, timeline) -> dict[int, str]:
+        """Each clip's semantic level, read from the timeline the guard cut by.
+
+        Without it QA judges a 0.9s climax shot by the same rule as a 0.9s
+        shot in a quiet stretch, and warns about the pace V2 chose on
+        purpose. Any failure is an empty map: the check then falls back to
+        the flat floor, which is V1's behaviour and never worse than it.
+        """
+        try:
+            from backend.database.repositories.media import MediaRepository
+            from backend.semantic.timeline import load_timeline
+
+            if not context.config.editorial.pacing.dynamic:
+                return {}
+            media_repository = MediaRepository(context.database)
+            timelines = {}
+            for media_id in timeline.media_ids():
+                media = media_repository.get(media_id)
+                duration = (
+                    getattr(media.metadata, "duration_seconds", None) if media else None
+                )
+                if not duration:
+                    continue
+                timelines[media_id] = load_timeline(
+                    context.database,
+                    media_id,
+                    duration_seconds=float(duration),
+                    config=context.config,
+                    cache_dir=context.paths.analysis / "semantic",
+                )
+            return {
+                clip.clip_index: semantic.level_for(clip.source_in, clip.source_out)
+                for clip in timeline.video_clips()
+                if (semantic := timelines.get(clip.media_id)) is not None
+            }
+        except Exception:
+            logger.exception("Clip levels unavailable; QA uses the flat floor")
+            return {}
 
     def _pacing_warnings(self, context: WorkerContext) -> tuple[str, ...]:
         """What the narrative stage already said about its own pacing (§38)."""

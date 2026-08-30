@@ -19,8 +19,8 @@ detector and a QA check.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from backend.config.schema import CaptionsConfig, QaConfig
@@ -38,6 +38,7 @@ CHECKS: Final[tuple[str, ...]] = (
     "broken_sequence",
     "extreme_silence",
     "bad_transition",
+    "clip_density",
     "caption_covers_hud",
 )
 
@@ -74,6 +75,11 @@ class ContentInputs:
     silences: Sequence[tuple[str, float, float]] = ()
     #: Warnings the narrative stage already produced about its own pacing.
     pacing_warnings: Sequence[str] = ()
+    #: ``clip_index -> semantic level`` for the finished edit, read from the
+    #: same Semantic Timeline the pacing engine cut by. V2's bands make a
+    #: 0.8s shot deliberate inside a climax and a defect inside a calm
+    #: stretch, and QA cannot tell those apart without the level.
+    clip_levels: Mapping[int, str] = field(default_factory=dict)
     #: Black runs technical QA measured, in timeline time.
     black_runs: Sequence[tuple[float, float]] = ()
     profile: GameProfile | None = None
@@ -103,7 +109,9 @@ def inspect(
     if "broken_sequence" in checks:
         findings.append(_broken_sequence(inputs))
     if "bad_transition" in checks:
-        findings.append(_bad_transitions(timeline))
+        findings.append(_bad_transitions(timeline, inputs.clip_levels))
+    if "clip_density" in checks:
+        findings.append(_clip_density(timeline))
     if "caption_covers_hud" in checks:
         findings.append(_captions_over_hud(captions, caption_config, inputs.profile))
 
@@ -221,22 +229,39 @@ def _broken_sequence(inputs: ContentInputs) -> Finding:
     one moment type, a flat intensity curve, a clip that outstays its welcome.
     Recomputing it here would be a second opinion from less information.
     """
-    if not inputs.pacing_warnings:
+    notes = _plan_warnings(inputs.pacing_warnings)
+    if not notes:
         return passed("broken_sequence", "the pacing report found nothing")
     return warning(
         "broken_sequence",
-        "; ".join(inputs.pacing_warnings[:3]),
+        "; ".join(notes[:3]),
         remedy="Reorder or drop clips, or change the video mode and re-run the story stage.",
-        warnings=list(inputs.pacing_warnings),
+        warnings=notes,
     )
 
 
-def _bad_transitions(timeline: Timeline) -> Finding:
-    """Clips too short to register before the next one arrives (§77)."""
+def _plan_warnings(warnings_: Sequence[str]) -> list[str]:
+    """The plan's own warnings, minus the ones the guard has since answered.
+
+    Clip density is measured again on the finished edit by ``_clip_density``;
+    the plan counts moments, and V2 splits every one of them."""
+    return [note for note in warnings_ if "clips per minute" not in note]
+
+
+def _bad_transitions(timeline: Timeline, levels: Mapping[int, str]) -> Finding:
+    """Clips too short to register before the next one arrives (§77).
+
+    A quick cut is rarely deliberate -- unless it is. V2's pacing bands run a
+    climax at 0.8-1.8s on purpose, so the same 0.9s shot is a flash in a calm
+    stretch and the intended pace in a hot one. The level comes from the very
+    timeline the cut length was chosen by, so this check and the pacing engine
+    cannot disagree about which is which.
+    """
     flashes = [
         clip
         for clip in timeline.video_clips()
         if clip.duration < MIN_COMFORTABLE_CLIP_SECONDS
+        and levels.get(clip.clip_index, "normal") not in ("high", "climax")
     ]
     if not flashes:
         return passed("bad_transition", "every clip is long enough to read")
@@ -246,6 +271,38 @@ def _bad_transitions(timeline: Timeline) -> Finding:
         "read as a flash",
         remedy="Lengthen or remove them; a cut this quick is rarely deliberate.",
         clips=[clip.clip_index for clip in flashes[:10]],
+    )
+
+
+#: Below this the finished edit lingers; the pacing report's own threshold is
+#: about the PLAN, which the screen guard then splits into many more clips.
+_MIN_CLIPS_PER_MINUTE: Final[float] = 4.0
+
+
+def _clip_density(timeline: Timeline) -> Finding:
+    """Does the finished edit actually change shot often enough? (§38)
+
+    The narrative stage measures this over the moments it selected, which
+    with V2 is no longer the clip count: the guard walks each moment and cuts
+    it at the pace of its own heat, so a plan of ten moments can ship as a
+    hundred shots. Relaying the plan's number as a verdict on the render told
+    the owner "1.0 clips per minute; the edit may drag" about a video that
+    changes shot every three seconds.
+    """
+    clips = timeline.video_clips()
+    seconds = sum(clip.duration for clip in clips)
+    if not clips or seconds <= 0:
+        return passed("clip_density", "no clips to measure")
+    per_minute = len(clips) / (seconds / 60.0)
+    if per_minute >= _MIN_CLIPS_PER_MINUTE:
+        return passed(
+            "clip_density", f"{per_minute:.1f} shots per minute in the finished edit"
+        )
+    return warning(
+        "clip_density",
+        f"only {per_minute:.1f} shots per minute; the edit may drag",
+        remedy="Shorten the long stretches, or select more moments.",
+        clips_per_minute=round(per_minute, 2),
     )
 
 

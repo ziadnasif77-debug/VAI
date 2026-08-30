@@ -326,3 +326,69 @@ class TestTheFinerShape:
         assert any(
             level in ("high", "climax") for level in (s.level for s in pacing)
         )
+
+
+class TestQaSpeaksV2sGrammar:
+    """QA judged every shot by one flat floor, so V2's climax band -- 0.8 to
+    1.8s on purpose -- read as a defect, and the plan's clip density was
+    relayed as a verdict on a render the guard had since split."""
+
+    def _timeline_of(self, durations):
+        from backend.core.models.enums import TrackKind, TransitionType
+        from backend.timeline.models import Timeline, TimelineClip, Track
+
+        clips = []
+        cursor = 0.0
+        for index, seconds in enumerate(durations):
+            clips.append(
+                TimelineClip(
+                    id=f"clip-{index:012d}",
+                    media_id="media-aaaaaaaaaaaa",
+                    track=TrackKind.VIDEO,
+                    clip_index=index,
+                    source_in=100.0 + cursor,
+                    source_out=100.0 + cursor + seconds,
+                    timeline_start=cursor,
+                    timeline_end=cursor + seconds,
+                    transition_in=TransitionType.CUT,
+                    transition_out=TransitionType.CUT,
+                )
+            )
+            cursor += seconds
+        return Timeline(project_id="proj-aaaaaaaaaaaa").with_track(
+            Track(kind=TrackKind.VIDEO, clips=tuple(clips))
+        )
+
+    def test_a_climax_shot_is_the_pace_not_a_flash(self) -> None:
+        from backend.qa.content import _bad_transitions
+
+        timeline = self._timeline_of([0.9, 1.0, 5.0])
+
+        deliberate = _bad_transitions(timeline, {0: "climax", 1: "high", 2: "normal"})
+        blind = _bad_transitions(timeline, {})
+
+        assert not deliberate.warned, "the hot band's own lengths are intended"
+        assert blind.warned, "without levels the flat floor still applies"
+
+    def test_density_is_measured_on_the_edit_not_on_the_plan(self) -> None:
+        from backend.qa.content import _clip_density
+
+        dense = _clip_density(self._timeline_of([3.0] * 20))
+        dragging = _clip_density(self._timeline_of([60.0, 60.0]))
+
+        assert not dense.warned
+        assert dragging.warned
+        assert "shots per minute" in dragging.message
+
+    def test_the_plans_density_note_is_not_relayed_as_a_verdict(self) -> None:
+        from backend.qa.content import ContentInputs, _broken_sequence
+
+        superseded = _broken_sequence(
+            ContentInputs(pacing_warnings=("only 1.0 clips per minute; the edit may drag",))
+        )
+        real = _broken_sequence(
+            ContentInputs(pacing_warnings=("intensity does not build across the video",))
+        )
+
+        assert not superseded.warned, "the guard answers density; the plan cannot"
+        assert real.warned
