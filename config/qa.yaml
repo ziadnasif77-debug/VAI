@@ -17,13 +17,10 @@ qa:
       audio_stream: true
       black_frames: true
       frozen_frames: true
-      missing_media: true
-      caption_sync: true
       av_sync: true
     thresholds:
       duration_tolerance_seconds: 2.0
       fps_tolerance: 0.5
-      black_frame_ratio: 0.98
       max_black_run_seconds: 2.0
       max_frozen_run_seconds: 3.0
       # How different two frames may be and still count as the same picture.
@@ -33,7 +30,6 @@ qa:
       # against real menu, pause and gameplay footage -- see docs/PHASE_11.md.
       freeze_noise_db: -45.0
       max_av_desync_ms: 80
-      max_caption_desync_ms: 250
       min_audio_lufs: -30.0
 
   # Content QA (§77). AI-assisted, advisory only.
@@ -50,7 +46,6 @@ qa:
       caption_covers_hud: true
     thresholds:
       max_silence_seconds: 12.0
-      min_sequence_coherence: 0.5
 
   # A failed technical check blocks export; warnings do not, but they are never
   # hidden from the user.

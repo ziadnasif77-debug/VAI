@@ -13,7 +13,6 @@ captions:
   min_confidence: 0.30
   # Sidecar files always; burning in is a Remotion composition concern.
   formats: [srt, vtt]
-  burn_in: true
 
   style: animated            # standard | animated
   word_highlighting: true

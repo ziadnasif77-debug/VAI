@@ -324,7 +324,12 @@ class PipelineRunner:
             queued = self._jobs.queue(
                 job.project_id,
                 JobStage.PUBLISH,
-                payload={"target": "youtube", "auto": True},
+                payload={
+                    "target": "youtube",
+                    "auto": True,
+                    # The project's own auto-publish flag, set by hand.
+                    "authorised_by": "project_auto_publish",
+                },
             )
             logger.info(
                 "Auto-publish queued by the project's own flag",

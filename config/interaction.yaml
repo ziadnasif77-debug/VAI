@@ -30,7 +30,6 @@ interaction:
     # Where an unspecified target duration comes from: the project's own
     # setting always wins over a preset's suggestion.
     project_settings_override_preset: true
-    max_updates_per_project: 500
 
   qa:
     # Questions are refused rather than guessed at until the analysis that
@@ -39,7 +38,6 @@ interaction:
     max_results: 10
     # Window searched around a timestamp in "what happened at 12:34".
     timestamp_context_seconds: 15.0
-    min_confidence_to_answer: 0.35
 
   # An LLM is a fallback, not the default path. Deterministic answers come from
   # the analysis database: asking for the current duration must not cost an
@@ -53,7 +51,6 @@ interaction:
     enabled: true
     # A command changes the EDL and triggers a re-render. It never re-runs the
     # analysis.
-    auto_rerender: false
     keep_versions: 20
 
   conversation:

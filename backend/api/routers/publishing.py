@@ -213,6 +213,9 @@ def publish(
         "metadata": body.metadata.model_dump(mode="json"),
         "destination": body.destination,
         "render_id": body.render_id,
+        # Somebody pressed publish. The worker refuses a publication that
+        # cannot name who asked for it.
+        "authorised_by": "human",
     }
     if existing is None:
         job = state.jobs.queue(project_id, JobStage.PUBLISH, payload=payload)

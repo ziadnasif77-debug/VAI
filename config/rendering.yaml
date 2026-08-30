@@ -5,11 +5,8 @@
 # Neither decides which clips are good - the AI layer does (§64).
 
 video:
-  default_resolution: 1080
-  default_fps: 60
   aspect_ratio: "16:9"
   # "source" keeps the recording's frame rate instead of forcing a value.
-  fps_mode: explicit          # explicit | source
   supported_resolutions: [720, 1080]
   supported_fps: [30, 60]
 
@@ -69,7 +66,6 @@ ffmpeg:
   overwrite_output: true
   timeout_seconds: 28800
   # Hardware-accelerated decode for long recordings, when available.
-  hwaccel: auto
 
 # Proxy media for UI preview and analysis (§55). The original is used for the
 # final render and is never modified (§42).
@@ -94,7 +90,6 @@ thumbnails:
   width: 480
   jpeg_quality: 5
   per_moment: 3
-  per_scene: 1
 
 # Remotion renders motion graphics ONLY, as a transparent overlay.
 #

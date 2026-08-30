@@ -54,8 +54,6 @@ audio:
     change_on_section: true
 
   fades:
-    clip_fade_in_ms: 0
-    clip_fade_out_ms: 0
     program_fade_in_ms: 250
     program_fade_out_ms: 600
     crossfade_ms: 60
@@ -64,5 +62,3 @@ audio:
     detect: true
     threshold_db: -0.1
 
-  sync:
-    max_offset_ms: 40

@@ -38,9 +38,9 @@ from backend.pipeline.workers.base import WorkerContext
 
 logger = get_logger("pipeline.workers.story", LogChannel.PIPELINE)
 
-#: How much of the project conversation the Director is shown. Enough for a
-#: session's worth of instructions, short of pasting a chat log into a prompt.
-_BRIEF_MESSAGES: int = 20
+#: How much of the Director's brief is prose rather than history. The message
+#: count is configuration (``interaction.conversation.context_window_messages``);
+#: it said 12 while this file said 20, and the configuration lost silently.
 _BRIEF_CHARACTERS: int = 800
 
 
@@ -232,7 +232,8 @@ class StoryWorker:
         said: list[str] = [
             message.text.strip()
             for message in ConversationStore(context.database).history(
-                context.project_id, limit=_BRIEF_MESSAGES
+                context.project_id,
+                limit=context.config.interaction.conversation.context_window_messages,
             )
             if message.role is MessageRole.USER and message.text.strip()
         ]

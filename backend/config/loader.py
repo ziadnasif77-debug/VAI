@@ -35,7 +35,7 @@ CONFIG_FILES: Final[dict[str, tuple[str, ...]]] = {
     "application.yaml": ("application",),
     "output.yaml": ("output",),
     "analysis.yaml": ("analysis",),
-    "models.yaml": ("models", "cloud", "gpu", "hardware", "fallbacks"),
+    "models.yaml": ("models", "cloud", "gpu", "hardware"),
     "moments.yaml": ("moments",),
     "narrative.yaml": ("narrative",),
     "rendering.yaml": (

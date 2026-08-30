@@ -532,6 +532,9 @@ class DailyProducer:
             "target": "youtube",
             "auto": True,
             "publish_at_utc": instant.isoformat(),
+            # The owner's standing policy: consent given once, in writing,
+            # for a recurring publication at a fixed hour.
+            "authorised_by": "daily_policy",
         }
         if existing is None:
             jobs.queue(project_id, JobStage.PUBLISH, payload=payload)

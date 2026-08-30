@@ -76,15 +76,6 @@ class LoggingConfig(_Section):
     backup_count: int = Field(default=5, ge=0)
 
 
-class StorageConfig(_Section):
-    """Disk management for large intermediates (§84)."""
-
-    max_cache_gb: float = Field(default=50.0, gt=0)
-    keep_proxy_after_render: bool = True
-    keep_frames_after_analysis: bool = False
-    warn_free_space_gb: float = Field(default=20.0, ge=0)
-
-
 class ApplicationConfig(_Section):
     name: str = "AI Gaming Video Editor"
     environment: Literal["development", "test", "production"] = "development"
@@ -112,7 +103,6 @@ class ApplicationConfig(_Section):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    storage: StorageConfig = Field(default_factory=StorageConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +300,6 @@ class SamplingTriggers(_Section):
     audio_spike: bool = True
     scene_change: bool = True
     hud_change: bool = True
-    motion_spike: bool = True
     speech_activity: bool = True
 
 
@@ -361,7 +350,6 @@ class AudioAnalysisConfig(_Section):
     silence_threshold_db: float = -45.0
     min_silence_seconds: float = Field(default=1.5, ge=0)
     spike_threshold_db: float = Field(default=9.0, gt=0)
-    loudness_target_lufs: float = -14.0
     detect: AudioDetectFlags = Field(default_factory=AudioDetectFlags)
 
     @model_validator(mode="after")
@@ -392,24 +380,24 @@ class VisionAnalysisConfig(_Section):
     """
 
     enabled: bool = True
-    only_candidate_regions: bool = True
     max_frames_per_request: int = Field(default=4, ge=1)
     #: See `config/analysis.yaml` for how this number was arrived at: 240
     #: left 57-71% of nominated candidate regions with no frame at all.
     max_frames_per_source_hour: int = Field(default=720, ge=1)
     min_confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    describe_hud: bool = True
-    describe_scene: bool = True
     candidate_detectors: list[str] = Field(default_factory=list)
     frame_difference_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _detectors_required_for_cascade(self) -> VisionAnalysisConfig:
-        if self.enabled and self.only_candidate_regions and not self.candidate_detectors:
+        # The worker always runs the cascade -- there was never a mode that
+        # looked at every frame -- so detectors are required whenever vision
+        # is on, rather than whenever a flag nobody read said so.
+        if self.enabled and not self.candidate_detectors:
             raise ValueError(
-                "analysis.vision.only_candidate_regions is true but no "
-                "candidate_detectors are configured: nothing would nominate regions "
-                "and the vision stage would analyse nothing."
+                "analysis.vision is enabled but no candidate_detectors are "
+                "configured: nothing would nominate regions and the vision "
+                "stage would analyse nothing."
             )
         return self
 
@@ -587,7 +575,6 @@ class GpuConfig(_Section):
     device_index: int = Field(default=0, ge=0)
     total_vram_mb: int = Field(default=8192, ge=0)
     reserved_vram_mb: int = Field(default=1024, ge=0)
-    exclusive_model_slot: bool = True
     empty_cache_between_stages: bool = True
     preflight_vram_check: bool = True
     fallback_to_cpu: bool = True
@@ -620,9 +607,6 @@ class HardwareProfileConfig(_Section):
     description: str = ""
     min_vram_mb: int = Field(default=0, ge=0)
     vision_enabled: bool = True
-    speech_compute_type: Literal["float16", "float32", "int8", "int8_float16"] = "float16"
-    frame_sampling_multiplier: float = Field(default=1.0, gt=0)
-    max_parallel_stages: int = Field(default=1, ge=1)
 
 
 class HardwareConfig(_Section):
@@ -659,15 +643,6 @@ class HardwareConfig(_Section):
         return best
 
 
-class FallbacksConfig(_Section):
-    """Graceful degradation chains (§95)."""
-
-    vision_failed: list[str] = Field(default_factory=list)
-    speech_failed: list[str] = Field(default_factory=list)
-    llm_failed: list[str] = Field(default_factory=list)
-    ocr_failed: list[str] = Field(default_factory=list)
-
-
 # ---------------------------------------------------------------------------
 # moments.yaml
 # ---------------------------------------------------------------------------
@@ -675,9 +650,6 @@ class FallbacksConfig(_Section):
 
 class CorrelationConfig(_Section):
     window_seconds: float = Field(default=3.0, gt=0)
-    min_sources: int = Field(default=1, ge=1)
-    multi_source_bonus: float = Field(default=0.12, ge=0.0, le=1.0)
-    max_confidence: float = Field(default=0.99, gt=0.0, le=1.0)
 
 
 class FormationConfig(_Section):
@@ -766,7 +738,6 @@ class DeadTimeConfig(_Section):
     categories: list[str] = Field(default_factory=list)
     min_segment_seconds: float = Field(default=6.0, gt=0)
     silence_seconds_for_dead_time: float = Field(default=8.0, gt=0)
-    afk_motion_threshold: float = Field(default=0.02, ge=0.0, le=1.0)
     protect_context: bool = True
     max_protected_seconds: float = Field(default=20.0, ge=0)
 
@@ -822,9 +793,7 @@ class BestMomentsConfig(_Section):
 
 
 class CompilationConfig(_Section):
-    group_by: Literal["moment_type", "game_event", "chronological"] = "moment_type"
     group_order: list[MomentType] = Field(default_factory=list)
-    separator_seconds: float = Field(default=0.5, ge=0)
 
 
 class HookConfig(_Section):
@@ -1057,20 +1026,13 @@ class NarrativeConfig(_Section):
 
 
 class VideoConfig(_Section):
-    default_resolution: int = Field(default=1080, ge=360)
-    default_fps: int = Field(default=60, ge=1)
     aspect_ratio: str = "16:9"
-    fps_mode: Literal["explicit", "source"] = "explicit"
     supported_resolutions: list[int] = Field(min_length=1)
     supported_fps: list[int] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def _defaults_supported(self) -> VideoConfig:
-        if self.default_resolution not in self.supported_resolutions:
-            raise ValueError("video.default_resolution is not in video.supported_resolutions.")
-        if self.default_fps not in self.supported_fps:
-            raise ValueError("video.default_fps is not in video.supported_fps.")
-        return self
+    # The two "default" fields this validator guarded are gone: the output
+    # size comes from `youtube_preset.resolution` and `aspect_ratio`, and the
+    # defaults beside them decided nothing. What is left here is the list the
+    # capabilities endpoint reports.
 
 
 class NvencConfig(_Section):
@@ -1154,7 +1116,6 @@ class FfmpegConfig(_Section):
     loglevel: str = "error"
     overwrite_output: bool = True
     timeout_seconds: int = Field(default=28800, ge=1)
-    hwaccel: str = "auto"
 
 
 class ProxyConfig(_Section):
@@ -1173,7 +1134,6 @@ class ThumbnailsConfig(_Section):
     width: int = Field(default=480, ge=64)
     jpeg_quality: int = Field(default=5, ge=1, le=31)
     per_moment: int = Field(default=3, ge=1)
-    per_scene: int = Field(default=1, ge=1)
 
 
 class ShortsConfig(_Section):
@@ -1506,8 +1466,6 @@ class MusicConfig(_Section):
 
 
 class FadesConfig(_Section):
-    clip_fade_in_ms: int = Field(default=0, ge=0)
-    clip_fade_out_ms: int = Field(default=0, ge=0)
     program_fade_in_ms: int = Field(default=250, ge=0)
     program_fade_out_ms: int = Field(default=600, ge=0)
     crossfade_ms: int = Field(default=60, ge=0)
@@ -1518,10 +1476,6 @@ class ClippingConfig(_Section):
     threshold_db: float = -0.1
 
 
-class SyncConfig(_Section):
-    max_offset_ms: int = Field(default=40, ge=0)
-
-
 class AudioConfig(_Section):
     analysis: AnalysisAudioConfig = Field(default_factory=AnalysisAudioConfig)
     mix: MixConfig
@@ -1529,7 +1483,6 @@ class AudioConfig(_Section):
     music: MusicConfig = Field(default_factory=MusicConfig)
     fades: FadesConfig = Field(default_factory=FadesConfig)
     clipping: ClippingConfig = Field(default_factory=ClippingConfig)
-    sync: SyncConfig = Field(default_factory=SyncConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -1586,7 +1539,6 @@ class CaptionsConfig(_Section):
     #: The speech still plays; only the caption is withheld.
     min_confidence: float = Field(default=0.30, ge=0.0, le=1.0)
     formats: list[Literal["srt", "vtt"]] = Field(min_length=1)
-    burn_in: bool = True
     style: Literal["standard", "animated"] = "animated"
     word_highlighting: bool = True
     emphasis: bool = True
@@ -1608,7 +1560,6 @@ class CaptionsConfig(_Section):
 class TechnicalQaThresholds(_Section):
     duration_tolerance_seconds: float = Field(default=2.0, ge=0)
     fps_tolerance: float = Field(default=0.5, ge=0)
-    black_frame_ratio: float = Field(default=0.98, ge=0.0, le=1.0)
     max_black_run_seconds: float = Field(default=2.0, ge=0)
     max_frozen_run_seconds: float = Field(default=3.0, ge=0)
 
@@ -1625,7 +1576,6 @@ class TechnicalQaThresholds(_Section):
     freeze_noise_db: float = Field(default=-45.0, le=0)
 
     max_av_desync_ms: int = Field(default=80, ge=0)
-    max_caption_desync_ms: int = Field(default=250, ge=0)
     min_audio_lufs: float = -30.0
 
 
@@ -1637,7 +1587,6 @@ class TechnicalQaConfig(_Section):
 
 class ContentQaThresholds(_Section):
     max_silence_seconds: float = Field(default=12.0, ge=0)
-    min_sequence_coherence: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class ContentQaConfig(_Section):
@@ -1707,8 +1656,6 @@ class YoutubePublishConfig(_Section):
     client_secret_file: str | None = None
     #: Where the granted refresh token lives, relative to the data root.
     token_file: str = ".credentials/youtube_oauth.json"
-    credential_id: str | None = None
-    channel_id: str | None = None
     default_playlist: str | None = None
     default_visibility: PublishVisibility = PublishVisibility.PRIVATE
     require_explicit_confirmation: bool = True
@@ -1759,14 +1706,12 @@ class PublishingConfig(_Section):
 
 class IntentResolutionConfig(_Section):
     project_settings_override_preset: bool = True
-    max_updates_per_project: int = Field(default=500, ge=1)
 
 
 class QaConfigInteraction(_Section):
     require_analysis_complete: bool = True
     max_results: int = Field(default=10, ge=1)
     timestamp_context_seconds: float = Field(default=15.0, gt=0)
-    min_confidence_to_answer: float = Field(default=0.35, ge=0.0, le=1.0)
 
 
 class LlmFallbackConfig(_Section):
@@ -1779,7 +1724,6 @@ class LlmFallbackConfig(_Section):
 
 class CommandsConfig(_Section):
     enabled: bool = True
-    auto_rerender: bool = False
     keep_versions: int = Field(default=20, ge=1)
 
 
@@ -1852,7 +1796,6 @@ class AppConfig(_Section):
     cloud: CloudConfig = Field(default_factory=CloudConfig)
     gpu: GpuConfig = Field(default_factory=GpuConfig)
     hardware: HardwareConfig
-    fallbacks: FallbacksConfig = Field(default_factory=FallbacksConfig)
     moments: MomentsConfig
     narrative: NarrativeConfig
     video: VideoConfig

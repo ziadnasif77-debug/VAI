@@ -25,7 +25,7 @@ from backend.core.models.enums import (
 from backend.core.models.project import ProjectCreate
 from backend.core.models.publishing import PublishResult
 from backend.database.repositories.renders import RenderRepository
-from backend.publishing.base import PublisherRegistry
+from backend.publishing.base import PublisherRegistry, PublishError
 from backend.services.job_manager import JobManager
 
 pytestmark = pytest.mark.unit
@@ -127,6 +127,7 @@ class TestDelivery:
             {
                 "target": "youtube",
                 "metadata": {"title": "ليلة في Grounded", "visibility": "unlisted"},
+                "authorised_by": "human",
             },
         )
 
@@ -162,7 +163,7 @@ class TestDelivery:
             config,
             project_id,
             FakePublisher(configured=False),
-            {"target": "youtube"},
+            {"target": "youtube", "authorised_by": "human"},
         )
 
         assert not outcome.succeeded
@@ -203,7 +204,12 @@ class TestTheQaVerdict:
         # §78 gave the human the last word; pressing publish was it. The
         # `rendered` fixture's QA row completed with blocks_export false.
         outcome = _run(
-            pipeline_runner, database, config, project_id, FakePublisher(), {"target": "youtube"}
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            FakePublisher(),
+            {"target": "youtube", "authorised_by": "human"},
         )
 
         assert outcome.succeeded
@@ -249,7 +255,11 @@ class TestAutoPublishHook:
         ]
         assert len(publishes) == 1
         assert publishes[0].status is JobStatus.QUEUED
-        assert publishes[0].payload == {"target": "youtube", "auto": True}
+        assert publishes[0].payload == {
+            "target": "youtube",
+            "auto": True,
+            "authorised_by": "project_auto_publish",
+        }
 
     def test_a_green_qa_queues_nothing_when_nobody_asked(
         self, project_manager, database, paths, config
@@ -467,3 +477,100 @@ class TestAutoPublishQualityFloor:
         runner._maybe_auto_publish(qa)
 
         assert len(self._publishes(runner, project.id)) == 1
+
+
+class TestAuthorisation:
+    """§51 as a gate rather than a promise.
+
+    ``require_explicit_confirmation`` shipped as ``true`` and was read by no
+    code at all, so the configuration described a guard that did not exist.
+    """
+
+    def test_a_publication_nobody_authorised_is_refused(
+        self, pipeline_runner, database, config, project_id, rendered
+    ) -> None:
+        publisher = FakePublisher()
+
+        outcome = _run(
+            pipeline_runner, database, config, project_id, publisher, {"target": "youtube"}
+        )
+
+        assert not outcome.succeeded
+        assert publisher.requests == [], "nothing left the machine"
+        assert "authorisation" in (outcome.job.error_message or "").lower()
+
+    @pytest.mark.parametrize(
+        "authorisation", ["human", "daily_policy", "project_auto_publish"]
+    )
+    def test_each_real_authorisation_is_honoured(
+        self, pipeline_runner, database, config, project_id, rendered, authorisation
+    ) -> None:
+        # The owner's standing daily policy is consent given once in writing;
+        # refusing it would be refusing the feature they asked for.
+        outcome = _run(
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            FakePublisher(),
+            {"target": "youtube", "authorised_by": authorisation},
+        )
+
+        assert outcome.succeeded
+
+    def test_an_invented_authorisation_is_not_one(
+        self, pipeline_runner, database, config, project_id, rendered
+    ) -> None:
+        outcome = _run(
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            FakePublisher(),
+            {"target": "youtube", "authorised_by": "the_pipeline_felt_ready"},
+        )
+
+        assert not outcome.succeeded
+
+    def test_the_gate_can_be_switched_off(self, config) -> None:
+        # Exercised on the rule itself: the pipeline runner carries its own
+        # config, so a relaxed copy handed to the job manager never reaches
+        # the worker -- which is exactly the kind of gap this phase is about.
+        from types import SimpleNamespace
+
+        from backend.core.models.enums import PublishTarget
+        from backend.pipeline.workers.publish_worker import PublishWorker
+
+        relaxed = config.model_copy(
+            update={
+                "publishing": config.publishing.model_copy(
+                    update={
+                        "youtube": config.publishing.youtube.model_copy(
+                            update={"require_explicit_confirmation": False}
+                        )
+                    }
+                )
+            }
+        )
+        worker = PublishWorker()
+        request = SimpleNamespace(target=PublishTarget.YOUTUBE)
+        strict = SimpleNamespace(config=config, project_id="proj-a")
+        permissive = SimpleNamespace(config=relaxed, project_id="proj-a")
+
+        with pytest.raises(PublishError):
+            worker._respect_authorisation(strict, request, {})
+        worker._respect_authorisation(permissive, request, {})
+
+    def test_a_local_file_needs_no_channel_authorisation(self, config) -> None:
+        # The setting lives under `publishing.youtube`; a copy to disk is not
+        # a publication to an audience.
+        from types import SimpleNamespace
+
+        from backend.core.models.enums import PublishTarget
+        from backend.pipeline.workers.publish_worker import PublishWorker
+
+        context = SimpleNamespace(config=config, project_id="proj-a")
+
+        PublishWorker()._respect_authorisation(
+            context, SimpleNamespace(target=PublishTarget.LOCAL_FILE), {}
+        )

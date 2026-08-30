@@ -66,9 +66,3 @@ application:
     max_bytes: 10485760
     backup_count: 5
 
-  # Disk management controls (§84). Long recordings generate large intermediates.
-  storage:
-    max_cache_gb: 50.0
-    keep_proxy_after_render: true
-    keep_frames_after_analysis: false
-    warn_free_space_gb: 20.0

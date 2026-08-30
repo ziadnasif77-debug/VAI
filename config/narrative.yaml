@@ -26,7 +26,6 @@ narrative:
     interleave_types: true
 
   compilation:
-    group_by: moment_type
     group_order:
       - epic
       - clutch
@@ -34,7 +33,6 @@ narrative:
       - outplay
       - funny
       - fail
-    separator_seconds: 0.5
 
   # Hook engine (§37). The system selects an existing moment; it never invents
   # narration or fabricates footage.

@@ -58,6 +58,8 @@ extremes cancel themselves.
 | EDIT_PLAN as machine-readable output | the EDL (§40–§42) — it *is* the edit plan |
 | Named highlight tiers on every score | moments/scoring.py `tier_for` — master/major/good/supporting on the ten-dimension score; a second scoring system beside the first would only raise which one is real |
 | Daily production & publishing policy (owner, 2026-08-29) | services/daily_producer.py: production ledger + 02:00/10:00 Europe/Oslo clock, 1 long + 2 Reels caps, platform-side scheduled publishing, idempotent by the `daily_runs` mutex |
+| Nothing publishes that nobody authorised | 51 | `publish_worker._respect_authorisation`: a YouTube publication must name `human`, `daily_policy` or `project_auto_publish`. `publishing.youtube.require_explicit_confirmation` shipped as `true` and was read by no code at all until P0 |
+| Configuration may not promise what code does not do | — | `scripts/config_coverage.py` + `tests/unit/test_config_coverage.py`: every YAML leaf must have a consumer or a written reason. Forty-eight keys describing absent capabilities were deleted rather than allow-listed |
 | Quality score 0–100 + uncertainty list | qa_worker `_doctrine_summary` — arithmetic over failures, warnings and every §95 note upstream stages attached, plus those notes verbatim |
 | Pacing tiers driving cut length (§7) | screen_guard `_cap_for` over `scoring.tier_for`: master/major slabs cap at 45 s, good at 75, filler at 100 |
 | Escalation ladders + per-effect cooldowns (§9) | planner: `escalation` rungs scale strength by same-type count; `cooldown_seconds` suppresses on record ("cooldown" in the rejected reasons) |
@@ -73,6 +75,8 @@ extremes cancel themselves.
 | --- | --- | --- |
 | Detected game steering the editing grammar | 29 | detection-level adaptation is shipped (GameProfile: per-game event rules, suppressions, fusion); what is missing is the wire from the detected game to `EditingIntent` defaults — a horror game asking for slower pacing on its own |
 | Named style presets | 32 | every §32 axis already lives on `EditingIntent` (pacing, effects level, captions, music, variety); a preset is a named bundle of those fields in the phrase layer, and none ship yet |
+| **Viewer retention as a measured criterion** | filter #1 | the doctrine's *first* question, and nothing in the pipeline can answer it: the app requests one OAuth scope (`auth/youtube`), calls no analytics endpoint, and has no column anywhere for a view, a watch-second or a retention point. Every "for retention" decision shipped today — pacing tiers, effect budgets, cooldowns — is a hand-calibrated heuristic that has never been checked against an outcome. Named here because a gap nobody tracks is a gap nobody closes |
+| **Effect composition grammar** | the grammar | `SETUP → BUILDUP → TENSION → PAYOFF → REACTION` is stated above as doctrine; the planner ships a flat `event → effect` map with budgets, cooldowns and a same-type escalation dial. `EffectInstance` has no `group_id`, no `role` and no dependency, and the planner never receives event *timestamps* — only types — so there is no beat to anchor a composition to |
 
 Each gap graduates from this table by shipping with tests and a PLAN entry,
 in the order the owner's feedback pulls them.

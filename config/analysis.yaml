@@ -23,7 +23,6 @@ analysis:
       audio_spike: true
       scene_change: true
       hud_change: true
-      motion_spike: true
       speech_activity: true
 
   # Scene detection (§17). Scene boundaries are supporting information, never
@@ -41,7 +40,6 @@ analysis:
     silence_threshold_db: -45.0
     min_silence_seconds: 1.5
     spike_threshold_db: 9.0
-    loudness_target_lufs: -14.0
     detect:
       rms: true
       peak: true
@@ -74,7 +72,6 @@ analysis:
   #                                                 ->  VLM confirms and reads
   vision:
     enabled: true
-    only_candidate_regions: true
     max_frames_per_request: 4
     # Hard ceiling on VLM work per hour of source, so analysis time stays
     # predictable no matter how eventful the recording is.
@@ -93,8 +90,6 @@ analysis:
     # costs proportionally less.
     max_frames_per_source_hour: 720
     min_confidence: 0.5
-    describe_hud: true
-    describe_scene: true
     # Cheap detectors that nominate candidates before any VLM call runs.
     candidate_detectors:
       - audio_spike

@@ -5,10 +5,7 @@ moments:
   # one high-confidence event rather than four competing ones.
   correlation:
     window_seconds: 3.0
-    min_sources: 1
     # Confidence multiplier applied per additional agreeing source.
-    multi_source_bonus: 0.12
-    max_confidence: 0.99
 
   # Moment formation (§28): related events group into one moment.
   formation:
@@ -59,20 +56,8 @@ moments:
   # Dead time (§30). Removed only when removal does not damage context.
   dead_time:
     enabled: true
-    categories:
-      - walking
-      - waiting
-      - loading
-      - menu
-      - inventory
-      - travel
-      - afk
-      - long_silence
-      - repetitive_farming
-      - repeated_failed_attempts
     min_segment_seconds: 6.0
     silence_seconds_for_dead_time: 8.0
-    afk_motion_threshold: 0.02
     # A dead-time segment is kept anyway when a retained moment depends on it.
     protect_context: true
     max_protected_seconds: 20.0

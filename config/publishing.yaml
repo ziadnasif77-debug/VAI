@@ -65,8 +65,6 @@ publishing:
     client_id: 583344787316-pm8rf3ftbtiep687fkjl5hm2rf0bdval.apps.googleusercontent.com
     client_secret_file: .credentials/google_client_secret.txt
     token_file: .credentials/youtube_oauth.json
-    credential_id: null
-    channel_id: null
     default_playlist: null
     default_visibility: public
     # An upload is never started without the user confirming it.

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from backend.core.models.enums import PublishTarget
 from backend.publishing.base import Publisher, PublisherRegistry, registry
 from backend.publishing.google_oauth import TokenProvider, TokenStore
 from backend.publishing.local_file import LocalFilePublisher
@@ -69,16 +70,24 @@ def build_registry(config, data_root: Path) -> PublisherRegistry:
     ``local_file`` always registers -- it needs nothing. ``youtube`` registers
     exactly when a client pair exists; selecting it before then fails with the
     typed ``PUBLISH_TARGET_NOT_CONFIGURED`` the registry has always promised.
+
+    ``publishing.enabled_targets`` is honoured here, and until now was not:
+    the list read like an off switch for a destination and controlled nothing,
+    so removing ``youtube`` from it left the channel one API call away.
     """
+    enabled = set(config.publishing.enabled_targets)
     publishers = PublisherRegistry()
     local = config.publishing.local_file
-    publishers.register(
-        LocalFilePublisher(
-            default_directory=(Path(local.default_directory) if local.default_directory else None)
+    if PublishTarget.LOCAL_FILE in enabled:
+        publishers.register(
+            LocalFilePublisher(
+                default_directory=(
+                    Path(local.default_directory) if local.default_directory else None
+                )
+            )
         )
-    )
     tokens = build_token_provider(config, data_root)
-    if tokens is not None:
+    if tokens is not None and PublishTarget.YOUTUBE in enabled:
         settings = config.publishing.youtube
         publishers.register(
             YouTubePublisher(

@@ -94,7 +94,6 @@ gpu:
   device_index: 0
   total_vram_mb: 8192
   reserved_vram_mb: 1024
-  exclusive_model_slot: true
   # Release the allocator's cached blocks between stages, not just the model
   # reference; without this the next load still hits CUDA OOM.
   empty_cache_between_stages: true
@@ -112,27 +111,12 @@ hardware:
       description: "CPU-focused. No vision model; OCR + audio + scenes only."
       min_vram_mb: 0
       vision_enabled: false
-      speech_compute_type: int8
-      frame_sampling_multiplier: 2.0
-      max_parallel_stages: 1
     medium:
       description: "GPU inference with moderate frame sampling."
       min_vram_mb: 6144
       vision_enabled: true
-      speech_compute_type: float16
-      frame_sampling_multiplier: 1.0
-      max_parallel_stages: 1
     high:
       description: "GPU with vision models and dense sampling."
       min_vram_mb: 12288
       vision_enabled: true
-      speech_compute_type: float16
-      frame_sampling_multiplier: 0.5
-      max_parallel_stages: 2
 
-# Graceful degradation (§95): what to fall back to when a layer is unavailable.
-fallbacks:
-  vision_failed: ["ocr", "audio", "scene_detection", "game_profile"]
-  speech_failed: ["video", "audio", "vision"]
-  llm_failed: ["rule_based_scoring"]
-  ocr_failed: ["vision", "audio"]

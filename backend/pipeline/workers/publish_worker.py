@@ -22,11 +22,11 @@ per project, with the metadata snapshot inside the payload.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from backend.core.errors import ErrorCode
 from backend.core.logging import LogChannel, get_logger
-from backend.core.models.enums import JobStage
+from backend.core.models.enums import JobStage, PublishTarget
 from backend.core.models.publishing import PublishRequest, VideoMetadata
 from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.renders import RenderRepository
@@ -35,6 +35,12 @@ from backend.publishing import PublisherRegistry, build_registry
 from backend.publishing.base import PublishError
 
 logger = get_logger("pipeline.workers.publish", LogChannel.RENDERING)
+
+#: Who may authorise a publication. A name here is a person's decision --
+#: made in the moment, or made once for a schedule -- never the machine's.
+AUTHORISATIONS: Final[frozenset[str]] = frozenset(
+    {"human", "daily_policy", "project_auto_publish"}
+)
 
 
 class PublishWorker:
@@ -71,9 +77,16 @@ class PublishWorker:
         # The render is resolved before the request is built: "publish the
         # latest" becomes a concrete id here, and that id -- not an empty
         # string -- is what the history must name.
+        payload = {
+            # A request with no destination takes the configured default
+            # rather than failing on a missing key.
+            "target": context.config.publishing.default_target.value,
+            **payload,
+        }
         render = self._render(context, payload)
         request = self._request(context, payload)
         self._respect_qa(context)
+        self._respect_authorisation(context, request, payload)
 
         registry = self._publishers or build_registry(context.config, context.data_root)
         publisher = registry.get(request.target)
@@ -214,6 +227,50 @@ class PublishWorker:
         # The payload carries the id forward so the result names what went out.
         payload["render_id"] = str(record.get("id"))
         return record
+
+    def _respect_authorisation(
+        self, context: WorkerContext, request, payload: dict[str, Any]
+    ) -> None:
+        """§51: nothing reaches a channel that nobody authorised.
+
+        ``publishing.youtube.require_explicit_confirmation`` shipped as ``true``
+        and was read by no code at all, so the setting promised a gate that did
+        not exist. It exists now, and it asks the honest question -- not "did a
+        person click this second", which would forbid the owner's own daily
+        policy, but **who authorised this, and can it be named**.
+
+        Three authorisations are real, and every publish carries one:
+
+        * ``human`` -- the export screen, where somebody pressed publish;
+        * ``daily_policy`` -- the owner's standing schedule, consent given once
+          in writing for a recurring publication;
+        * ``project_auto_publish`` -- the project's own flag, set by hand.
+
+        A payload with none of them is a publication nobody can account for,
+        and that is exactly what this refuses.
+        """
+        if request.target is not PublishTarget.YOUTUBE:
+            return
+        if not context.config.publishing.youtube.require_explicit_confirmation:
+            return
+        authorisation = str(payload.get("authorised_by") or "").strip()
+        if authorisation in AUTHORISATIONS:
+            logger.info(
+                "Publication authorised",
+                extra={"project_id": context.project_id, "authorised_by": authorisation},
+            )
+            return
+        raise PublishError(
+            "This publication names no authorisation. Publish from the export "
+            "screen, or let the daily policy queue it.",
+            code=ErrorCode.PUBLISH_FAILED,
+            details={
+                "blocked_by": "authorisation",
+                "authorised_by": authorisation or None,
+                "accepted": sorted(AUTHORISATIONS),
+            },
+            recoverable=False,
+        )
 
     def _respect_qa(self, context: WorkerContext) -> None:
         """§76: a QA failure stops the file leaving. Warnings do not."""
