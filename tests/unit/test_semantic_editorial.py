@@ -392,3 +392,25 @@ class TestQaSpeaksV2sGrammar:
 
         assert not superseded.warned, "the guard answers density; the plan cannot"
         assert real.warned
+
+
+class TestTheCriticTightensButDoesNotErase:
+    def test_a_trim_that_would_leave_a_flash_is_refused(self, config) -> None:
+        from backend.semantic.levels import floor_for
+
+        # A climax shot's band starts at 0.8s; half of that is the readability
+        # floor, which is where the Critic must stop.
+        assert floor_for("climax", config) == pytest.approx(0.8)
+        assert floor_for("calm", config) == pytest.approx(4.0)
+        assert floor_for(None, config) == pytest.approx(0.8), "no level, no licence"
+
+    def test_the_floor_is_read_from_the_configured_bands(self, config) -> None:
+        from backend.semantic.levels import floor_for
+
+        bands = config.editorial.pacing.bands
+        for level in ("calm", "normal", "tension", "high", "climax"):
+            expected = max(
+                config.editorial.pacing.min_piece_seconds,
+                getattr(bands, level).min * 0.5,
+            )
+            assert floor_for(level, config) == pytest.approx(expected)

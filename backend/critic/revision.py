@@ -81,6 +81,7 @@ def apply(
     policy: DurationPolicy,
     target_seconds: float,
     allow_drops: bool = True,
+    clip_floor=None,
 ) -> Revision:
     """Apply what the critique asked for, as far as the duration allows.
 
@@ -92,6 +93,11 @@ def apply(
         allow_drops: whether ``drop`` is honoured at all. Off is a defensible
             setting: trimming a clip's dead opening is nearly always right,
             while removing a clip the optimiser chose is a bigger claim.
+        clip_floor: how short each clip may be left, by clip index. V2's
+            pacing engine chose these lengths from the session's own heat,
+            and a trim that takes a 1.3s climax shot down to half a second
+            leaves a flash where a shot was. Absent, the generic operation
+            floor applies, which is what happened before V2.
     """
     if critique.is_empty:
         return Revision(timeline=timeline)
@@ -115,6 +121,15 @@ def apply(
                 f"{format_duration(floor)}"
             )
             continue
+        if clip_floor is not None and note.action in {Action.TRIM_START, Action.TRIM_END}:
+            shortest = float(clip_floor(row.clip.clip_index))
+            if row.seconds - note.seconds < shortest:
+                refused.append(
+                    f"clip {note.clip}: {_describe(note)} -- it would leave a "
+                    f"{row.seconds - note.seconds:.2f}s shot where the pace asks "
+                    f"for at least {shortest:.2f}s"
+                )
+                continue
 
         try:
             timeline = _operation(timeline, note, row.clip.id)

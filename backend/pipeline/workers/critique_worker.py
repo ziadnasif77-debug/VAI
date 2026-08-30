@@ -84,6 +84,18 @@ class CritiqueWorker:
             return _skipped(outcome.reason, detail=outcome.detail, evidence=gathered.summary())
 
         context.report(0.8, "Applying what the review asked for")
+        # V2's pacing engine chose every one of these lengths from the
+        # session's own heat; the Critic tightens shots, it does not erase
+        # them. Same reader as QA's, so the two cannot disagree about which
+        # short shot was deliberate.
+        from backend.semantic.levels import clip_levels, floor_for
+
+        levels = clip_levels(
+            context.database,
+            timeline,
+            config=context.config,
+            cache_dir=context.paths.analysis / "semantic",
+        )
         revision = edit_revision.apply(
             timeline,
             outcome,
@@ -91,6 +103,7 @@ class CritiqueWorker:
             policy=context.config.duration_policy,
             target_seconds=target,
             allow_drops=config.allow_drops,
+            clip_floor=lambda index: floor_for(levels.get(index), context.config),
         )
         if revision.changed and config.apply:
             repository.save_edit(context.project_id, revision.timeline)
