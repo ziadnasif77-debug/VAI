@@ -1045,15 +1045,20 @@ class TestSourceExclusivity:
         )
 
     def test_an_edge_overlap_is_trimmed_from_the_later_clip(self) -> None:
+        # The overlap is trimmed off the clip that arrives second, and what
+        # is left still runs forwards. The original fixture here put 53-78s
+        # before 0-78s and expected 53->78 then 0->53; V2's constitution
+        # forbids exactly that output, so the rule is now tested with an
+        # overlap the edit can legally survive.
         result = self._build(
             [
-                PlannedClip(media_id=MEDIA, source_start=53.0, source_end=78.0, score=0.9),
-                PlannedClip(media_id=MEDIA, source_start=0.0, source_end=78.0, score=0.5),
+                PlannedClip(media_id=MEDIA, source_start=0.0, source_end=78.0, score=0.9),
+                PlannedClip(media_id=MEDIA, source_start=53.0, source_end=100.0, score=0.5),
             ]
         )
 
         clips = result.timeline.video_clips()
-        assert [(c.source_in, c.source_out) for c in clips] == [(53.0, 78.0), (0.0, 53.0)]
+        assert [(c.source_in, c.source_out) for c in clips] == [(0.0, 78.0), (78.0, 100.0)]
         assert any("already in the edit" in note for note in result.notes)
 
     def test_a_fully_contained_clip_is_dropped_with_a_note(self) -> None:

@@ -92,6 +92,10 @@ class TestDynamicPacing:
     def _clip(self, start, end):
         return PlannedClip(media_id="m", source_start=start, source_end=end)
 
+    def _length(self, timeline, position, config, **kwargs):
+        pacing_context = pacing_engine.context_at(position, timeline, **kwargs)
+        return pacing_engine.shot_length(pacing_context, config).seconds
+
     def test_a_hot_stretch_gets_the_climax_cap(self, config) -> None:
         timeline = _timeline(
             config,
@@ -100,33 +104,28 @@ class TestDynamicPacing:
             audio_events=[(45.0, 75.0, -5.0, "roar"), (5.0, 8.0, -50.0, "hum")],
         )
 
-        hot_cap = pacing_engine.cap_for(
-            self._clip(50, 70), timeline, config, fallback=75.0
-        )
-        calm_cap = pacing_engine.cap_for(
-            self._clip(5, 20), timeline, config, fallback=75.0
-        )
+        hot = self._length(timeline, 50.0, config)
+        calm = self._length(timeline, 5.0, config)
 
-        assert hot_cap <= config.editorial.pacing.bands.high.max
-        assert calm_cap >= config.editorial.pacing.bands.normal.max
-        assert hot_cap < calm_cap, "the session's heat sets the cut length"
+        assert hot <= config.editorial.pacing.bands.high.max
+        assert calm >= config.editorial.pacing.bands.normal.max
+        assert hot < calm, "the session's heat sets the cut length"
 
-    def test_dynamic_off_returns_the_static_fallback(self, config) -> None:
-        quiet = _timeline(config)
-        static = config.model_copy(
-            update={
-                "editorial": config.editorial.model_copy(
-                    update={
-                        "pacing": config.editorial.pacing.model_copy(
-                            update={"dynamic": False}
-                        )
-                    }
-                )
-            }
+    def test_without_a_reader_there_is_no_context_to_pace_from(self, config) -> None:
+        # The caller falls back to V1's tier caps; the engine says nothing
+        # rather than inventing a level for a session it cannot read.
+        assert pacing_engine.context_at(10.0, None) is None
+
+    def test_every_length_carries_the_rules_that_made_it(self, config) -> None:
+        timeline = _timeline(config)
+
+        decision = pacing_engine.shot_length(
+            pacing_engine.context_at(10.0, timeline), config
         )
 
-        assert pacing_engine.cap_for(self._clip(0, 50), quiet, static, fallback=75.0) == 75.0
-        assert pacing_engine.cap_for(self._clip(0, 50), None, config, fallback=75.0) == 75.0
+        assert decision.rules, "a length with no reason cannot be reviewed (§80)"
+        assert any("band caps at" in rule for rule in decision.rules)
+        assert float(decision) == decision.seconds
 
 
 class TestChronologyConstitution:
@@ -172,7 +171,7 @@ class TestJumpCutTightening:
             [PlannedClip(media_id="m", source_start=100.0, source_end=140.0)],
             scenes_by_media={},
             max_seconds=75.0,
-            cap_fn=lambda piece: 2.5,
+            cap_fn=lambda piece, previous=0.0: 2.5,
             jump_cut_gap=0.35,
             jump_cut_below=8.0,
         )
@@ -220,7 +219,7 @@ class TestTheWalkFollowsTheHeat:
 
         clip = PlannedClip(media_id="m", source_start=0.0, source_end=60.0)
 
-        def cap(piece):
+        def cap(piece, previous=0.0):
             # calm until 40s, climax after it
             return 15.0 if piece.source_start < 40.0 else 1.5
 
@@ -250,7 +249,7 @@ class TestTheWalkFollowsTheHeat:
             [PlannedClip(media_id="m", source_start=100.0, source_end=140.0)],
             scenes_by_media={},
             max_seconds=75.0,
-            cap_fn=lambda piece: 3.0,
+            cap_fn=lambda piece, previous=0.0: 3.0,
         )
 
         assert pieces[0].source_start == 100.0
@@ -265,7 +264,7 @@ class TestTheWalkFollowsTheHeat:
             [PlannedClip(media_id="m", source_start=0.0, source_end=60.0)],
             scenes_by_media={},
             max_seconds=75.0,
-            cap_fn=lambda piece: 15.0,
+            cap_fn=lambda piece, previous=0.0: 15.0,
             jump_cut_gap=0.35,
             jump_cut_below=8.0,
         )
@@ -296,7 +295,7 @@ class TestAShotDoesNotSpanALevelChange:
             [PlannedClip(media_id="m", source_start=0.0, source_end=60.0)],
             scenes_by_media={},
             max_seconds=75.0,
-            cap_fn=lambda piece: 15.0 if piece.source_start < 40.0 else 1.5,
+            cap_fn=lambda piece, previous=0.0: 15.0 if piece.source_start < 40.0 else 1.5,
             level_stops_by_media={"m": [0.0, 40.0]},
             jump_cut_gap=0.35,
             jump_cut_below=8.0,

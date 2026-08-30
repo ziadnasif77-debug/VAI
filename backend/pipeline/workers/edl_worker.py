@@ -297,21 +297,33 @@ class EdlWorker:
                         extra={"media_id": media_id},
                     )
 
-        def dynamic_cap(clip):
+        # Strong event onsets, per recording: the beats a cut should land on
+        # rather than a beat before.
+        beats = {
+            media_id: tuple(sorted(start for start, _end in spans))
+            for media_id, spans in events.items()
+        }
+        def dynamic_cap(clip, previous_length=0.0):
+            """The shot starting here, its length and the rules behind it."""
             from backend.timeline.screen_guard import _cap_for
 
-            static = _cap_for(
-                clip,
-                max_seconds=guard.max_clip_seconds,
-                high_tier_max_seconds=45.0,
-                low_tier_max_seconds=100.0,
+            reader = timelines.get(clip.media_id)
+            pacing_context = pacing_engine.context_at(
+                clip.source_start,
+                reader,
+                role=clip.role,
+                previous_length=previous_length,
+                events=beats.get(clip.media_id, ()),
             )
-            return pacing_engine.cap_for(
-                clip,
-                timelines.get(clip.media_id),
-                context.config,
-                fallback=static,
-            )
+            if pacing_context is None or not context.config.editorial.pacing.dynamic:
+                # V1's tier caps, untouched, whenever the session cannot be read.
+                return _cap_for(
+                    clip,
+                    max_seconds=guard.max_clip_seconds,
+                    high_tier_max_seconds=45.0,
+                    low_tier_max_seconds=100.0,
+                )
+            return pacing_engine.shot_length(pacing_context, context.config)
 
         # Where a hot stretch has neither a scene change nor an event --
         # 40 continuous seconds of action produced zero of both -- the
@@ -331,6 +343,19 @@ class EdlWorker:
             for media_id, timeline in timelines.items()
         }
 
+        # Spans a cut may not land inside: spoken WORDS, not segments.
+        #
+        # The first version used the speech lane's runs, which are the
+        # transcript's segments -- and on this footage a segment runs 186
+        # seconds. Holding a shot to the end of one would mean a three-minute
+        # shot, so the rule protected nothing and could not have. Words are
+        # the granularity that makes "do not cut mid-speech" an achievable
+        # sentence rather than a slogan.
+        no_cut = {
+            media_id: _spoken_words(context.database, media_id)
+            for media_id in timelines
+        }
+
         guarded = guard_clips(
             planned,
             states_by_media=states,
@@ -338,6 +363,7 @@ class EdlWorker:
             events_by_media=events,
             seam_hints_by_media=seam_hints,
             level_stops_by_media=level_stops,
+            no_cut_by_media=no_cut,
             jump_cut_gap=context.config.editorial.pacing.jump_cut_gap_seconds,
             jump_cut_below=context.config.editorial.pacing.bands.normal.max,
             cap_fn=dynamic_cap if timelines else None,
@@ -350,9 +376,9 @@ class EdlWorker:
             low_tier_max_seconds=guard.low_tier_max_seconds,
             min_piece_seconds=guard.min_piece_seconds,
         )
-        from backend.timeline.validation import ensure_chronological
-
-        ensure_chronological(guarded)
+        # The constitution is checked in `build_timeline`, on the selection
+        # after overlapping context spans have been resolved -- here it
+        # refused plans that were about to become legal one pass later.
         return guarded
 
     def _captions(self, context: WorkerContext, timeline: Timeline):
@@ -420,6 +446,35 @@ class EdlWorker:
 
 
 __all__ = ["EdlWorker"]
+
+
+def _spoken_words(database, media_id: str) -> list[tuple[float, float]]:
+    """Every word's span, so a cut never lands inside one.
+
+    §14 stored these from the first transcript and nothing had read them for
+    this purpose. They are the only speech boundary fine enough to protect:
+    the segments around them are minutes long on real gameplay.
+    """
+    from json import loads
+
+    spans: list[tuple[float, float]] = []
+    for row in database.fetch_all(
+        "SELECT words FROM transcript_segments WHERE media_id = ? ORDER BY start_seconds",
+        (media_id,),
+    ):
+        if not row["words"]:
+            continue
+        try:
+            words = loads(row["words"])
+        except ValueError:
+            continue
+        for word in words if isinstance(words, list) else ():
+            start, end = word.get("start"), word.get("end")
+            if start is None or end is None or end <= start:
+                continue
+            spans.append((float(start), float(end)))
+    spans.sort()
+    return spans
 
 
 def _lane_peaks(timeline) -> list[float]:

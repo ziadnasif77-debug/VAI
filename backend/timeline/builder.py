@@ -189,6 +189,14 @@ def build_timeline(
 
     bounded = _bounded(clips, media_durations or {})
     bounded, exclusivity_notes = _exclusive(bounded)
+    # V2's constitution, checked on the finished selection rather than on an
+    # intermediate. Two moments whose context expansions overlap arrive out of
+    # order by span while in order by core -- and `_exclusive`, one line up,
+    # has just resolved exactly that. Checked before it, the rule refused a
+    # plan the very next pass was about to make legal.
+    from backend.timeline.validation import ensure_chronological
+
+    ensure_chronological(bounded)
     bounded, clamped, clamp_notes = _apply_duration_band(bounded, policy)
     clamp_notes = [*exclusivity_notes, *clamp_notes]
     if not bounded:

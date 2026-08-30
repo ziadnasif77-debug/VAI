@@ -52,12 +52,9 @@ LANES: Final[tuple[str, ...]] = (
 #: Lanes with no consumer yet, and the phase that will read them. A lane may
 #: sit here; it may not sit nowhere. Delete the entry when the consumer lands.
 AWAITING_CONSUMER: Final[dict[str, str]] = {
-    "tension": "P2 selection, P4 emphasis, P5 audio",
-    "motion": "P3 pacing (transition cost)",
     "audio": "P5 audio director",
     "events": "P4 emphasis (event density)",
-    "speech": "P3 pacing (never cut inside a sentence)",
-    "novelty": "P2 selection, P4 emphasis (repetition)",
+    "novelty": "P4 emphasis (repetition)",
 }
 
 

@@ -59,6 +59,7 @@ def guard_clips(
     events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
     seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
     level_stops_by_media: Mapping[str, Sequence[float]] | None = None,
+    no_cut_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
     cap_fn=None,
@@ -96,6 +97,7 @@ def guard_clips(
         events_by_media=events_by_media or {},
         seam_hints_by_media=seam_hints_by_media or {},
         level_stops_by_media=level_stops_by_media or {},
+        no_cut_by_media=no_cut_by_media or {},
         jump_cut_gap=jump_cut_gap,
         jump_cut_below=jump_cut_below,
         max_seconds=max_clip_seconds,
@@ -408,6 +410,7 @@ def _split_long_clips(
     events_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
     seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
     level_stops_by_media: Mapping[str, Sequence[float]] | None = None,
+    no_cut_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
 ) -> list[PlannedClip]:
@@ -431,6 +434,7 @@ def _split_long_clips(
                     cap_fn=cap_fn,
                     seams=seams,
                     stops=(level_stops_by_media or {}).get(clip.media_id, ()),
+                    no_cut=(no_cut_by_media or {}).get(clip.media_id, ()),
                     min_piece=min_piece,
                     jump_cut_gap=jump_cut_gap,
                     jump_cut_below=jump_cut_below,
@@ -479,27 +483,83 @@ def _split_long_clips(
 _PROBE_SECONDS: Final[float] = 2.0
 
 
+def _out_of(
+    cut: float, forbidden: Sequence[tuple[float, float]], *, floor_at: float, ceiling: float
+) -> float:
+    """Move ``cut`` off any span it may not land inside.
+
+    The zones are spoken sentences: a cut inside one is a defect the viewer
+    hears, and the pacing rule that holds a shot for the speaker only helps
+    when the shot *starts* while they are talking. A shot that begins in
+    silence and runs into a sentence needed this.
+
+    Forward first -- finishing the sentence is what a person would do -- and
+    backwards only if the end runs past the clip. Neither move is allowed to
+    produce a piece under the floor, so a cut with nowhere legal to go stays
+    where it was rather than becoming a sliver.
+    """
+    for start, stop in forbidden:
+        if not start < cut < stop:
+            continue
+        if stop <= ceiling:
+            return stop
+        if start >= floor_at:
+            return start
+        break
+    return cut
+
+
+def _before(
+    cut: float, forbidden: Sequence[tuple[float, float]], *, floor_at: float
+) -> float:
+    """Pull ``cut`` back to the start of any span it lands inside.
+
+    The backwards half of :func:`_out_of`, for the one cut that cannot move
+    forward: the final shot of the video, whose end the plan fixed.
+    """
+    for start, stop in forbidden:
+        if start < cut < stop and start >= floor_at:
+            return start
+    return cut
+
+
+def _paced(
+    clip: PlannedClip, start: float, end: float, rules: Sequence[str]
+) -> PlannedClip:
+    """One piece, carrying the rules that decided its length (§80)."""
+    piece = replace(clip, source_start=start, source_end=end)
+    if not rules:
+        return piece
+    return replace(piece, sources=(*piece.sources, *(f"pacing: {rule}" for rule in rules)))
+
+
 def _walk(
     clip: PlannedClip,
     *,
     cap_fn,
     seams: Sequence[float],
     stops: Sequence[float] = (),
+    no_cut: Sequence[tuple[float, float]] = (),
     min_piece: float,
     jump_cut_gap: float,
     jump_cut_below: float,
 ) -> list[PlannedClip]:
-    """Cut forward through a clip, re-reading the heat at every piece.
+    """Cut forward through a clip, re-reading the session at every piece.
 
-    The cap is not a property of the clip; it is a property of the second the
-    cut starts on. Measuring the plan the other way round -- one cap for the
-    slab, each piece graded on its own afterwards -- is what made a calm
+    The length is not a property of the clip; it is a property of the second
+    the cut starts on. Measuring the plan the other way round -- one cap for
+    the slab, each piece graded on its own afterwards -- is what made a calm
     stretch inside a hot slab come out at the hot pace.
+
+    ``cap_fn`` may answer with a plain number or with anything carrying
+    ``seconds`` and ``rules``. When it carries rules they ride on the piece,
+    so a finished video can say why each shot is the length it is (§80).
     """
     pieces: list[PlannedClip] = []
     position = clip.source_start
     end = clip.source_end
     guard = 0
+    previous_length = 0.0
     while position < end and guard < 5000:
         guard += 1
         probe = replace(
@@ -507,7 +567,9 @@ def _walk(
             source_start=position,
             source_end=min(position + _PROBE_SECONDS, end),
         )
-        cap = float(cap_fn(probe))
+        decision = cap_fn(probe, previous_length)
+        cap = float(decision)
+        rules = tuple(getattr(decision, "rules", ()))
         # A hot band's cap can sit far below the global piece floor; a floor
         # that scales with the cap is what lets a climax actually cut fast.
         floor = min(min_piece, max(0.8, cap * 0.45))
@@ -517,7 +579,12 @@ def _walk(
         # and the skip is what makes the cut a felt jump-cut.
         gap = jump_cut_gap if cap < jump_cut_below else 0.0
         if remaining <= cap:
-            pieces.append(replace(clip, source_start=position, source_end=end))
+            # The last piece ends where the plan says, and the plan does not
+            # know about words -- the video's final shot ended half a second
+            # inside its final syllable. Forward is not available here, so
+            # this one snaps back.
+            close = _before(end, no_cut, floor_at=position + floor)
+            pieces.append(_paced(clip, position, close, rules))
             break
         target = position + cap
         # A shot does not span a change of level. Where the session turns
@@ -531,21 +598,21 @@ def _walk(
         # cut falls on the cap itself rather than shipping an over-long slab.
         candidates = [t for t in seams if position + floor <= t <= target]
         cut = max(candidates) if candidates else target
+        cut = _out_of(cut, no_cut, floor_at=position + floor, ceiling=end)
         if end - cut < floor:
             # Cutting here would leave a sliver. Halve the tail instead --
             # two honest pieces, both inside the cap -- and only ship it long
             # when even halves would fall under the floor.
             if remaining / 2 >= floor:
                 middle = position + remaining / 2
-                pieces.append(
-                    replace(clip, source_start=position, source_end=middle)
-                )
+                pieces.append(_paced(clip, position, middle, rules))
                 resumed = middle + gap if end - (middle + gap) >= floor else middle
-                pieces.append(replace(clip, source_start=resumed, source_end=end))
+                pieces.append(_paced(clip, resumed, end, rules))
             else:
-                pieces.append(replace(clip, source_start=position, source_end=end))
+                pieces.append(_paced(clip, position, end, rules))
             break
-        pieces.append(replace(clip, source_start=position, source_end=cut))
+        pieces.append(_paced(clip, position, cut, rules))
+        previous_length = cut - position
         position = cut + gap if end - (cut + gap) >= floor else cut
     if len(pieces) > 1:
         logger.info(
