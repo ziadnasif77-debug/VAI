@@ -1,6 +1,11 @@
 # Narrative construction (SPEC sections 35-39).
 
 narrative:
+  # Three edits from the same moments, scored before one is rendered (V2-P6).
+  # Off is the pre-V2 behaviour exactly: one plan, no judging.
+  counterfactuals:
+    enabled: true
+
   # Story mode optimises narrative coherence, not raw moment score (§36).
   story:
     # A session with no epic/clutch still has a biggest moment: at or above

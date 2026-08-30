@@ -1007,6 +1007,18 @@ class ScreenGuardConfig(_Section):
     min_piece_seconds: float = Field(default=8.0, gt=0)
 
 
+class CounterfactualsConfig(_Section):
+    """Three edits from the same moments, scored before one is rendered.
+
+    Off is the pre-V2 behaviour exactly: one plan, the configured objective,
+    no judging. The cost of on is milliseconds -- §127 keeps selection apart
+    from the EDL so that re-planning reads stored moments and touches no
+    video -- which is why this is a switch and not a mode.
+    """
+
+    enabled: bool = True
+
+
 class NarrativeConfig(_Section):
     story: StoryConfig
     best_moments: BestMomentsConfig = Field(default_factory=BestMomentsConfig)
@@ -1023,6 +1035,9 @@ class NarrativeConfig(_Section):
 # ---------------------------------------------------------------------------
 # rendering.yaml
 # ---------------------------------------------------------------------------
+    counterfactuals: CounterfactualsConfig = Field(
+        default_factory=CounterfactualsConfig
+    )
 
 
 class VideoConfig(_Section):

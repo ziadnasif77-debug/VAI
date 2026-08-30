@@ -102,16 +102,14 @@ class StoryWorker:
         }
 
         context.report(0.4, f"Selecting clips for a {target / 60:.0f}-minute {mode.value} edit")
-        plan = build_plan(
+        plan, verdicts = self._chosen(
+            context,
             moments,
             mode=mode,
-            target_seconds=target,
-            config=context.config.narrative,
-            policy=context.config.duration_policy,
-            chronological=intent.chronological,
+            target=target,
+            intent=intent,
             speech=speech,
-            media_durations=durations,
-            director=self._director(context, intent, target),
+            durations=durations,
         )
 
         if plan.is_empty:
@@ -140,9 +138,106 @@ class StoryWorker:
         return {
             **_serialise(plan),
             "moments_considered": len(moments),
+            # §80 (V2-P6): every edit that was considered and how it scored,
+            # so the one that shipped can be argued with rather than assumed.
+            "considered": verdicts,
             # §80 (V2 P1): the session's natural form beside the plan.
             "session_shape": _session_shape(context, plan),
         }
+
+    def _chosen(
+        self,
+        context: WorkerContext,
+        moments,
+        *,
+        mode,
+        target: float,
+        intent,
+        speech,
+        durations,
+    ):
+        """Three edits from the same moments, and the one worth rendering.
+
+        The optimiser has always produced exactly one plan: optimal by its own
+        objective, and unfalsifiable because nothing else was ever built to
+        compare it with. When a video came out flat there was no way to ask
+        whether a different balance would have been better -- only to change
+        the weights, re-run everything once, and hope.
+
+        Re-planning is milliseconds: §127 keeps selection separate from the
+        EDL precisely so that a re-edit reads stored moments and touches no
+        video. Every profile is chronological, so what varies between them is
+        which moments are chosen and how long they run -- never the order.
+
+        With counterfactuals switched off this is the edit the stage has
+        always made, by the same call it always used.
+        """
+        from backend.narrative import judge as judging
+        from backend.narrative.plans import propose
+
+        director = self._director(context, intent, target)
+        if not context.config.narrative.counterfactuals.enabled:
+            return (
+                build_plan(
+                    moments,
+                    mode=mode,
+                    target_seconds=target,
+                    config=context.config.narrative,
+                    policy=context.config.duration_policy,
+                    chronological=intent.chronological,
+                    speech=speech,
+                    media_durations=durations,
+                    director=director,
+                ),
+                [],
+            )
+
+        proposed = propose(
+            moments,
+            mode=mode,
+            target_seconds=target,
+            config=context.config.narrative,
+            policy=context.config.duration_policy,
+            chronological=intent.chronological,
+            speech=speech,
+            media_durations=durations,
+            director=director,
+        )
+        if not proposed:
+            raise NarrativeError(
+                "No profile could assemble an edit from the available moments.",
+                code=ErrorCode.NARRATIVE_FAILED,
+                details={"moments": len(moments), "target_seconds": target},
+            )
+
+        reader = _reader_for(context, proposed[0][1])
+        scored = [
+            (profile, plan, judging.judge(plan, reader=reader, config=context.config))
+            for profile, plan in proposed
+        ]
+        winner = judging.best(scored)
+        verdicts = [
+            {
+                "profile": profile.id,
+                "name": profile.name,
+                "why": profile.why,
+                "clips": len(plan.moments),
+                "seconds": round(plan.total_seconds, 1),
+                "chosen": profile.id == winner[0].id,
+                "score": score.as_dict(),
+            }
+            for profile, plan, score in scored
+        ]
+        logger.info(
+            "Chose an edit from the ones considered",
+            extra={
+                "chosen": winner[0].id,
+                "scores": {
+                    profile.id: round(score.total, 3) for profile, _, score in scored
+                },
+            },
+        )
+        return winner[1], verdicts
 
     def _director(
         self, context: WorkerContext, intent: EditingIntent, target: float
@@ -288,6 +383,31 @@ def _serialise(plan: NarrativePlan) -> dict[str, Any]:
 
 
 __all__ = ["StoryWorker"]
+
+
+def _reader_for(context, plan):
+    """The session's lanes for the plan's recording, or ``None``."""
+    try:
+        from backend.database.repositories.media import MediaRepository
+        from backend.semantic.timeline import load_timeline
+
+        media_ids = {moment.media_id for moment in plan.moments}
+        if len(media_ids) != 1:
+            return None
+        media_id = next(iter(media_ids))
+        media = MediaRepository(context.database).get(media_id)
+        duration = getattr(media.metadata, "duration_seconds", None) if media else None
+        if not duration:
+            return None
+        return load_timeline(
+            context.database,
+            media_id,
+            duration_seconds=float(duration),
+            config=context.config,
+        )
+    except Exception:
+        logger.exception("No lanes for judging; the plans are scored without them")
+        return None
 
 
 def _session_shape(context, plan) -> list[dict]:
