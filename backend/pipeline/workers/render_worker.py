@@ -636,12 +636,27 @@ class RenderWorker:
         inputs: list[str] = []
         chains: list[str] = []
         labels: list[str] = []
+        # One -i per unique source, not per clip: a jump-cut edit holds
+        # hundreds of pieces of the same recording, and repeating the input
+        # once per piece both blew the Windows 32K argv ceiling (WinError
+        # 206) and asked FFmpeg to open the same file hundreds of times.
+        index_by_media: dict[str, int] = {}
         for position, clip in enumerate(clips):
             source = sources[clip.media_id]
-            inputs += ["-i", str(source)]
+            if clip.media_id not in index_by_media:
+                index_by_media[clip.media_id] = len(index_by_media)
+                inputs += ["-i", str(source)]
+            source_index = index_by_media[clip.media_id]
             warp = retime.clip_retime(clip)
             if warp is None:
-                chains.append(_audio_span_filter(position, clip.source_in, clip.source_out))
+                chains.append(
+                    _audio_span_filter(
+                        source_index,
+                        clip.source_in,
+                        clip.source_out,
+                        out_label=f"a{position}",
+                    )
+                )
             else:
                 # A re-laid clip's audio must occupy its re-laid seconds:
                 # silence under a freeze, a pitch-preserving stretch under a
@@ -650,7 +665,7 @@ class RenderWorker:
                 fade = min(_JOIN_FADE_SECONDS, clip.duration / 4)
                 chains.append(
                     audio_mix.warped_clip_audio(
-                        position,
+                        source_index,
                         clip,
                         warp,
                         out_label=f"a{position}",
@@ -664,11 +679,15 @@ class RenderWorker:
         graph = ";".join(
             [*chains, f"{''.join(labels)}concat=n={len(labels)}:v=0:a=1[aout]"]
         )
+        # The graph grows with the clip count and Windows caps an argv near
+        # 32K; a script file has no ceiling.
+        graph_path = work_dir / "programme_audio.filters"
+        graph_path.write_text(graph, encoding="utf-8")
         context.ffmpeg.run(
             [
                 *context.ffmpeg.base_arguments(),
                 *inputs,
-                "-filter_complex", graph,
+                "-filter_complex_script", str(graph_path),
                 "-map", "[aout]",
                 "-c:a", "pcm_s16le",
                 str(destination),
@@ -753,7 +772,9 @@ class RenderWorker:
 _JOIN_FADE_SECONDS = 0.03
 
 
-def _audio_span_filter(position: int, source_in: float, source_out: float) -> str:
+def _audio_span_filter(
+    input_index: int, source_in: float, source_out: float, *, out_label: str
+) -> str:
     """One clip's audio chain: trim, restamp, format -- and defuse the joins.
 
     ``atrim`` cuts the waveform at whatever sample value the boundary lands
@@ -772,8 +793,8 @@ def _audio_span_filter(position: int, source_in: float, source_out: float) -> st
             f",afade=t=out:st={max(0.0, duration - fade):.3f}:d={fade:.3f}"
         )
     return (
-        f"[{position}:a:0]atrim=start={source_in:.6f}:end={source_out:.6f},"
-        f"asetpts=N/SR/TB,{audio_mix.MIX_FORMAT}{fades}[a{position}]"
+        f"[{input_index}:a:0]atrim=start={source_in:.6f}:end={source_out:.6f},"
+        f"asetpts=N/SR/TB,{audio_mix.MIX_FORMAT}{fades}[{out_label}]"
     )
 
 

@@ -63,6 +63,7 @@ def guard_clips(
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
     cap_fn=None,
+    partition_fn=None,
 ) -> list[PlannedClip]:
     """Both refinements, in the order that keeps them honest.
 
@@ -409,9 +410,18 @@ def _split_long_clips(
     seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
+    partition_fn=None,
 ) -> list[PlannedClip]:
     refined: list[PlannedClip] = []
-    for clip in clips:
+    # A planned clip can hold a calm setup AND the fight it leads into; one
+    # cap for the whole span cuts the setup at the fight's pace. Partition at
+    # the session-shape boundaries first, so every part is graded -- and
+    # capped -- as what it actually is.
+    parted: list[PlannedClip] = []
+    for planned in clips:
+        parts = partition_fn(planned) if partition_fn is not None else None
+        parted.extend(parts if parts else [planned])
+    for clip in parted:
         if cap_fn is not None:
             # V2's dynamic pacing: the semantic level of THIS stretch sets
             # the cut length. The static tier caps remain the fallback the

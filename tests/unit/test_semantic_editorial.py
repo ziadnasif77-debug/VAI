@@ -244,3 +244,40 @@ class TestExclusiveKeepsShortDisjointPieces:
 
         assert len(kept) == 1, "a 1s leftover of a swallowed clip is a glitch"
         assert any("already in the edit" in note for note in notes)
+
+
+class TestShapePartition:
+    """A planned clip that spans a calm setup AND the fight it leads into is
+    two editorial things; one cap for the whole span cuts the setup at the
+    fight's pace."""
+
+    def test_a_clip_spanning_two_levels_is_capped_as_two_things(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        clip = PlannedClip(media_id="m", source_start=0.0, source_end=60.0)
+
+        def partition(planned):
+            return [
+                PlannedClip(media_id="m", source_start=0.0, source_end=40.0),
+                PlannedClip(media_id="m", source_start=40.0, source_end=60.0),
+            ]
+
+        def cap(piece):
+            return 15.0 if piece.source_start < 40.0 else 1.5
+
+        pieces = _split_long_clips(
+            [clip],
+            scenes_by_media={},
+            max_seconds=75.0,
+            cap_fn=cap,
+            partition_fn=partition,
+            jump_cut_gap=0.35,
+            jump_cut_below=8.0,
+        )
+
+        calm = [p for p in pieces if p.source_end <= 40.0]
+        hot = [p for p in pieces if p.source_start >= 40.0]
+        assert calm and hot
+        assert max(p.source_end - p.source_start for p in calm) > 8.0, "setup breathes"
+        assert max(p.source_end - p.source_start for p in hot) <= 1.5 + 1e-6
+        assert len(hot) >= 12, "20s at cap 1.5 is many pieces"

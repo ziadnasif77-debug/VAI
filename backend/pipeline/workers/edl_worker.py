@@ -321,6 +321,29 @@ class EdlWorker:
             media_id: _lane_peaks(timeline)
             for media_id, timeline in timelines.items()
         }
+        shapes = {
+            media_id: timeline.shape() for media_id, timeline in timelines.items()
+        }
+
+        def shape_partition(clip):
+            from dataclasses import replace as _replace
+            from itertools import pairwise as _pairwise
+
+            segments = shapes.get(clip.media_id)
+            if not segments:
+                return [clip]
+            cuts = sorted(
+                segment.end_seconds
+                for segment in segments
+                if clip.source_start + 2.0
+                <= segment.end_seconds
+                <= clip.source_end - 2.0
+            )
+            bounds = [clip.source_start, *cuts, clip.source_end]
+            return [
+                _replace(clip, source_start=a, source_end=b)
+                for a, b in _pairwise(bounds)
+            ]
 
         guarded = guard_clips(
             planned,
@@ -331,6 +354,7 @@ class EdlWorker:
             jump_cut_gap=context.config.editorial.pacing.jump_cut_gap_seconds,
             jump_cut_below=context.config.editorial.pacing.bands.normal.max,
             cap_fn=dynamic_cap if timelines else None,
+            partition_fn=shape_partition if timelines else None,
             min_observations=guard.min_observations,
             bridge_interior_seconds=guard.bridge_interior_seconds,
             recording_start_guard_seconds=guard.recording_start_guard_seconds,

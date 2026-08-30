@@ -188,13 +188,19 @@ def assembly_arguments(
     inputs: list[str] = []
     chains: list[str] = []
     labels: list[str] = []
+    # One -i per unique source (see the programme-audio assembly): repeating
+    # it per piece breaks the Windows argv ceiling on jump-cut edits.
+    index_by_media: dict[str, int] = {}
     for position, clip in enumerate(clips):
         lead, trail = placed[position]
-        inputs += ["-i", str(sources[clip.media_id])]
+        if clip.media_id not in index_by_media:
+            index_by_media[clip.media_id] = len(index_by_media)
+            inputs += ["-i", str(sources[clip.media_id])]
         chains.append(
             _clip_chain(
                 position,
                 clip,
+                source_index=index_by_media[clip.media_id],
                 lead=lead,
                 trail=trail,
                 fade_in=_seam_fade(boundaries, position - 1, crossfade),
@@ -213,9 +219,11 @@ def assembly_arguments(
             f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:dropout_transition=0[jl]",
         ]
     )
+    graph_path = destination.with_suffix(".filters")
+    graph_path.write_text(graph, encoding="utf-8")
     return [
         *inputs,
-        "-filter_complex", graph,
+        "-filter_complex_script", str(graph_path),
         "-map", "[jl]",
         "-c:a", "pcm_s16le",
         str(destination),
@@ -311,6 +319,7 @@ def _clip_chain(
     position: int,
     clip: TimelineClip,
     *,
+    source_index: int,
     lead: float,
     trail: float,
     fade_in: float,
@@ -333,7 +342,7 @@ def _clip_chain(
     warp = clip_retime(clip)
     if warp is not None:
         return warped_clip_audio(
-            position,
+            source_index,
             clip,
             warp,
             out_label=f"c{position}",
@@ -347,7 +356,7 @@ def _clip_chain(
     fade_in = min(fade_in, duration / 4)
     fade_out = min(fade_out, duration / 4)
     chain = (
-        f"[{position}:a:0]atrim=start={start:.6f}:end={end:.6f},"
+        f"[{source_index}:a:0]atrim=start={start:.6f}:end={end:.6f},"
         f"asetpts=N/SR/TB,{MIX_FORMAT}"
         f",afade=t=in:st=0:d={fade_in:.3f}"
         f",afade=t=out:st={max(0.0, duration - fade_out):.3f}:d={fade_out:.3f}"

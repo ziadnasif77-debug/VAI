@@ -388,7 +388,7 @@ class TestAudioJoinFades:
     def test_a_span_gets_a_fade_at_each_end(self) -> None:
         from backend.pipeline.workers.render_worker import _audio_span_filter
 
-        chain = _audio_span_filter(0, 10.0, 40.0)
+        chain = _audio_span_filter(0, 10.0, 40.0, out_label="a0")
 
         assert "afade=t=in:st=0:d=0.030" in chain
         assert "afade=t=out:st=29.970:d=0.030" in chain
@@ -397,7 +397,7 @@ class TestAudioJoinFades:
     def test_a_tiny_span_gets_a_proportional_fade_not_none(self) -> None:
         from backend.pipeline.workers.render_worker import _audio_span_filter
 
-        chain = _audio_span_filter(2, 5.0, 5.08)  # 80ms clip
+        chain = _audio_span_filter(2, 5.0, 5.08, out_label="a2")  # 80ms clip
 
         assert "afade=t=in" in chain
         assert "d=0.020" in chain  # a quarter of the span, not the full 30ms
@@ -406,7 +406,7 @@ class TestAudioJoinFades:
         # aformat before afade: the fade must act on the mix's sample rate.
         from backend.pipeline.workers.render_worker import _audio_span_filter
 
-        chain = _audio_span_filter(1, 0.0, 10.0)
+        chain = _audio_span_filter(1, 0.0, 10.0, out_label="a1")
 
         assert chain.index("aformat") < chain.index("afade")
 
