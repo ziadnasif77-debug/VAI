@@ -37,6 +37,13 @@ target/
 /output/*
 !/output/.gitkeep
 /logs/
+# The data root is the repository root on this machine, so anything the
+# running system writes lands here: the showcase run is 8 GB of renders and
+# databases, the sound-effect pack and the daily reports are produced rather
+# than authored.
+/.showcase/
+/assets/
+/reports/
 *.db
 *.db-wal
 *.db-shm

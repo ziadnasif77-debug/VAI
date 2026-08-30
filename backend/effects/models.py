@@ -119,4 +119,36 @@ class EffectPlan(_Base):
         return self.count / (duration_seconds / 60.0)
 
 
-__all__ = ["EffectCandidate", "EffectInstance", "EffectPlan"]
+class PlacedEffect(_Base):
+    """A stored effect, in programme time, with the identity to act on it.
+
+    :class:`EffectInstance` is the planner's view: no row id, and times that
+    are clip-relative whenever ``clip_id`` is set. Both are right for planning
+    and both are wrong for a consumer that reads the finished video, which
+    knows only where things are on the programme timeline and needs a real
+    target to name.
+
+    The critic asked ``EffectInstance`` for an ``id`` and a ``composition_id``
+    it does not have, got the empty string and None for every effect, and so
+    reported nine removals that removed nothing while its guard against
+    breaking a composition guarded nothing. This type exists so that question
+    cannot be asked of the wrong object again.
+    """
+
+    id: str
+    effect: EffectType
+    #: Seconds from the start of the finished video, resolved through the clip.
+    timeline_start: float = Field(ge=0)
+    duration_seconds: float = Field(gt=0)
+    clip_id: str | None = None
+    #: Set when this effect is one word of a sentence P4 admitted whole.
+    composition_id: str | None = None
+    group_role: str | None = None
+    strength: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    @property
+    def composed(self) -> bool:
+        return bool(self.composition_id)
+
+
+__all__ = ["EffectCandidate", "EffectInstance", "EffectPlan", "PlacedEffect"]

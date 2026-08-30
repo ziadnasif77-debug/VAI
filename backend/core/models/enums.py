@@ -112,6 +112,13 @@ class JobStage(str, Enum):
     CRITIQUE = "critique"
     RENDER = "render"
     QA = "qa"
+    #: V2-P7. The first stage that watches the video rather than the
+    #: recording: the defects that live in the assembly -- repetition, a
+    #: gesture firing twice, an ending that stops -- are invisible by
+    #: construction to everything upstream of the render. After QA because it
+    #: reads that verdict: the rule it enforces on itself is that a corrected
+    #: edit which scores lower than the one it replaced is not an improvement.
+    CRITIC2 = "critic2"
     #: Vertical cuts of the strongest moments (9:16), from the same analysis.
     #: Delivery-family and manual like its siblings: one long video plus N
     #: Shorts is the reach model every competitor is built on, and here it

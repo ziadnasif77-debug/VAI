@@ -133,8 +133,13 @@ class TestStageGraph:
             JobStage.PUBLISH,
         )
 
-    def test_automatic_pipeline_stops_at_qa(self) -> None:
-        assert automatic_stages()[-1] is JobStage.QA
+    def test_nothing_leaves_the_machine_on_its_own(self) -> None:
+        # The automatic pipeline used to end at QA and now ends at CRITIC2,
+        # which watches the render and may correct it once (V2-P7). What the
+        # rule protects is unchanged: every delivery stage is still manual,
+        # and §51 means gameplay footage never leaves without being asked for.
+        assert automatic_stages()[-1] is JobStage.CRITIC2
+        assert JobStage.CRITIC2 not in MANUAL_STAGES
         assert set(DELIVERY_STAGES) == MANUAL_STAGES
 
     def test_enum_order_is_topological(self) -> None:

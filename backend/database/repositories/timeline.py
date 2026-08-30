@@ -31,7 +31,7 @@ from backend.core.models.enums import (
     TransitionType,
 )
 from backend.database.connection import Database, dumps, loads
-from backend.effects.models import EffectInstance
+from backend.effects.models import EffectInstance, PlacedEffect
 from backend.timeline import operations
 from backend.timeline.captions import Caption
 from backend.timeline.models import Timeline, TimelineClip, Track
@@ -327,6 +327,55 @@ class TimelineRepository:
             (project_id,),
         )
         return int(row["total"]) if row is not None else 0
+
+    def list_placed(self, project_id: str) -> list[PlacedEffect]:
+        """Effects in programme time, each with the id needed to remove it.
+
+        :meth:`list_effects` returns them as the planner stored them, which
+        means clip-relative times and no row identity -- correct for the
+        renderers, which resolve both from the clip they are drawing, and
+        useless to anything reading the finished video.
+
+        The join is the whole point: ``timeline_start + start_seconds`` is
+        where a viewer actually meets the effect.
+        """
+        rows = self._db.fetch_all(
+            "SELECT e.id AS id, e.clip_id AS clip_id, e.effect_type AS effect_type, "
+            "e.start_seconds AS start_seconds, e.duration_seconds AS duration_seconds, "
+            "e.parameters AS parameters, e.composition_id AS composition_id, "
+            "e.group_role AS group_role, c.timeline_start AS clip_start "
+            "FROM timeline_effects e "
+            "LEFT JOIN timeline_clips c ON c.id = e.clip_id "
+            "WHERE e.project_id = ? AND e.enabled = 1",
+            (project_id,),
+        )
+        placed: list[PlacedEffect] = []
+        for row in rows:
+            base = float(row["clip_start"] or 0.0) if row["clip_id"] else 0.0
+            try:
+                parameters = loads(row["parameters"] or "{}") or {}
+            except Exception:
+                parameters = {}
+            try:
+                placed.append(
+                    PlacedEffect(
+                        id=str(row["id"]),
+                        effect=EffectType(row["effect_type"]),
+                        timeline_start=max(0.0, base + float(row["start_seconds"])),
+                        duration_seconds=float(row["duration_seconds"]),
+                        clip_id=row["clip_id"],
+                        composition_id=row["composition_id"],
+                        group_role=row["group_role"],
+                        strength=float(parameters.get("strength", 1.0) or 1.0),
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "A stored effect could not be placed on the timeline",
+                    extra={"effect_id": row["id"], "type": row["effect_type"]},
+                )
+        placed.sort(key=lambda item: item.timeline_start)
+        return placed
 
     def list_effects(self, project_id: str) -> list[EffectInstance]:
         """The stored effect plan, ready for either renderer.

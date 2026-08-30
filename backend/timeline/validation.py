@@ -324,6 +324,21 @@ def video_track_of(timeline: Timeline):
     return timeline.track(TrackKind.VIDEO)
 
 
+def _source_start(clip) -> float:
+    """Where in the recording this clip begins.
+
+    The rule is checked on two different shapes: a ``PlannedClip`` before the
+    EDL is built (``source_start``) and a ``TimelineClip`` after (``source_in``).
+    Reading only the first meant the constitution silently could not be applied
+    to a finished edit -- which is exactly where V2-P7's corrections land.
+    """
+    for name in ("source_start", "source_in"):
+        value = getattr(clip, name, None)
+        if value is not None:
+            return float(value)
+    raise AttributeError(f"{type(clip).__name__} has no source start to check")
+
+
 def ensure_chronological(clips: Sequence[Any]) -> None:
     """V2's constitutional rule: chronology is immutable after selection.
 
@@ -342,7 +357,7 @@ def ensure_chronological(clips: Sequence[Any]) -> None:
         body = body[1:]
     previous_key: tuple[str, float] | None = None
     for clip in body:
-        key = (str(clip.media_id), float(clip.source_start))
+        key = (str(clip.media_id), _source_start(clip))
         out_of_order = (
             previous_key is not None
             and key[0] == previous_key[0]

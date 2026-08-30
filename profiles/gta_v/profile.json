@@ -131,7 +131,7 @@
       "absent_confidence": 0.55,
       "change_rules": [
         {
-          "event_type": "unexpected_event",
+          "event_type": "unknown_event",
           "direction": "rise",
           "at_least": 3,
           "min_change": 1,

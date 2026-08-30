@@ -44,6 +44,7 @@ STAGE_DEPENDENCIES: dict[JobStage, tuple[JobStage, ...]] = {
     JobStage.CRITIQUE: (JobStage.EDL,),
     JobStage.RENDER: (JobStage.CRITIQUE,),
     JobStage.QA: (JobStage.RENDER,),
+    JobStage.CRITIC2: (JobStage.QA,),
     JobStage.EXPORT: (JobStage.QA,),
     # QA, not EXPORT. The two are parallel deliveries of the same QA-passed
     # render -- a copy to disk and an upload to a destination -- and chaining
@@ -83,6 +84,7 @@ EDIT_STAGES: tuple[JobStage, ...] = (
     JobStage.CRITIQUE,
     JobStage.RENDER,
     JobStage.QA,
+    JobStage.CRITIC2,
 )
 
 #: Delivery stages: what happens to a finished, QA-passed render. Kept separate
