@@ -307,3 +307,22 @@ class TestAShotDoesNotSpanALevelChange:
         ]
         assert not crossing, "no shot straddles the turn"
         assert any(abs(p.source_end - 40.0) < 1e-6 for p in pieces), "one ends on it"
+
+
+class TestTheFinerShape:
+    def test_a_short_burst_is_no_section_but_is_a_turn(self, config) -> None:
+        frames = [(t, 0.95 if 40 <= t < 43 else 0.05) for t in range(0, 121, 1)]
+        timeline = _timeline(
+            config,
+            frames=frames,
+            game_events=[(40.0, 43.0, 0.95, "burst")],
+            audio_events=[(40.0, 43.0, -5.0, "bang"), (5.0, 8.0, -50.0, "hum")],
+        )
+
+        narrative = timeline.shape()
+        pacing = timeline.shape(min_segment=2.0)
+
+        assert len(pacing) > len(narrative), "the finer shape sees the burst"
+        assert any(
+            level in ("high", "climax") for level in (s.level for s in pacing)
+        )

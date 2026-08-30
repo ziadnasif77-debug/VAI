@@ -98,8 +98,15 @@ class SemanticTimeline:
             )
         return self._range_cache
 
-    def shape(self) -> list[ShapeSegment]:
-        """The session's natural form: level runs, short runs merged (§80)."""
+    def shape(self, *, min_segment: float | None = None) -> list[ShapeSegment]:
+        """The session's natural form: level runs, short runs merged (§80).
+
+        ``min_segment`` overrides how short a run may be before it merges into
+        its neighbour. The configured value is the *narrative* shape -- what a
+        person would call a section. Pacing asks for a finer one: a two-second
+        burst is not a section, but it is absolutely a turn worth cutting on.
+        """
+        floor = self._min_segment_s if min_segment is None else min_segment
         lane = self.lanes["intensity"]
         if not lane:
             return []
@@ -116,7 +123,7 @@ class SemanticTimeline:
 
         merged: list[ShapeSegment] = []
         for segment in segments:
-            if merged and segment.seconds < self._min_segment_s:
+            if merged and segment.seconds < floor:
                 previous = merged[-1]
                 merged[-1] = ShapeSegment(
                     previous.start_seconds, segment.end_seconds, previous.level
@@ -124,7 +131,7 @@ class SemanticTimeline:
                 continue
             merged.append(segment)
         # A leading sliver merges forward instead.
-        if len(merged) >= 2 and merged[0].seconds < self._min_segment_s:
+        if len(merged) >= 2 and merged[0].seconds < floor:
             merged[1] = ShapeSegment(
                 merged[0].start_seconds, merged[1].end_seconds, merged[1].level
             )

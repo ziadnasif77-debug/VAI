@@ -323,8 +323,12 @@ class EdlWorker:
         }
         # Where the session changes level, a shot ends: those edges are the
         # session's own shape, read once here and handed to the guard.
+        # A finer shape than the narrative one: a two-second burst is not a
+        # section a person would name, but it is a turn worth cutting on.
         level_stops = {
-            media_id: [segment.start_seconds for segment in timeline.shape()]
+            media_id: [
+                segment.start_seconds for segment in timeline.shape(min_segment=2.0)
+            ]
             for media_id, timeline in timelines.items()
         }
 
