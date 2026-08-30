@@ -26,10 +26,8 @@ database in the room.
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from itertools import pairwise
 from typing import Any, Final
 
 from backend.analysis.frame_state import StateSpan
@@ -63,7 +61,6 @@ def guard_clips(
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
     cap_fn=None,
-    partition_fn=None,
 ) -> list[PlannedClip]:
     """Both refinements, in the order that keeps them honest.
 
@@ -410,58 +407,54 @@ def _split_long_clips(
     seam_hints_by_media: Mapping[str, Sequence[float]] | None = None,
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
-    partition_fn=None,
 ) -> list[PlannedClip]:
     refined: list[PlannedClip] = []
-    # A planned clip can hold a calm setup AND the fight it leads into; one
-    # cap for the whole span cuts the setup at the fight's pace. Partition at
-    # the session-shape boundaries first, so every part is graded -- and
-    # capped -- as what it actually is.
-    parted: list[PlannedClip] = []
-    for planned in clips:
-        parts = partition_fn(planned) if partition_fn is not None else None
-        parted.extend(parts if parts else [planned])
-    for clip in parted:
+    for clip in clips:
+        seams = sorted(
+            [float(getattr(scene, "start_seconds", 0.0))
+             for scene in scenes_by_media.get(clip.media_id, ())]
+            + [start for start, _end in (events_by_media or {}).get(clip.media_id, ())]
+            + list((seam_hints_by_media or {}).get(clip.media_id, ()))
+        )
         if cap_fn is not None:
-            # V2's dynamic pacing: the semantic level of THIS stretch sets
-            # the cut length. The static tier caps remain the fallback the
-            # function may return.
-            cap = float(cap_fn(clip))
-        else:
-            cap = _cap_for(
-                clip,
-                max_seconds=max_seconds,
-                high_tier_max_seconds=high_tier_max_seconds,
-                low_tier_max_seconds=low_tier_max_seconds,
+            # V2's dynamic pacing walks the clip instead of capping it once:
+            # a planned clip can hold a calm setup AND the fight it leads
+            # into, and a single cap cuts the setup at the fight's pace. The
+            # level is read again at every cut, so the pace follows the heat
+            # continuously and each piece's length answers to its own stretch.
+            refined.extend(
+                _walk(
+                    clip,
+                    cap_fn=cap_fn,
+                    seams=seams,
+                    min_piece=min_piece,
+                    jump_cut_gap=jump_cut_gap,
+                    jump_cut_below=jump_cut_below,
+                )
             )
+            continue
+
+        cap = _cap_for(
+            clip,
+            max_seconds=max_seconds,
+            high_tier_max_seconds=high_tier_max_seconds,
+            low_tier_max_seconds=low_tier_max_seconds,
+        )
         if clip.source_end - clip.source_start <= cap:
             refined.append(clip)
             continue
-        # A hot band's cap can sit far below the global piece floor; a floor
-        # that scales with the cap is what lets a climax actually cut fast.
-        piece_floor = min(min_piece, max(0.8, cap * 0.45)) if cap_fn else min_piece
         cuts = _cut_points(
             clip,
             scenes_by_media.get(clip.media_id, ()),
             max_seconds=cap,
-            min_piece=piece_floor,
-            # Cut on the beat: a strong game event's onset is as real a
-            # seam as a scene change, and where a hot stretch has neither
-            # (40s of continuous action produced zero of both), the semantic
-            # lane's own local peaks are the beat -- night footage proved
-            # scenes go sparse exactly where the action burns.
-            extra_seams=[
-                start
-                for start, _end in (events_by_media or {}).get(clip.media_id, ())
-            ]
-            + list((seam_hints_by_media or {}).get(clip.media_id, ())),
+            min_piece=min_piece,
         )
-        if not cuts and cap_fn is None:
+        if not cuts:
             # The static path keeps V1's judgement: no seam, ship the slab.
             refined.append(clip)
             continue
         logger.info(
-            "Split a slab at its seams",
+            "Split a slab at its scene seams",
             extra={
                 "media_id": clip.media_id,
                 "seconds": round(clip.source_end - clip.source_start, 1),
@@ -469,37 +462,89 @@ def _split_long_clips(
             },
         )
         bounds = [clip.source_start, *cuts, clip.source_end]
-        if cap_fn is not None:
-            # The dynamic cap is a promise, not a wish: any piece the seams
-            # left over the cap divides evenly (even pieces land at or above
-            # half the cap, so the scaled floor holds by construction).
-            bounds = _even_within_cap(bounds, cap)
-        # A hot slab's pieces skip a sliver of source between them: played
-        # contiguously they would be one unbroken shot no viewer could feel;
-        # the skip is the jump-cut, and it tightens continuous action the
-        # way an editor would.
-        gap = jump_cut_gap if cap_fn is not None and cap < jump_cut_below else 0.0
         for index in range(len(bounds) - 1):
-            start = bounds[index]
-            if gap and index and bounds[index + 1] - (start + gap) >= 0.7 * piece_floor:
-                start += gap
             refined.append(
-                replace(clip, source_start=start, source_end=bounds[index + 1])
+                replace(clip, source_start=bounds[index], source_end=bounds[index + 1])
             )
     return refined
 
 
-def _even_within_cap(bounds: list[float], cap: float) -> list[float]:
-    """Bounds with every over-cap span divided into equal cap-fitting pieces."""
-    out = [bounds[0]]
-    for a, b in pairwise(bounds):
-        span = b - a
-        if span > cap:
-            pieces = math.ceil(span / cap)
-            size = span / pieces
-            out.extend(a + size * k for k in range(1, pieces))
-        out.append(b)
-    return out
+#: How much footage is read to grade the position a cut starts from. Half the
+#: shape's minimum segment: long enough that one loud frame cannot promote a
+#: calm stretch, short enough to see a level change when it arrives.
+_PROBE_SECONDS: Final[float] = 2.0
+
+
+def _walk(
+    clip: PlannedClip,
+    *,
+    cap_fn,
+    seams: Sequence[float],
+    min_piece: float,
+    jump_cut_gap: float,
+    jump_cut_below: float,
+) -> list[PlannedClip]:
+    """Cut forward through a clip, re-reading the heat at every piece.
+
+    The cap is not a property of the clip; it is a property of the second the
+    cut starts on. Measuring the plan the other way round -- one cap for the
+    slab, each piece graded on its own afterwards -- is what made a calm
+    stretch inside a hot slab come out at the hot pace.
+    """
+    pieces: list[PlannedClip] = []
+    position = clip.source_start
+    end = clip.source_end
+    guard = 0
+    while position < end and guard < 5000:
+        guard += 1
+        probe = replace(
+            clip,
+            source_start=position,
+            source_end=min(position + _PROBE_SECONDS, end),
+        )
+        cap = float(cap_fn(probe))
+        # A hot band's cap can sit far below the global piece floor; a floor
+        # that scales with the cap is what lets a climax actually cut fast.
+        floor = min(min_piece, max(0.8, cap * 0.45))
+        remaining = end - position
+        # A hot piece skips a sliver of source before the next one: played
+        # contiguously they would be one unbroken shot no viewer could feel,
+        # and the skip is what makes the cut a felt jump-cut.
+        gap = jump_cut_gap if cap < jump_cut_below else 0.0
+        if remaining <= cap:
+            pieces.append(replace(clip, source_start=position, source_end=end))
+            break
+        target = position + cap
+        # Land on the last real seam that still fits the cap; without one the
+        # cut falls on the cap itself rather than shipping an over-long slab.
+        candidates = [t for t in seams if position + floor <= t <= target]
+        cut = max(candidates) if candidates else target
+        if end - cut < floor:
+            # Cutting here would leave a sliver. Halve the tail instead --
+            # two honest pieces, both inside the cap -- and only ship it long
+            # when even halves would fall under the floor.
+            if remaining / 2 >= floor:
+                middle = position + remaining / 2
+                pieces.append(
+                    replace(clip, source_start=position, source_end=middle)
+                )
+                resumed = middle + gap if end - (middle + gap) >= floor else middle
+                pieces.append(replace(clip, source_start=resumed, source_end=end))
+            else:
+                pieces.append(replace(clip, source_start=position, source_end=end))
+            break
+        pieces.append(replace(clip, source_start=position, source_end=cut))
+        position = cut + gap if end - (cut + gap) >= floor else cut
+    if len(pieces) > 1:
+        logger.info(
+            "Walked a slab at the pace of its own heat",
+            extra={
+                "media_id": clip.media_id,
+                "seconds": round(clip.source_end - clip.source_start, 1),
+                "pieces": len(pieces),
+            },
+        )
+    return pieces or [clip]
 
 
 def _cut_points(
@@ -508,7 +553,6 @@ def _cut_points(
     *,
     max_seconds: float,
     min_piece: float,
-    extra_seams: Sequence[float] = (),
 ) -> list[float]:
     """Seams inside the clip, greedily fitted to honest pieces.
 
@@ -516,13 +560,12 @@ def _cut_points(
     seams allow; when they are too sparse even for that, the long piece ships
     whole -- an arithmetic midpoint is not a seam.
     """
-    seam_times = [
-        float(getattr(scene, "start_seconds", 0.0)) for scene in scenes
-    ] + [float(t) for t in extra_seams]
     candidates = sorted(
         t
-        for t in seam_times
-        if clip.source_start + min_piece <= t <= clip.source_end - min_piece
+        for scene in scenes
+        if clip.source_start + min_piece
+        <= (t := float(getattr(scene, "start_seconds", 0.0)))
+        <= clip.source_end - min_piece
     )
     # Cut as LATE as the cap allows: each piece stretches toward the cap
     # and lands on the last seam that still fits. Cutting at every eligible

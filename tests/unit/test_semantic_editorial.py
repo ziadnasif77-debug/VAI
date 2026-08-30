@@ -162,62 +162,26 @@ class TestChronologyConstitution:
 
 
 class TestJumpCutTightening:
-    """A hot slab with no natural seams still honours its cap -- the pieces
-    skip a sliver of source between them, which is the felt jump-cut."""
-
-    def _slab(self, seconds=40.0):
-        return PlannedClip(media_id="m", source_start=100.0, source_end=100.0 + seconds)
+    """Pieces of a hot slab skip a sliver of source between them: played
+    contiguously they would be one unbroken shot no viewer could feel."""
 
     def test_a_seamless_hot_slab_is_capped_and_tightened(self) -> None:
         from backend.timeline.screen_guard import _split_long_clips
 
         pieces = _split_long_clips(
-            [self._slab()],
+            [PlannedClip(media_id="m", source_start=100.0, source_end=140.0)],
             scenes_by_media={},
             max_seconds=75.0,
-            cap_fn=lambda clip: 2.5,
+            cap_fn=lambda piece: 2.5,
             jump_cut_gap=0.35,
             jump_cut_below=8.0,
         )
 
-        assert len(pieces) >= 14, "40s at cap 2.5 cuts into many pieces"
-        for piece in pieces:
+        assert len(pieces) >= 12, "40s at cap 2.5 cuts into many pieces"
+        for piece in pieces[:-1]:
             assert piece.source_end - piece.source_start <= 2.5 + 1e-6
-        skips = [
-            after.source_start - before.source_end
-            for before, after in pairwise(pieces)
-        ]
+        skips = [b.source_start - a.source_end for a, b in pairwise(pieces)]
         assert all(abs(skip - 0.35) < 1e-6 for skip in skips), "every seam skips"
-
-    def test_a_calm_slab_keeps_its_breath(self) -> None:
-        from backend.timeline.screen_guard import _split_long_clips
-
-        pieces = _split_long_clips(
-            [self._slab()],
-            scenes_by_media={},
-            max_seconds=75.0,
-            cap_fn=lambda clip: 15.0,
-            jump_cut_gap=0.35,
-            jump_cut_below=8.0,
-        )
-
-        assert 2 <= len(pieces) <= 3, "40s at cap 15 divides evenly, no shred"
-        skips = [
-            after.source_start - before.source_end
-            for before, after in pairwise(pieces)
-        ]
-        assert all(skip == 0.0 for skip in skips), "calm pieces stay contiguous"
-
-    def test_the_static_path_still_ships_a_seamless_slab_whole(self) -> None:
-        from backend.timeline.screen_guard import _split_long_clips
-
-        pieces = _split_long_clips(
-            [self._slab(90.0)],
-            scenes_by_media={},
-            max_seconds=75.0,
-        )
-
-        assert len(pieces) == 1, "V1 judgement: no seam, no arithmetic midpoint"
 
 
 class TestExclusiveKeepsShortDisjointPieces:
@@ -246,23 +210,18 @@ class TestExclusiveKeepsShortDisjointPieces:
         assert any("already in the edit" in note for note in notes)
 
 
-class TestShapePartition:
+class TestTheWalkFollowsTheHeat:
     """A planned clip that spans a calm setup AND the fight it leads into is
-    two editorial things; one cap for the whole span cuts the setup at the
-    fight's pace."""
+    two editorial things; the cut length answers to the second it starts on,
+    not to an average of the whole slab."""
 
-    def test_a_clip_spanning_two_levels_is_capped_as_two_things(self) -> None:
+    def test_one_clip_two_paces(self) -> None:
         from backend.timeline.screen_guard import _split_long_clips
 
         clip = PlannedClip(media_id="m", source_start=0.0, source_end=60.0)
 
-        def partition(planned):
-            return [
-                PlannedClip(media_id="m", source_start=0.0, source_end=40.0),
-                PlannedClip(media_id="m", source_start=40.0, source_end=60.0),
-            ]
-
         def cap(piece):
+            # calm until 40s, climax after it
             return 15.0 if piece.source_start < 40.0 else 1.5
 
         pieces = _split_long_clips(
@@ -270,14 +229,57 @@ class TestShapePartition:
             scenes_by_media={},
             max_seconds=75.0,
             cap_fn=cap,
-            partition_fn=partition,
             jump_cut_gap=0.35,
             jump_cut_below=8.0,
         )
 
-        calm = [p for p in pieces if p.source_end <= 40.0]
+        calm = [p for p in pieces if p.source_start < 40.0]
         hot = [p for p in pieces if p.source_start >= 40.0]
         assert calm and hot
         assert max(p.source_end - p.source_start for p in calm) > 8.0, "setup breathes"
         assert max(p.source_end - p.source_start for p in hot) <= 1.5 + 1e-6
-        assert len(hot) >= 12, "20s at cap 1.5 is many pieces"
+        # The piece that straddles the change is graded where it STARTS, so
+        # the first hot piece begins one calm cap in: the pace turns within
+        # a piece of the heat, not before it.
+        assert len(hot) >= 9, "the climax is many pieces, not one slab"
+
+    def test_the_pieces_cover_the_clip_in_order(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        pieces = _split_long_clips(
+            [PlannedClip(media_id="m", source_start=100.0, source_end=140.0)],
+            scenes_by_media={},
+            max_seconds=75.0,
+            cap_fn=lambda piece: 3.0,
+        )
+
+        assert pieces[0].source_start == 100.0
+        assert pieces[-1].source_end == 140.0
+        for before, after in pairwise(pieces):
+            assert after.source_start >= before.source_end, "time only runs forward"
+
+    def test_a_calm_walk_leaves_no_skips(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        pieces = _split_long_clips(
+            [PlannedClip(media_id="m", source_start=0.0, source_end=60.0)],
+            scenes_by_media={},
+            max_seconds=75.0,
+            cap_fn=lambda piece: 15.0,
+            jump_cut_gap=0.35,
+            jump_cut_below=8.0,
+        )
+
+        skips = [b.source_start - a.source_end for a, b in pairwise(pieces)]
+        assert all(skip == 0.0 for skip in skips), "calm pieces stay contiguous"
+
+    def test_the_static_path_still_ships_a_seamless_slab_whole(self) -> None:
+        from backend.timeline.screen_guard import _split_long_clips
+
+        pieces = _split_long_clips(
+            [PlannedClip(media_id="m", source_start=100.0, source_end=190.0)],
+            scenes_by_media={},
+            max_seconds=75.0,
+        )
+
+        assert len(pieces) == 1, "V1 judgement: no seam, no arithmetic midpoint"
