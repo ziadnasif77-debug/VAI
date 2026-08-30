@@ -114,6 +114,7 @@ Development order follows SPEC §126.
 | P2 | **Timeline UX** | trim/split/move/delete controls in the UI over the §42 API, refusals shown verbatim | ✅ **done** |
 | P2 | **Upload metadata** | evidence-built title/description/tags/chapters/thumbnail, `POST /metadata/suggest`, wired into Export | ✅ **done** |
 | P2 | **Profile authoring** | docs/PROFILES.md + `scripts/profile_report.py` signature miner | ✅ **done** |
+| V2-P0 | **Architecture integrity** | every shipped configuration key must have a consumer: `scripts/config_coverage.py` + a unit test that fails on a new orphan. 51 orphans found — the publish-authorisation gate wired (it had never been read), `enabled_targets` and the Director's brief window made real, 48 keys deleted from YAML and schema together | ✅ **done** |
 | V2-P1 | **Semantic Timeline + Dynamic Pacing** | 2Hz fused heat lanes per session; the guard walks each clip and re-reads the level at every cut; chronology constitution (`ensure_chronological`, hook-at-0 the sole exception). Gate on a 31-minute session: 95/95 clips inside their band's cap, hot/cold shot-length ratio 0.37 (target ≤ 0.50), QA 78 | ✅ **done** |
 
 ### Phase F — preferences ✅ done
