@@ -37,7 +37,8 @@ STAGE_DEPENDENCIES: dict[JobStage, tuple[JobStage, ...]] = {
         JobStage.AUDIO_EVENTS,
         JobStage.TRANSCRIPT,
     ),
-    JobStage.MOMENTS: (JobStage.GAME_EVENTS,),
+    JobStage.SEMANTIC: (JobStage.GAME_EVENTS,),
+    JobStage.MOMENTS: (JobStage.SEMANTIC,),
     JobStage.STORY: (JobStage.MOMENTS,),
     JobStage.EDL: (JobStage.STORY,),
     JobStage.CRITIQUE: (JobStage.EDL,),
@@ -69,6 +70,7 @@ ANALYSIS_STAGES: tuple[JobStage, ...] = (
     JobStage.VISION,
     JobStage.OCR,
     JobStage.GAME_EVENTS,
+    JobStage.SEMANTIC,
     JobStage.MOMENTS,
 )
 

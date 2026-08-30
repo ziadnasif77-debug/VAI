@@ -313,7 +313,6 @@ def _session_shape(context, plan) -> list[dict]:
             media_id,
             duration_seconds=float(duration),
             config=context.config,
-            cache_dir=context.paths.analysis / "semantic",
         )
         return timeline.summary()
     except Exception:

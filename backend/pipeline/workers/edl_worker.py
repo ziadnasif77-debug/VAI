@@ -290,7 +290,6 @@ class EdlWorker:
                         media_id,
                         duration_seconds=float(length),
                         config=context.config,
-                        cache_dir=context.paths.analysis / "semantic",
                     )
                 except Exception:
                     logger.exception(

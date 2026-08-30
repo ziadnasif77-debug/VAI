@@ -8,7 +8,6 @@ about which quick cut was deliberate.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from backend.core.logging import LogChannel, get_logger
@@ -21,7 +20,6 @@ def clip_levels(
     timeline: Any,
     *,
     config: Any,
-    cache_dir: Path,
 ) -> dict[int, str]:
     """``clip_index -> level`` for every video clip, or an empty map.
 
@@ -48,7 +46,6 @@ def clip_levels(
                 media_id,
                 duration_seconds=float(duration),
                 config=config,
-                cache_dir=cache_dir,
             )
         return {
             clip.clip_index: semantic.level_for(clip.source_in, clip.source_out)

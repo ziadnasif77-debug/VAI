@@ -22,6 +22,7 @@ from backend.pipeline.workers.moments_worker import MomentsWorker
 from backend.pipeline.workers.publish_worker import PublishWorker
 from backend.pipeline.workers.qa_worker import QaWorker
 from backend.pipeline.workers.render_worker import RenderWorker
+from backend.pipeline.workers.semantic_worker import SemanticWorker
 from backend.pipeline.workers.shorts_worker import ShortsWorker
 from backend.pipeline.workers.speech_workers import AudioEventsWorker, TranscriptWorker
 from backend.pipeline.workers.story_worker import StoryWorker
@@ -49,6 +50,7 @@ def default_workers() -> dict[JobStage, StageWorker]:
         JobStage.VISION: VisionWorker(),
         JobStage.OCR: OcrWorker(),
         JobStage.GAME_EVENTS: GameEventsWorker(),
+        JobStage.SEMANTIC: SemanticWorker(),
         JobStage.MOMENTS: MomentsWorker(),
         JobStage.STORY: StoryWorker(),
         JobStage.CRITIQUE: CritiqueWorker(),

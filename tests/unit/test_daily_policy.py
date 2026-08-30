@@ -413,12 +413,14 @@ class TestReelPublishing:
     """The owner's order: the Reels publish too — scheduled, idempotent."""
 
     def _ready_with_shorts(self, producer, database, vault, sample_video, tmp_path):
-        clip = _recording(vault, 'one.mkv', sample_video, mtime=1_000)
-        producer.discover('2026-08-29')
-        producer.produce('2026-08-29')
-        row = database.fetch_one('SELECT project_id, source_path FROM production_ledger', ())
-        short_a = tmp_path / 'short-a.mp4'; short_a.write_bytes(b'a'*64)
-        short_b = tmp_path / 'short-b.mp4'; short_b.write_bytes(b'b'*64)
+        _recording(vault, "one.mkv", sample_video, mtime=1_000)
+        producer.discover("2026-08-29")
+        producer.produce("2026-08-29")
+        row = database.fetch_one("SELECT project_id, source_path FROM production_ledger", ())
+        short_a = tmp_path / "short-a.mp4"
+        short_a.write_bytes(b"a" * 64)
+        short_b = tmp_path / "short-b.mp4"
+        short_b.write_bytes(b"b" * 64)
         database.execute(
             "INSERT INTO analysis_jobs (id, project_id, stage, status, attempt, max_attempts, created_at, result) "
             "VALUES (?, ?, 'shorts', 'completed', 1, 3, ?, ?)",

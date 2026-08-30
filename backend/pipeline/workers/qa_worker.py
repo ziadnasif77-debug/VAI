@@ -319,7 +319,6 @@ class QaWorker:
             context.database,
             timeline,
             config=context.config,
-            cache_dir=context.paths.analysis / "semantic",
         )
 
     def _pacing_warnings(self, context: WorkerContext) -> tuple[str, ...]:

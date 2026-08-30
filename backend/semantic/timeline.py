@@ -8,8 +8,14 @@ percentile-normalised WITHIN the session before blending, the lesson §23
 paid for once: a quiet game still has a shape, and its peaks are peaks of
 its own session.
 
-Cached beside the analysis artefacts by an input signature (the
-source-dead pattern): a re-run reads JSON, not tables.
+Built once per recording by the SEMANTIC stage and stored in
+``semantic_timelines``, keyed by a digest of the values the lanes were built
+from -- not of their row counts, which was the first version and meant
+re-scoring an event without changing how many there were returned a stale
+timeline in silence.
+
+Consumers read through :class:`backend.semantic.reader.SemanticReader`; only
+this module and the store know the concrete class.
 """
 
 from __future__ import annotations
@@ -18,27 +24,21 @@ import hashlib
 import json
 from bisect import bisect_right
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Final
 
 from backend.core.logging import LogChannel, get_logger
+from backend.semantic.reader import LANES, LEVELS, Level, ShapeSegment
 
 logger = get_logger("semantic.timeline", LogChannel.PIPELINE)
 
-LEVELS: Final[tuple[str, ...]] = ("calm", "normal", "tension", "high", "climax")
+#: Bumped when the lanes change shape or meaning, so a stored timeline built
+#: by an older build is rebuilt rather than trusted.
+BUILDER_VERSION: Final[str] = "2"
 
-
-@dataclass(frozen=True, slots=True)
-class ShapeSegment:
-    """One stretch of the session at one dramatic level."""
-
-    start_seconds: float
-    end_seconds: float
-    level: str
-
-    @property
-    def seconds(self) -> float:
-        return self.end_seconds - self.start_seconds
+#: How far back a stretch is compared with, for the novelty lane.
+NOVELTY_MEMORY_SECONDS: Final[float] = 300.0
+#: How much footage counts as "here" when measuring novelty.
+NOVELTY_WINDOW_SECONDS: Final[float] = 15.0
 
 
 @dataclass
@@ -55,6 +55,25 @@ class SemanticTimeline:
 
     # -- reading ---------------------------------------------------------
 
+    def lane(self, name: str) -> list[float]:
+        """The whole lane. An unknown name is a programming error, not a
+        missing measurement, so it raises rather than returning zeros."""
+        try:
+            return self.lanes[name]
+        except KeyError:
+            raise KeyError(
+                f"no lane {name!r}; this timeline carries {sorted(self.lanes)}"
+            ) from None
+
+    def window(self, name: str, start: float, end: float) -> list[float]:
+        """The bins of ``name`` covering ``[start, end]``, never empty."""
+        values = self.lane(name)
+        a, b = self._index(start), self._index(end)
+        return values[a : b + 1] if b > a else [values[a]]
+
+    def value_at(self, name: str, seconds: float) -> float:
+        return self.lane(name)[self._index(seconds)]
+
     def _index(self, t: float) -> int:
         return max(0, min(len(self.lanes["intensity"]) - 1, int(t * self.hz)))
 
@@ -67,10 +86,10 @@ class SemanticTimeline:
         # Mean carries the stretch; the peak keeps a spike from washing out.
         return 0.6 * (sum(window) / len(window)) + 0.4 * max(window)
 
-    def level_for(self, start: float, end: float) -> str:
+    def level_for(self, start: float, end: float) -> Level:
         return self._classify(self.intensity_between(start, end))
 
-    def _classify(self, value: float) -> str:
+    def _classify(self, value: float) -> Level:
         lo, hi = self._robust_range
         if hi - lo >= 0.15:
             # Rescale into THIS session's dynamic range before grading.
@@ -183,6 +202,7 @@ def build_timeline(
     words: list[tuple[float, float]],
     dead_spans: list[tuple[float, float]],
     config: Any,
+    labels: list[tuple[float, tuple[str, ...]]] | None = None,
 ) -> SemanticTimeline:
     """Fuse the stored evidence into lanes.
 
@@ -193,6 +213,7 @@ def build_timeline(
         scenes:       (boundary_seconds, change_score)
         words:        (start, end)
         dead_spans:   (start, end) -- corroborated non-gameplay
+        labels:       (timestamp, vision labels) -- for the novelty lane
     """
     semantic = config.editorial.semantic
     hz = int(semantic.hz)
@@ -253,8 +274,12 @@ def build_timeline(
         lo = max(0, int(boundary * hz))
         hi = min(n, int((boundary + 1.5) * hz) + 1)
         for index in range(lo, hi):
-            decay = 1.0 - (index * step - boundary) / 1.5
-            scene_lane[index] = max(scene_lane[index], rank * max(0.0, decay))
+            # The bin containing the boundary starts fractionally BEFORE it
+            # (int() truncates), and a negative elapsed time made the decay
+            # term exceed 1.0 -- an impulse of 1.25 in a lane that promises
+            # 0..1. Full strength up to the boundary, decay after it.
+            elapsed = max(0.0, index * step - boundary)
+            scene_lane[index] = max(scene_lane[index], rank * max(0.0, 1.0 - elapsed / 1.5))
 
     weights = semantic.weights
     intensity = [
@@ -286,6 +311,16 @@ def build_timeline(
         for index in range(max(0, int(start * hz)), min(n, int(end * hz) + 1)):
             speech[index] = 1.0
 
+    # dead zones: the same corroborated spans the screen guard cuts by,
+    # as a lane rather than a mask, so a consumer can ask "is this gameplay"
+    # without knowing how the mask was applied.
+    dead_lane = [0.0] * n
+    for start, end in dead_spans:
+        for index in range(max(0, int(start * hz)), min(n, int(end * hz) + 1)):
+            dead_lane[index] = 1.0
+
+    novelty = _novelty_lane(labels or [], n=n, hz=hz)
+
     timeline = SemanticTimeline(
         media_id=media_id,
         duration_s=duration_seconds,
@@ -297,14 +332,193 @@ def build_timeline(
             "audio": audio,
             "events": events_lane,
             "speech": speech,
+            "scene_changes": scene_lane,
+            "novelty": novelty,
+            "dead_zones": dead_lane,
         },
         _levels={level: float(getattr(semantic.levels, level)) for level in LEVELS[:-1]},
         _min_segment_s=float(semantic.min_segment_seconds),
     )
+    missing = set(LANES) - set(timeline.lanes)
+    if missing:
+        # A consumer asking for a lane the builder forgot would read zeros and
+        # call them a measurement. Better to fail where the mistake is.
+        raise KeyError(f"the builder produced no {sorted(missing)} lane(s)")
     return timeline
 
 
-# -- database + cache ----------------------------------------------------
+def _novelty_lane(
+    labels: list[tuple[float, tuple[str, ...]]], *, n: int, hz: int
+) -> list[float]:
+    """How unlike the preceding minutes this stretch looks.
+
+    Measured on what the vision pass named, because that is the only record of
+    *what is on screen* rather than how much it moved: the share of the labels
+    here that were not among the labels of the last five minutes. A stretch
+    that introduces a boss, a new area or a vehicle scores high; the twentieth
+    minute of the same forest scores near zero.
+
+    With nothing to compare -- no observations, or none yet behind us -- the
+    answer is 0.0 rather than a guess. "Not novel" costs a consumer nothing;
+    "novel" invented from silence would promote footage on no evidence.
+    """
+    lane = [0.0] * n
+    if not labels:
+        return lane
+    ordered = sorted(labels)
+    times = [t for t, _ in ordered]
+    step = 1.0 / hz
+    for index in range(n):
+        t = index * step
+        here = _labels_between(
+            ordered, times, t - NOVELTY_WINDOW_SECONDS, t + NOVELTY_WINDOW_SECONDS
+        )
+        if not here:
+            continue
+        before = _labels_between(
+            ordered, times, t - NOVELTY_MEMORY_SECONDS, t - NOVELTY_WINDOW_SECONDS
+        )
+        if not before:
+            continue
+        lane[index] = len(here - before) / len(here)
+    return lane
+
+
+def _labels_between(
+    ordered: list[tuple[float, tuple[str, ...]]],
+    times: list[float],
+    start: float,
+    end: float,
+) -> set[str]:
+    """Labels in ``[start, end)`` -- half-open, and that matters.
+
+    Closed at both ends, the memory window and the window it is compared with
+    share their boundary observation, so the first frame of something new is
+    counted as already seen and novelty reads zero exactly where it should
+    peak.
+    """
+    from bisect import bisect_left
+
+    lo = bisect_left(times, start)
+    hi = bisect_left(times, end)
+    found: set[str] = set()
+    for _, names in ordered[lo:hi]:
+        found.update(names)
+    return found
+
+
+# -- database + store ----------------------------------------------------
+
+
+def timeline_signature(
+    rows: dict[str, list], *, duration_seconds: float, config: Any
+) -> str:
+    """A digest of the VALUES the lanes will be built from.
+
+    The first version hashed each table's row *count*, so re-scoring an
+    event's importance -- the same events, differently weighted -- returned
+    the cached timeline unchanged, and every pacing decision downstream was
+    graded from heat that no longer existed. Nothing announced it.
+
+    Identical evidence must give an identical digest; one changed number must
+    change it. Everything the builder reads goes in, including the config
+    section that shapes the fusion and the builder's own version.
+    """
+    digest = hashlib.blake2b(digest_size=16)
+    digest.update(
+        f"{BUILDER_VERSION}|{duration_seconds:.3f}|{config.editorial.semantic.hz}".encode()
+    )
+    digest.update(
+        json.dumps(
+            config.editorial.semantic.model_dump(mode="json"), sort_keys=True
+        ).encode()
+    )
+    for name in sorted(rows):
+        digest.update(f"|{name}|".encode())
+        for row in rows[name]:
+            digest.update(
+                "\x1f".join("" if value is None else str(value) for value in row).encode()
+            )
+            digest.update(b"\x1e")
+    return digest.hexdigest()
+
+
+def _inputs(database: Any, media_id: str, duration_seconds: float) -> dict[str, list]:
+    """Every stored row the lanes are built from, as plain tuples.
+
+    Tuples rather than rows so the digest sees exactly what the builder sees:
+    a signature over a different shape than the build is a signature over
+    nothing.
+    """
+    from backend.analysis import frame_state
+    from backend.database.repositories.vision import VisionRepository
+
+    def fetch(sql: str) -> list[tuple]:
+        return [tuple(row) for row in database.fetch_all(sql, (media_id,))]
+
+    observations = VisionRepository(database).list_for_media(media_id)
+    spans = frame_state.spans(observations, duration_seconds=duration_seconds)
+    return {
+        "frames": fetch(
+            "SELECT timestamp, motion_score FROM frames WHERE media_id = ? "
+            "ORDER BY timestamp"
+        ),
+        "audio": fetch(
+            "SELECT start_seconds, end_seconds, rms_db, event_type FROM audio_events "
+            "WHERE media_id = ? ORDER BY start_seconds"
+        ),
+        "events": fetch(
+            "SELECT start_seconds, end_seconds, importance, confidence, event_type "
+            "FROM game_events WHERE media_id = ? ORDER BY start_seconds"
+        ),
+        "scenes": fetch(
+            "SELECT start_seconds, change_score FROM scenes WHERE media_id = ? "
+            "ORDER BY start_seconds"
+        ),
+        "words": fetch(
+            "SELECT start_seconds, end_seconds FROM transcript_segments "
+            "WHERE media_id = ? ORDER BY start_seconds"
+        ),
+        "labels": [
+            (round(item.timestamp, 3), tuple(sorted(item.labels)))
+            for item in observations
+        ],
+        "dead": [
+            (round(span.start_seconds, 3), round(span.end_seconds, 3))
+            for span in spans
+            if not span.state.is_gameplay and span.observations >= 2
+        ],
+    }
+
+
+def build_from_inputs(
+    rows: dict[str, list], *, media_id: str, duration_seconds: float, config: Any
+) -> SemanticTimeline:
+    """The builder, fed from stored rows. Pure: same rows, same lanes."""
+    return build_timeline(
+        media_id=media_id,
+        duration_seconds=duration_seconds,
+        frames=[(float(t), float(score or 0.0)) for t, score in rows["frames"]],
+        audio_events=[
+            (float(a), float(b), float(rms if rms is not None else -60.0), str(kind))
+            for a, b, rms, kind in rows["audio"]
+        ],
+        game_events=[
+            (
+                float(a),
+                float(b),
+                float(importance if importance is not None else 0.5)
+                * float(confidence if confidence is not None else 0.5),
+                str(kind),
+            )
+            for a, b, importance, confidence, kind in rows["events"]
+        ],
+        scenes=[(float(t), float(score or 0.0)) for t, score in rows["scenes"]],
+        words=[(float(a), float(b)) for a, b in rows["words"]],
+        dead_spans=[(float(a), float(b)) for a, b in rows["dead"]],
+        labels=[(float(t), tuple(names)) for t, names in rows["labels"]],
+        config=config,
+    )
 
 
 def load_timeline(
@@ -313,114 +527,48 @@ def load_timeline(
     *,
     duration_seconds: float,
     config: Any,
-    cache_dir: Path,
 ) -> SemanticTimeline:
-    """Build from the stored analysis, through a signature-keyed cache."""
-    rows = {
-        "frames": database.fetch_all(
-            "SELECT timestamp, motion_score FROM frames WHERE media_id = ? "
-            "ORDER BY timestamp",
-            (media_id,),
-        ),
-        "audio": database.fetch_all(
-            "SELECT start_seconds, end_seconds, rms_db, event_type FROM audio_events "
-            "WHERE media_id = ? ORDER BY start_seconds",
-            (media_id,),
-        ),
-        "events": database.fetch_all(
-            "SELECT start_seconds, end_seconds, importance, confidence, event_type "
-            "FROM game_events WHERE media_id = ? ORDER BY start_seconds",
-            (media_id,),
-        ),
-        "scenes": database.fetch_all(
-            "SELECT start_seconds, change_score FROM scenes WHERE media_id = ? "
-            "ORDER BY start_seconds",
-            (media_id,),
-        ),
-        "words": database.fetch_all(
-            "SELECT start_seconds, end_seconds FROM transcript_segments "
-            "WHERE media_id = ? ORDER BY start_seconds",
-            (media_id,),
-        ),
-    }
-    signature = hashlib.sha256(
-        json.dumps(
-            {name: len(items) for name, items in rows.items()}
-            | {"duration": round(duration_seconds, 2), "hz": int(config.editorial.semantic.hz)}
-        ).encode()
-    ).hexdigest()[:16]
+    """The session's lanes: stored when they are current, built when not.
 
-    cache = cache_dir / f"{media_id}.json"
-    if cache.is_file():
-        try:
-            stored = json.loads(cache.read_text(encoding="utf-8"))
-            if stored.get("signature") == signature:
-                semantic = config.editorial.semantic
-                return SemanticTimeline(
-                    media_id=media_id,
-                    duration_s=stored["duration_s"],
-                    hz=stored["hz"],
-                    lanes=stored["lanes"],
-                    _levels={
-                        level: float(getattr(semantic.levels, level))
-                        for level in LEVELS[:-1]
-                    },
-                    _min_segment_s=float(semantic.min_segment_seconds),
-                )
-        except (OSError, ValueError, KeyError):
-            pass
+    Building is idempotent and deterministic, so a consumer that arrives
+    before the SEMANTIC stage has run gets the same answer that stage would
+    have stored -- it just pays for it.
+    """
+    from backend.database.repositories.semantic import SemanticRepository
 
-    from backend.analysis import frame_state
-    from backend.database.repositories.vision import VisionRepository
+    semantic = config.editorial.semantic
+    rows = _inputs(database, media_id, duration_seconds)
+    signature = timeline_signature(rows, duration_seconds=duration_seconds, config=config)
 
-    spans = frame_state.spans(
-        VisionRepository(database).list_for_media(media_id),
-        duration_seconds=duration_seconds,
+    repository = SemanticRepository(database)
+    stored = repository.get(media_id, signature=signature)
+    if stored is not None and set(stored["lanes"]) >= set(LANES):
+        return SemanticTimeline(
+            media_id=media_id,
+            duration_s=stored["duration_seconds"],
+            hz=stored["hz"],
+            lanes=stored["lanes"],
+            _levels={level: float(getattr(semantic.levels, level)) for level in LEVELS[:-1]},
+            _min_segment_s=float(semantic.min_segment_seconds),
+        )
+
+    timeline = build_from_inputs(
+        rows, media_id=media_id, duration_seconds=duration_seconds, config=config
     )
-    dead = [
-        (span.start_seconds, span.end_seconds)
-        for span in spans
-        if not span.state.is_gameplay and span.observations >= 2
-    ]
-
-    timeline = build_timeline(
-        media_id=media_id,
-        duration_seconds=duration_seconds,
-        frames=[(float(r["timestamp"]), float(r["motion_score"] or 0.0)) for r in rows["frames"]],
-        audio_events=[
-            (float(r["start_seconds"]), float(r["end_seconds"]),
-             float(r["rms_db"] or -60.0), str(r["event_type"]))
-            for r in rows["audio"]
-        ],
-        game_events=[
-            (float(r["start_seconds"]), float(r["end_seconds"]),
-             float(r["importance"] or 0.5) * float(r["confidence"] or 0.5),
-             str(r["event_type"]))
-            for r in rows["events"]
-        ],
-        scenes=[
-            (float(r["start_seconds"]), float(r["change_score"] or 0.0))
-            for r in rows["scenes"]
-        ],
-        words=[(float(r["start_seconds"]), float(r["end_seconds"])) for r in rows["words"]],
-        dead_spans=dead,
-        config=config,
-    )
-
     try:
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "signature": signature,
-            "duration_s": timeline.duration_s,
-            "hz": timeline.hz,
-            "lanes": {name: [round(v, 4) for v in lane] for name, lane in timeline.lanes.items()},
-        }
-        tmp = cache.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload), encoding="utf-8")
-        tmp.replace(cache)
-    except OSError:
-        logger.exception("Semantic timeline cache write failed; rebuilt next time")
+        repository.save(
+            media_id,
+            signature=signature,
+            builder_version=BUILDER_VERSION,
+            hz=timeline.hz,
+            duration_seconds=timeline.duration_s,
+            lanes=timeline.lanes,
+        )
+    except Exception:
+        # A timeline that could not be stored is still a correct timeline;
+        # the next consumer rebuilds it rather than failing the stage.
+        logger.exception(
+            "Semantic timeline could not be stored; it will be rebuilt",
+            extra={"media_id": media_id},
+        )
     return timeline
-
-
-__all__ = ["LEVELS", "SemanticTimeline", "ShapeSegment", "build_timeline", "load_timeline"]

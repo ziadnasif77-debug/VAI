@@ -97,6 +97,12 @@ class JobStage(str, Enum):
     VISION = "vision"
     OCR = "ocr"
     GAME_EVENTS = "game_events"
+    #: V2-P1. The session's meaning, fused from everything above it and read
+    #: by everything below: selection, pacing, emphasis, audio, critic, QA.
+    #: It sits before MOMENTS on purpose -- built after selection, as it was
+    #: first written, it could shape how a moment was cut but never which
+    #: moment was chosen.
+    SEMANTIC = "semantic"
     MOMENTS = "moments"
     STORY = "story"
     EDL = "edl"

@@ -94,7 +94,6 @@ class CritiqueWorker:
             context.database,
             timeline,
             config=context.config,
-            cache_dir=context.paths.analysis / "semantic",
         )
         revision = edit_revision.apply(
             timeline,
