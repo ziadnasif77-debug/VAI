@@ -227,16 +227,12 @@ def _build_command(
         notes.append("no audio inputs: the render is silent")
 
     if filters:
-        graph = ";".join(filters)
-        if len(graph) > 4000:
-            # Windows caps an argv near 32K and the mix graph grows with the
-            # clip count; a script file has no ceiling. Small graphs stay
-            # inline so the command remains inspectable in one piece.
-            graph_path = destination.with_suffix(".filters")
-            graph_path.write_text(graph, encoding="utf-8")
-            argv += ["-filter_complex_script", str(graph_path)]
-        else:
-            argv += ["-filter_complex", graph]
+        # Windows caps an argv near 32K and the mix graph grows with the clip
+        # count; the runner moves it to a file when it must, and keeps a small
+        # graph inline so the command stays inspectable in one piece.
+        argv += runner.graph_arguments(
+            ";".join(filters), destination.with_suffix(".filters")
+        )
         argv += ["-map", f"[{video_label}]" if video_label != "0:v:0" else "0:v:0"]
         if audio_label is not None:
             argv += ["-map", f"[{audio_label}]"]

@@ -679,15 +679,15 @@ class RenderWorker:
         graph = ";".join(
             [*chains, f"{''.join(labels)}concat=n={len(labels)}:v=0:a=1[aout]"]
         )
-        # The graph grows with the clip count and Windows caps an argv near
-        # 32K; a script file has no ceiling.
-        graph_path = work_dir / "programme_audio.filters"
-        graph_path.write_text(graph, encoding="utf-8")
         context.ffmpeg.run(
             [
                 *context.ffmpeg.base_arguments(),
                 *inputs,
-                "-filter_complex_script", str(graph_path),
+                # The graph grows with the clip count and Windows caps an
+                # argv near 32K; the runner moves it to a file when it must.
+                *context.ffmpeg.graph_arguments(
+                    graph, work_dir / "programme_audio.filters"
+                ),
                 "-map", "[aout]",
                 "-c:a", "pcm_s16le",
                 str(destination),
@@ -747,6 +747,7 @@ class RenderWorker:
             sources=sources,
             destination=destination,
             config=jl_config,
+            graph_arguments=context.ffmpeg.graph_arguments,
         )
         logger.info(
             "Assembling the gameplay audio with J/L offsets at the cuts",

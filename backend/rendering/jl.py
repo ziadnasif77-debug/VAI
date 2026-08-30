@@ -51,7 +51,7 @@ of a re-laid clip ends short by exactly the warp's added seconds.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal
@@ -169,6 +169,7 @@ def assembly_arguments(
     sources: Mapping[str, Path],
     destination: Path,
     config: JLCutsConfig,
+    graph_arguments: Callable[[str, Path], list[str]] | None = None,
 ) -> list[str]:
     """The argv that assembles the offset gameplay track, returned to be run.
 
@@ -184,6 +185,11 @@ def assembly_arguments(
     """
     placed = offsets(clips, boundaries)
     crossfade = max(config.crossfade_ms, 0) / 1000.0
+    if graph_arguments is None:
+        # Inline, the way this function has always returned it: a caller
+        # without a runner is a test asserting on the graph itself.
+        def graph_arguments(graph: str, _path: Path) -> list[str]:
+            return ["-filter_complex", graph]
 
     inputs: list[str] = []
     chains: list[str] = []
@@ -219,11 +225,9 @@ def assembly_arguments(
             f"{''.join(labels)}amix=inputs={len(labels)}:normalize=0:dropout_transition=0[jl]",
         ]
     )
-    graph_path = destination.with_suffix(".filters")
-    graph_path.write_text(graph, encoding="utf-8")
     return [
         *inputs,
-        "-filter_complex_script", str(graph_path),
+        *graph_arguments(graph, destination.with_suffix(".filters")),
         "-map", "[jl]",
         "-c:a", "pcm_s16le",
         str(destination),

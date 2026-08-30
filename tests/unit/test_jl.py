@@ -281,9 +281,7 @@ class TestTheAssemblyGraph:
         plans = plan_boundaries(two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config())
 
         argv = self._argv(two_clips, plans, tmp_path)
-        graph = Path(argv[argv.index("-filter_complex_script") + 1]).read_text(
-            encoding="utf-8"
-        )
+        graph = argv[argv.index("-filter_complex") + 1]
 
         assert "atrim=start=29.400000:end=38.000000" in graph
         assert "adelay=7400|7400" in graph
@@ -294,9 +292,7 @@ class TestTheAssemblyGraph:
         plans = plan_boundaries(two_clips, {MEDIA_A: [(17.5, 18.4)]}, _config())
 
         argv = self._argv(two_clips, plans, tmp_path)
-        graph = Path(argv[argv.index("-filter_complex_script") + 1]).read_text(
-            encoding="utf-8"
-        )
+        graph = argv[argv.index("-filter_complex") + 1]
 
         assert "atrim=start=10.000000:end=18.600000" in graph
         assert "adelay=8000|8000" in graph, "the incoming clip stays where it was"
@@ -307,9 +303,7 @@ class TestTheAssemblyGraph:
         plans = plan_boundaries(two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config())
 
         argv = self._argv(two_clips, plans, tmp_path)
-        graph = Path(argv[argv.index("-filter_complex_script") + 1]).read_text(
-            encoding="utf-8"
-        )
+        graph = argv[argv.index("-filter_complex") + 1]
         outgoing = next(part for part in graph.split(";") if part.startswith("[0:a:0]"))
         incoming = next(part for part in graph.split(";") if part.startswith("[1:a:0]"))
 
@@ -322,9 +316,7 @@ class TestTheAssemblyGraph:
         plans = plan_boundaries(two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config())
 
         argv = self._argv(two_clips, plans, tmp_path)
-        graph = Path(argv[argv.index("-filter_complex_script") + 1]).read_text(
-            encoding="utf-8"
-        )
+        graph = argv[argv.index("-filter_complex") + 1]
 
         assert "amix=inputs=2:normalize=0:dropout_transition=0[jl]" in graph
 
@@ -363,9 +355,7 @@ class TestTheAssemblyGraph:
         assert [plan.kind for plan in plans] == ["hard"]
 
         argv = self._argv(timeline, plans, tmp_path)
-        graph = Path(argv[argv.index("-filter_complex_script") + 1]).read_text(
-            encoding="utf-8"
-        )
+        graph = argv[argv.index("-filter_complex") + 1]
 
         assert "apad=pad_dur=1.500000" in graph, "the hold is silence, in place"
         assert "concat=n=2:v=0:a=1" in graph

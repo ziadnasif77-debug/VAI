@@ -645,3 +645,41 @@ class TestMusicShelves:
             "song.mp3"
         ]
         assert [p.name for p in audio_mix.find_music(tmp_path)] == ["song.mp3"]
+
+
+class TestGraphArguments:
+    """A jump-cut edit's filter graph outgrows the Windows command line, and
+    which flag reads it from a file differs between FFmpeg generations."""
+
+    def _runner(self, config):
+        from backend.media.ffmpeg import FFmpegRunner
+
+        return FFmpegRunner(config.ffmpeg)
+
+    def test_a_small_graph_stays_on_the_command_line(self, config, tmp_path) -> None:
+        runner = self._runner(config)
+
+        argv = runner.graph_arguments("[0:a]anull[out]", tmp_path / "g.filters")
+
+        assert argv == ["-filter_complex", "[0:a]anull[out]"]
+        assert not (tmp_path / "g.filters").exists(), "no file for a short graph"
+
+    def test_a_large_graph_moves_to_a_file(self, config, tmp_path) -> None:
+        runner = self._runner(config)
+        graph = ";".join(f"[0:a]atrim=start={i}:end={i + 1}[a{i}]" for i in range(300))
+
+        argv = runner.graph_arguments(graph, tmp_path / "g.filters")
+
+        assert argv[0] in ("-/filter_complex", "-filter_complex_script")
+        assert argv[1] == str(tmp_path / "g.filters")
+        assert (tmp_path / "g.filters").read_text(encoding="utf-8") == graph
+
+    def test_the_flag_matches_what_this_build_accepts(self, config) -> None:
+        # FFmpeg 7 deprecated -filter_complex_script and 8 removed it; asking
+        # the binary is what keeps both eras working.
+        runner = self._runner(config)
+
+        flag = runner._graph_file_flag()
+
+        assert flag in ("-/filter_complex", "-filter_complex_script")
+        assert runner._graph_file_flag() is flag, "cached, like every capability"

@@ -120,6 +120,11 @@ ProgressCallback = Callable[[ProgressReport], None]
 CancelCheck = Callable[[], bool]
 
 
+#: Graphs shorter than this stay on the command line, where a failing render
+#: can be reproduced by copying one line.
+_INLINE_GRAPH_LIMIT: Final[int] = 4000
+
+
 @dataclass
 class FFmpegRunner:
     """Starts FFmpeg and ffprobe, and turns their failures into typed errors.
@@ -133,6 +138,7 @@ class FFmpegRunner:
     config: FfmpegConfig
     _resolved: dict[str, str] = field(default_factory=dict, repr=False)
     _encoders: frozenset[str] | None = field(default=None, repr=False)
+    _graph_flag: str | None = field(default=None, repr=False)
 
     # -- binaries -------------------------------------------------------
 
@@ -207,6 +213,42 @@ class FFmpegRunner:
                 if (match := _ENCODER_LINE.match(line))
             )
         return self._encoders
+
+    def graph_arguments(self, graph: str, path: Path) -> list[str]:
+        """The filter graph as arguments, from a file when it outgrows argv.
+
+        Windows caps a command line near 32K and a jump-cut edit's graph runs
+        past it, so the graph goes to a file. Which flag reads that file
+        depends on the build: FFmpeg 7 deprecated ``-filter_complex_script``
+        and 8 removed it, replacing it with the generic ``-/opt file`` form.
+        Asking the binary rather than assuming keeps both eras working, and
+        the answer is cached like every other build capability.
+        """
+        if len(graph) < _INLINE_GRAPH_LIMIT:
+            return ["-filter_complex", graph]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(graph, encoding="utf-8")
+        return [self._graph_file_flag(), str(path)]
+
+    def _graph_file_flag(self) -> str:
+        """``-/filter_complex`` on FFmpeg 7+, ``-filter_complex_script`` before."""
+        if self._graph_flag is None:
+            probe = subprocess.run(
+                [self.ffmpeg_path, "-hide_banner", "-h", "full"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=30,
+                check=False,
+            )
+            text = probe.stdout + probe.stderr
+            self._graph_flag = (
+                "-filter_complex_script"
+                if "filter_complex_script" in text
+                else "-/filter_complex"
+            )
+        return self._graph_flag
 
     def require_encoder(self, name: str) -> str:
         """Return ``name`` after confirming this build provides it.
