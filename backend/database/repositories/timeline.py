@@ -45,7 +45,7 @@ _CLIP_COLUMNS = (
 
 _EFFECT_COLUMNS = (
     "id, project_id, clip_id, effect_type, start_seconds, duration_seconds, "
-    "parameters, enabled"
+    "parameters, enabled, composition_id, group_role, anchor_seconds, offset_seconds"
 )
 
 #: Indices are parked above this while a reorder is in flight, so the unique
@@ -456,6 +456,14 @@ class TimelineRepository:
                     }
                 ),
                 "enabled": 1,
+                # V2-P4: an effect that belongs to a sentence says which one,
+                # what part it plays, and which beat it was placed around.
+                # Absent on a decoration, which is what every effect was
+                # before compositions existed.
+                "composition_id": effect.params.get("composition_id"),
+                "group_role": effect.params.get("group_role"),
+                "anchor_seconds": effect.params.get("anchor_seconds"),
+                "offset_seconds": effect.params.get("offset_seconds"),
             }
             for effect in effects
         ]
@@ -463,7 +471,8 @@ class TimelineRepository:
             self._db.executemany(
                 f"INSERT INTO timeline_effects ({_EFFECT_COLUMNS}) VALUES ("
                 ":id, :project_id, :clip_id, :effect_type, :start_seconds, "
-                ":duration_seconds, :parameters, :enabled)",
+                ":duration_seconds, :parameters, :enabled, :composition_id, "
+                ":group_role, :anchor_seconds, :offset_seconds)",
                 rows,
             )
 

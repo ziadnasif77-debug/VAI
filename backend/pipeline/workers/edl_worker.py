@@ -37,7 +37,7 @@ from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.database.repositories.transcript import TranscriptRepository
-from backend.effects.models import EffectPlan
+from backend.effects.models import EffectInstance, EffectPlan
 from backend.effects.planner import EffectPlanner, PlannedMoment
 from backend.interaction.service import InteractionService
 from backend.pipeline.workers.base import WorkerContext
@@ -440,9 +440,230 @@ class EdlWorker:
 
         service = InteractionService(context.database, context.config)
         intent = service.current_intent(context.project_id)
-        return EffectPlanner(context.config).plan(
+        plan = EffectPlanner(context.config).plan(
             planned, intent, video_duration_seconds=timeline.duration
         )
+        return self._composed(context, timeline, plan)
+
+    def _composed(
+        self, context: WorkerContext, timeline: Timeline, plan: EffectPlan
+    ) -> EffectPlan:
+        """Speak the composed sentences, and let the decorations fill in.
+
+        Order matters and is the whole design. The flat planner scores every
+        candidate independently and admits them best-first; a composition
+        judged that way survives in pieces, and half a build-up rendered
+        without its payoff is worse than no build-up -- noise wearing the
+        shape of intent. So compositions are admitted first, atomically, and
+        the decorations that would have landed on the same ground are dropped
+        rather than layered over a gesture that is already speaking.
+
+        Nothing here is required: with no library, no anchors or no reader the
+        plan passes through exactly as the flat planner made it (§95).
+        """
+        from backend.emphasis import engine as emphasis
+        from backend.emphasis.grammar import load_library
+
+        library = load_library(context.config)
+        if not library:
+            return plan
+
+        anchors = self._anchors(context, timeline)
+        if not anchors:
+            return plan
+
+        minutes = max(timeline.duration / 60.0, 1.0 / 60.0)
+        budget = max(1, int(context.config.effects.global_limits.max_effects_per_minute * minutes))
+        spoken, refused = emphasis.compose(
+            anchors,
+            library,
+            budget=budget,
+            min_gap_seconds=context.config.compositions.min_gap_seconds,
+            duration_seconds=timeline.duration,
+        )
+        if not spoken:
+            return plan.model_copy(update={"rejected": [*plan.rejected, *refused]})
+
+        composed = self._instances(spoken, timeline, config=context.config)
+        occupied = [
+            (item.start_seconds - 0.25, item.end_seconds + 0.25) for item in spoken
+        ]
+        kept = [
+            instance
+            for instance in plan.instances
+            if not any(
+                start <= instance.start_seconds <= end for start, end in occupied
+            )
+        ]
+        dropped = len(plan.instances) - len(kept)
+        merged = sorted(kept + composed, key=lambda item: item.start_seconds)
+        return plan.model_copy(
+            update={
+                "instances": merged,
+                "rejected": [
+                    *plan.rejected,
+                    *refused,
+                    *(
+                        [f"{dropped} decoration(s) dropped where a composition is speaking"]
+                        if dropped
+                        else []
+                    ),
+                ],
+            }
+        )
+
+    def _anchors(self, context: WorkerContext, timeline: Timeline):
+        """The beats worth building around, in timeline coordinates.
+
+        Anchors are found in SOURCE time -- that is where events and phases
+        live -- and translated onto the finished timeline, because an effect
+        is placed in the video, not in the recording.
+        """
+        from backend.emphasis import engine as emphasis
+
+        found = []
+        for clip in timeline.video_clips():
+            reader = self._reader(context, clip.media_id)
+            events = [
+                (
+                    float(row["start_seconds"]),
+                    float(row["end_seconds"]),
+                    str(row["event_type"]),
+                    float(row["importance"] or 0.5) * float(row["confidence"] or 0.5),
+                )
+                for row in context.database.fetch_all(
+                    "SELECT start_seconds, end_seconds, event_type, importance, confidence "
+                    "FROM game_events WHERE media_id = ? AND event_type != 'unknown_event' "
+                    "AND start_seconds BETWEEN ? AND ?",
+                    (clip.media_id, clip.source_in, clip.source_out),
+                )
+            ]
+            phases = [
+                (clip.moment_id or clip.id, phase["start_seconds"], phase["end_seconds"],
+                 phase["confidence"], phase["name"])
+                for phase in self._phases(context, clip)
+            ]
+            for anchor in emphasis.anchors_from(
+                media_id=clip.media_id, events=events, phases=phases, reader=reader
+            ):
+                if not clip.source_in <= anchor.seconds <= clip.source_out:
+                    continue
+                from dataclasses import replace as _replace
+
+                found.append(
+                    _replace(
+                        anchor,
+                        seconds=clip.timeline_start + (anchor.seconds - clip.source_in),
+                        clip_id=clip.id,
+                        clip_start=clip.timeline_start,
+                        clip_end=clip.timeline_end,
+                    )
+                )
+        return found
+
+    def _phases(self, context: WorkerContext, clip) -> list[dict]:
+        """The stored phases of the moment this clip came from."""
+        if not clip.moment_id:
+            return []
+        from json import loads
+
+        row = context.database.fetch_one(
+            "SELECT phases FROM moments WHERE id = ?", (clip.moment_id,)
+        )
+        if row is None or not row["phases"]:
+            return []
+        try:
+            phases = loads(row["phases"])
+        except ValueError:
+            return []
+        return [phase for phase in phases if isinstance(phase, dict)]
+
+    def _reader(self, context: WorkerContext, media_id: str):
+        try:
+            from backend.database.repositories.media import MediaRepository
+            from backend.semantic.timeline import load_timeline
+
+            media = MediaRepository(context.database).get(media_id)
+            duration = getattr(media.metadata, "duration_seconds", None) if media else None
+            if not duration:
+                return None
+            return load_timeline(
+                context.database,
+                media_id,
+                duration_seconds=float(duration),
+                config=context.config,
+            )
+        except Exception:
+            logger.exception("No reader for emphasis; compositions stand down")
+            return None
+
+    def _instances(self, spoken, timeline, *, config) -> list[EffectInstance]:
+        """Composition members as the effect rows the renderer already draws.
+
+        Each member is bound to whichever shot contains its own placement,
+        not to the anchor's shot: a sentence is a gesture over the video, and
+        with climax shots under two seconds it necessarily crosses cuts.
+        """
+        shots = sorted(
+            timeline.video_clips(), key=lambda clip: clip.timeline_start
+        )
+        rows: list[EffectInstance] = []
+        shapes = _effect_shapes(config)
+        for planned in spoken:
+            for member, seconds in planned.placements:
+                definition = shapes.get(member.effect)
+                if definition is None:
+                    continue
+                engine, category = definition
+                rows.append(
+                    EffectInstance(
+                        effect=member.effect,
+                        engine=engine,
+                        category=category,
+                        start_seconds=max(0.0, seconds),
+                        duration_seconds=max(0.05, member.duration_seconds),
+                        strength=member.strength,
+                        clip_id=_shot_at(shots, seconds),
+                        moment_id=planned.anchor.moment_id,
+                        params={
+                            "composition_id": planned.composition_id,
+                            "group_role": member.role,
+                            "anchor_seconds": round(planned.anchor.seconds, 3),
+                            "offset_seconds": member.offset_seconds,
+                        },
+                        reason=planned.reason,
+                    )
+                )
+        return sorted(rows, key=lambda row: row.start_seconds)
+
+
+def _shot_at(shots, seconds: float) -> str | None:
+    """The clip covering ``seconds`` on the finished timeline, or ``None``."""
+    for clip in shots:
+        if clip.timeline_start <= seconds < clip.timeline_end:
+            return clip.id
+    return shots[-1].id if shots else None
+
+
+def _effect_shapes(config) -> dict:
+    """Which renderer draws each effect, and what family it belongs to.
+
+    Read from the shipped effects library rather than restated here, so a
+    composition can never name an engine the effects configuration disagrees
+    with -- and an effect the library does not define is simply not placeable.
+    """
+    from backend.core.models.enums import EffectCategory, EffectEngine, EffectType
+
+    shapes: dict = {}
+    for name, spec in config.effects.library.items():
+        try:
+            shapes[EffectType(name)] = (
+                EffectEngine(spec.engine),
+                EffectCategory(spec.category),
+            )
+        except ValueError:
+            continue
+    return shapes
 
 
 __all__ = ["EdlWorker"]

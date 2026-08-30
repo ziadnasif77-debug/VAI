@@ -1,0 +1,66 @@
+# Effect compositions (V2-P4) -- the doctrine's grammar as vocabulary.
+#
+#   SETUP -> BUILDUP -> TENSION -> PAYOFF -> REACTION
+#
+# This file is a repository of sentences the system may speak. It holds no
+# conditions and no logic: which sentence is spoken where, and whether the
+# budget can afford it, is decided in backend/emphasis/engine.py. The one rule
+# encoded here is grammatical -- `depends_on` says which parts of a sentence
+# cannot stand without the others, and a sentence that loses one of those is
+# not spoken at all.
+#
+# `offset` is SIGNED seconds from the beat. Negative is before it, which is
+# what a build-up is and what the flat planner could not express.
+
+compositions:
+  enabled: true
+
+  # A composition costs this many effect slots against the per-minute budget,
+  # whatever its member count: one gesture, not five. Charging per member
+  # would let the existing cap forbid every composition there is.
+  default_cluster_cost: 2
+
+  # No two compositions may overlap this closely, whatever their cooldowns:
+  # two sentences spoken at once are neither.
+  min_gap_seconds: 6.0
+
+  library:
+    # The heaviest sentence in the vocabulary, for a beat the session itself
+    # grades at its top. Bars come in early and quietly, the shake tightens
+    # under them, the ramp and the impact land together on the beat, and the
+    # text arrives after -- a reaction, not an announcement.
+    payoff_heavy:
+      requires_level: [high, climax]
+      requires_kind: [boss_defeat, boss_fight, clutch, victory, outplay, payoff]
+      min_strength: 0.55
+      cooldown_seconds: 90
+      cluster_cost: 3
+      members:
+        - {role: buildup,  effect: cinematic_bars, offset: -1.60, duration: 2.20}
+        - {role: tension,  effect: camera_shake,   offset: -0.45, duration: 0.70, depends_on: [buildup]}
+        - {role: payoff,   effect: impact,         offset:  0.00, duration: 0.55}
+        - {role: reaction, effect: text_pop,       offset:  0.55, duration: 1.30, depends_on: [payoff]}
+
+    # The same shape, lighter, for a strong beat that is not the session's
+    # summit. No bars, no text: a punch and a hit.
+    payoff_light:
+      requires_level: [tension, high, climax]
+      requires_kind: [near_death, high_damage, escape, comeback, rare_loot, payoff]
+      min_strength: 0.35
+      cooldown_seconds: 35
+      cluster_cost: 2
+      members:
+        - {role: tension, effect: punch_in, offset: -0.35, duration: 0.90}
+        - {role: payoff,  effect: impact,   offset:  0.00, duration: 0.45, depends_on: [tension]}
+
+    # A loss is not a payoff and does not get one. The picture slows into it
+    # and the bars hold afterwards: the sentence lands as weight, not applause.
+    defeat_fall:
+      requires_level: [tension, high, climax]
+      requires_kind: [death, defeat, objective_failure, fail]
+      min_strength: 0.35
+      cooldown_seconds: 75
+      cluster_cost: 2
+      members:
+        - {role: payoff,   effect: speed_ramp,     offset: -0.20, duration: 0.80}
+        - {role: reaction, effect: cinematic_bars, offset:  0.60, duration: 2.00, depends_on: [payoff]}

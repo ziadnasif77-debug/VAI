@@ -179,7 +179,16 @@ class EffectPlanner:
         if not self._effects.relative_thresholds or not moments:
             return {moment.id: moment.score for moment in moments}
 
-        scores = sorted(moment.score for moment in moments)
+        # One entry per MOMENT, not per clip. V2-P3's walk splits a moment
+        # into as many shots as its heat asks for, and every one of them
+        # arrives here carrying the same score -- so a moment cut into twelve
+        # shots was counted twelve times and the ties flattened the whole
+        # distribution. On the gate session the best moment in the video
+        # ranked 0.33 against a lowest trigger of 0.6, and the effects engine
+        # went silent on footage it had decorated a week earlier. Nothing
+        # failed; there were simply no effects.
+        by_moment = {moment.id: moment.score for moment in moments}
+        scores = sorted(by_moment.values())
         lowest, highest = scores[0], scores[-1]
         if highest - lowest < 1e-9:
             # Every moment scored the same: ranking says nothing, so keep the
@@ -187,12 +196,12 @@ class EffectPlanner:
             return {moment.id: moment.score for moment in moments}
 
         ranked: dict[str, float] = {}
-        for moment in moments:
-            if moment.score < self._effects.absolute_floor:
-                ranked[moment.id] = moment.score
+        for moment_id, score in by_moment.items():
+            if score < self._effects.absolute_floor:
+                ranked[moment_id] = score
                 continue
-            position = sum(1 for value in scores if value < moment.score)
-            ranked[moment.id] = position / max(len(scores) - 1, 1)
+            position = sum(1 for value in scores if value < score)
+            ranked[moment_id] = position / max(len(scores) - 1, 1)
         return ranked
 
     def _collect(

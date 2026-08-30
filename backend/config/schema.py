@@ -1352,6 +1352,47 @@ class EffectRealisationConfig(_Section):
     remotion_overlay: bool = True
 
 
+class CompositionMemberConfig(_Section):
+    """One effect in a composition, placed relative to the beat."""
+
+    role: Literal["setup", "buildup", "tension", "payoff", "reaction"]
+    effect: str
+    #: Signed seconds from the anchor. Negative is before it -- which is what
+    #: a build-up is, and what no absolute-start effect could express.
+    offset: float
+    duration: float = Field(default=0.5, gt=0)
+    strength: float = Field(default=1.0, ge=0.0, le=1.0)
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class CompositionConfig(_Section):
+    """One named sentence of effects (V2-P4)."""
+
+    members: list[CompositionMemberConfig] = Field(min_length=1)
+    requires_level: list[str] = Field(default_factory=list)
+    requires_kind: list[str] = Field(default_factory=list)
+    min_strength: float = Field(default=0.0, ge=0.0, le=1.0)
+    cooldown_seconds: float = Field(default=60.0, ge=0)
+    cluster_cost: int = Field(default=0, ge=0)
+
+
+class CompositionsConfig(_Section):
+    """The composition library.
+
+    Vocabulary only. Which sentence is spoken over which beat, and whether the
+    budget can afford it, is decided in ``backend/emphasis/engine.py`` -- this
+    section holds no conditions and no logic.
+    """
+
+    enabled: bool = True
+    #: What a composition costs against the per-minute effects budget when it
+    #: does not name its own price. One gesture, not one per member: charging
+    #: per member would let the existing cap forbid every composition there is.
+    default_cluster_cost: int = Field(default=2, ge=1)
+    min_gap_seconds: float = Field(default=6.0, ge=0)
+    library: dict[str, CompositionConfig] = Field(default_factory=dict)
+
+
 class EffectsConfig(_Section):
     """The effects engine (§68-§70).
 
@@ -1807,6 +1848,7 @@ class AppConfig(_Section):
     remotion: RemotionConfig = Field(default_factory=RemotionConfig)
     shorts: ShortsConfig = Field(default_factory=ShortsConfig)
     effects: EffectsConfig
+    compositions: CompositionsConfig = Field(default_factory=CompositionsConfig)
     audio: AudioConfig
     captions: CaptionsConfig
     qa: QaConfig = Field(default_factory=QaConfig)
