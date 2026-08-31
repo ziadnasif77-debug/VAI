@@ -97,6 +97,14 @@ RESOLVING: Final[frozenset[str]] = frozenset(
     }
 )
 
+#: The furthest past a shot's end a response is followed.
+#:
+#: Eight seconds, the same window the reading looks ahead over. A transcript
+#: segment can run to 392 seconds on this machine's coarser recordings, and a
+#: shot held until one of those ends would be following the transcriber rather
+#: than making an edit.
+RESPONSE_WINDOW: Final[float] = 8.0
+
 #: Below this, a shot's strongest editorial claim is too weak to name, and the
 #: purpose comes back DEAD rather than as the least bad of five poor options.
 NAMED_FLOOR: Final[float] = 0.15
@@ -198,6 +206,14 @@ class ShotSemantics:
     purpose: ShotPurpose = ShotPurpose.DEAD
     value: EditorialValue = field(default_factory=EditorialValue)
 
+    #: Seconds past the shot's end at which the response finishes, or 0.
+    #:
+    #: Read by `ReactionPolicy`, which is the only thing that may act on it.
+    #: Capped at the reading window: a transcript segment can run for minutes,
+    #: and holding a shot until a two-minute segment ends would be following a
+    #: transcriber's idea of a sentence rather than making an edit.
+    response_seconds: float = 0.0
+
     #: Why this purpose and not another, in one clause a person can check.
     why: str = ""
 
@@ -258,8 +274,43 @@ def read(evidence: EditorialEvidence, *, inside: Any = None, after: Any = None) 
     )
     purpose, why = _purpose(value)
     return ShotSemantics(
-        moment_id=evidence.moment_id, purpose=purpose, value=value, why=why
+        moment_id=evidence.moment_id,
+        purpose=purpose,
+        value=value,
+        response_seconds=_response_seconds(evidence, after)
+        if purpose is ShotPurpose.REACTION
+        else 0.0,
+        why=why,
     )
+
+
+def _response_seconds(evidence: EditorialEvidence, after: Any) -> float:
+    """How long after the shot ends the response takes to finish.
+
+    Measured from the transcript rather than from the speech lane, because the
+    lane is a level and this needs an edge. The *first* response's end, not the
+    last: holding a shot until every overlapping segment is done would follow
+    a transcriber's paragraph rather than a person's sentence.
+    """
+    if after is None:
+        return 0.0
+    end = evidence.source_end
+    # Only speech that *begins* after the shot is a response to it. Speech
+    # already running through the shot is commentary, and the segment carrying
+    # it can run for minutes -- the first version took the latest end of
+    # everything overlapping, which meant every reaction shot asked for the
+    # bound and the policy became a flat three seconds wearing a measurement's
+    # clothes. Every hold it produced was exactly 3.00s, which is what gave it
+    # away.
+    starts_after = [
+        float(getattr(said, "end", 0.0) or 0.0)
+        for said in (getattr(after, "said", ()) or ())
+        if float(getattr(said, "start", 0.0) or 0.0) >= end
+    ]
+    if not starts_after:
+        return 0.0
+    past = min(starts_after) - end
+    return round(min(max(past, 0.0), RESPONSE_WINDOW), 3)
 
 
 # -- the five, each from its own evidence -----------------------------------
@@ -400,7 +451,11 @@ def _reaction(evidence: EditorialEvidence, after: Any, unobserved: list[str]) ->
 
     Speech that starts after the shot and was not in it. The `reaction_follows`
     reading says this from the lanes; the transcript says it directly, and says
-    it on the fifteen recordings out of seventeen that have no lanes.
+    it directly, and it says it where the lanes cannot be built at all.
+
+    An earlier version of this comment claimed fifteen of seventeen projects
+    here have no semantic lanes. That was wrong: `load_timeline` builds them
+    when they are not stored, so only the *cache* was empty for fifteen.
     """
     if evidence.reaction_follows:
         return 1.0
@@ -458,6 +513,7 @@ __all__ = [
     "ESTABLISHED_LABELS",
     "NAMED_FLOOR",
     "REACTION_WORDS",
+    "RESPONSE_WINDOW",
     "RESOLVING",
     "EditorialValue",
     "ShotPurpose",

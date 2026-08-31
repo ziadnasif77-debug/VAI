@@ -233,7 +233,7 @@ class StoryWorker:
         # object, not a copy -- so the frozen edit stays frozen by
         # construction rather than by care.
         strategy = editorial_strategy.resolve(editing, intent=intent)
-        shaped = editorial_strategy.apply(moments, strategy, editorial)
+        shaped = editorial_strategy.apply(moments, strategy, editorial, durations)
         if shaped is not moments:
             logger.info(
                 "The editing strategy reshaped the footage",

@@ -198,6 +198,35 @@ the same code that produced this table.
 > the judge was given the same reading the checker had, that project stopped
 > changing at all and four remain. The table above is the corrected figure.
 
+### And once more in V2-P1.4, for a smaller reason
+
+**Two projects, and no video changed.** `backend/evidence/projection.py` was
+filtering records by whether their *start* fell inside the span, which for
+anything with a duration is the wrong question: a transcript segment running
+from 1951s to 2070s does not start inside an eight-second window at 2015s, so
+a look-ahead found no speech in the middle of somebody talking for two minutes.
+
+Measured, the speech lane and this projection disagreed 104 times and agreed
+50. After the fix they disagree **zero** times. Two other things were quietly
+weakened by it and are now not: `ShotSemantics`'s reaction reading, and
+`CutPoints.forbidden` -- the rule that stops a cut landing inside a spoken
+word, which gained 1,677 speech spans it had been blind to. Cut-point quality
+across every style rose from 0.098 to 0.115.
+
+The correction changed which shots are read as setups and reactions, which
+changed what the pacing axis counts as an arbitrary cut, which changed two
+recorded axis values -- `proj-6d5b6e27703` pacing 0.826 to 0.917 and
+`proj-86edde704be` pacing 0.643 to 0.500. One rose and one fell, which is what
+a fix looks like and not what chasing a number looks like. Both projects chose
+the same plan, the same boundaries and the same profile as before.
+
+**The contract was split at the same time**, because it had reported this as
+"the house edit changed" when no edit had. It now fails in two places:
+`test_house_edit_is_unchanged` for the video, and
+`test_the_judge_still_rates_the_house_edit_the_same` for the eight axes. Both
+still fail on drift -- a judge drifting unremarked is how a ranking eventually
+flips -- but a failure now says which of the two happened.
+
 ### The pre-P1 baseline is kept
 
 `tests/golden/house_edit.pre-p1.json` holds the house edit exactly as it stood

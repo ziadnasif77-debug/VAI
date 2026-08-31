@@ -4,15 +4,24 @@ The one test the professional-editing work is allowed to break only on
 purpose. Every upgrade from here on adds a way for footage to be read more
 carefully, and every one of them arrives holding an argument for why the
 result is better. This test does not accept arguments. It holds the exact edit
-the system made before any of it, for every project on this machine, and
-compares:
+the system made before any of it, for every project on this machine.
 
-* which moments were selected, in order, with their spans;
-* which counterfactual profile won;
-* the hook, and the shot the video ends on;
-* the timeline after clamping, de-overlapping and transitions -- the boundaries
-  a viewer would actually see, not the ones the plan asked for;
-* the eight judge axes, to three decimals.
+**Two failures, not one.** The comparison is made once and sorted into two
+kinds, because they mean different things and deserve different answers:
+
+`test_house_edit_is_unchanged` -- **the video**: which moments were selected,
+in order, with their spans; which counterfactual profile won; the hook and the
+shot it ends on; the timeline's clip boundaries after clamping, de-overlapping
+and transitions; the finished length.
+
+`test_the_judge_still_rates_the_house_edit_the_same` -- **the eight judge
+axes**, on videos that did not change. An axis is the judge's opinion about a
+video rather than a property of it, and this project keeps improving the
+judge: V2-P1 replaced the pacing axis's definition outright and V2-P1.4 fixed
+the evidence it reads, and both moved every recorded axis without moving a
+single frame. Folding that into the first test made the contract report a
+changed video when none had changed, and the only way to clear it was to
+regenerate -- which is the reflex a regression contract must not train.
 
 **Exactly, not approximately.** A change that moves one clip boundary by
 40 milliseconds is a change to the finished video, and the whole point of
@@ -116,7 +125,7 @@ def _edit(config, database, project_id: str, target: float):
     # and building it twice would be two reads of six stores for data that
     # cannot have changed between them.
     reading = _reading(config, database, project_id, moments, durations)
-    shaped = editorial_strategy.apply(moments, strategy, reading)
+    shaped = editorial_strategy.apply(moments, strategy, reading, durations)
     assert shaped is moments, (
         f"{project_id}: the house strategy reshaped the footage. It is supposed "
         f"to be neutral, and a neutral strategy returns the caller's own list."
@@ -186,45 +195,51 @@ def test_the_golden_file_covers_something(frozen) -> None:
     assert frozen["projects"], "the frozen house edit is empty"
 
 
-@pytest.mark.slow
-def test_house_edit_is_unchanged(frozen, live) -> None:
-    """Every frozen project still produces exactly the edit it produced."""
+@pytest.fixture(scope="module")
+def compared(frozen, live) -> tuple[int, list[str], list[str]]:
+    """Every frozen project, measured once and sorted into two kinds of change.
+
+    Measured once because `_edit` re-plans and re-judges every project, and two
+    tests asking the same question twice would double the slowest check in the
+    suite for nothing.
+    """
     config, database = live
     target = float(frozen["target_seconds"])
 
     checked = 0
-    differences: list[str] = []
+    edits: list[str] = []
+    scores: list[str] = []
     for project_id, expected in frozen["projects"].items():
         moments = MomentRepository(database).list_for_project(project_id)
         if not moments:
             # The project was deleted or re-analysed away. Not a regression --
             # but not a pass either, so it is reported at the end.
-            differences.append(f"{project_id}: has no moments on this machine any more")
+            edits.append(f"{project_id}: has no moments on this machine any more")
             continue
         checked += 1
         profile, plan, score, timeline = _edit(config, database, project_id, target)
         where = f"{project_id[:16]} {expected.get('clips')} clips"
 
         if profile.id != expected["profile"]:
-            differences.append(
+            edits.append(
                 f"{where}: a different profile won -- "
                 f"{expected['profile']} became {profile.id}"
             )
         if _fingerprint(plan) != expected["fingerprint"]:
-            differences.append(
+            edits.append(
                 f"{where}: the selection changed -- "
                 f"{len(expected['fingerprint'])} clips became {len(plan.moments)}"
             )
         hook = getattr(plan.hook, "moment", None)
         if hook is not None and hook.moment_type.value != expected["hook_type"]:
-            differences.append(
+            edits.append(
                 f"{where}: the hook changed -- "
                 f"{expected['hook_type']} became {hook.moment_type.value}"
             )
         if _boundaries(timeline) != expected["timeline"]["boundaries"]:
-            differences.append(f"{where}: the timeline's clip boundaries changed")
+            edits.append(f"{where}: the timeline's clip boundaries changed")
         if round(float(timeline.duration), 2) != expected["timeline"]["seconds"]:
-            differences.append(
+            edits.append(
                 f"{where}: the finished length changed -- "
                 f"{expected['timeline']['seconds']}s became "
                 f"{round(float(timeline.duration), 2)}s"
@@ -236,11 +251,59 @@ def test_house_edit_is_unchanged(frozen, live) -> None:
                 for name, value in axes.items()
                 if expected["axes"].get(name) != value
             ]
-            differences.append(f"{where}: the judge moved -- {', '.join(moved)}")
+            scores.append(f"{where}: {', '.join(moved)}")
 
+    return checked, edits, scores
+
+
+@pytest.mark.slow
+def test_house_edit_is_unchanged(compared) -> None:
+    """Every frozen project still produces exactly the video it produced.
+
+    The finished thing: which moments, in what order, cut where, how long, and
+    which counterfactual plan won. Nothing here is a judgement about the video
+    -- those live in the test below, and the two are separated because they
+    fail for different reasons and deserve different answers.
+    """
+    checked, edits, _scores = compared
     assert checked, "no frozen project could be measured on this machine"
-    assert not differences, (
+    assert not edits, (
         "The house edit changed. If that was intended, regenerate the golden "
         "file with `python scripts/baseline.py --freeze` and say why in the "
-        "commit message.\n\n  " + "\n  ".join(differences)
+        "commit message.\n\n  " + "\n  ".join(edits)
+    )
+
+@pytest.mark.slow
+def test_the_judge_still_rates_the_house_edit_the_same(compared) -> None:
+    """The eight axes, on videos that did not change.
+
+    Separated from the test above on purpose, and the reason is worth stating
+    because it decides how a future failure gets read.
+
+    An axis is not a property of the video. It is the judge's opinion *about*
+    the video, and the judge is a thing this project keeps improving -- V2-P1
+    replaced the pacing axis's definition outright, and V2-P1.4's fix to the
+    evidence projection changed what that axis counts without moving a single
+    frame of a single edit. Both times every project's recorded axes moved
+    while the videos stayed identical.
+
+    Folding that into "the house edit changed" made the contract cry wolf: it
+    reported a change to the finished video when none had happened, and the
+    only way to clear it was to regenerate the golden file -- which is exactly
+    the reflex a regression contract must not train. So this failure says what
+    it is. A score that moves on an identical video means the judge changed,
+    and the question to ask is whether it changed for a reason.
+
+    It is still a failure, not a warning. A judge drifting unremarked is how a
+    ranking eventually flips, and the flip is what the test above would catch
+    far too late.
+    """
+    _checked, _edits, scores = compared
+    assert not scores, (
+        "The judge rates the house edit differently, on videos that are "
+        "byte-identical. That is a change to the judge, not to the edit.\n\n"
+        "If the judge was meant to change -- a redefined axis, a fix to the "
+        "evidence it reads -- regenerate with `python scripts/baseline.py "
+        "--freeze`, and record in docs/BASELINE.md what changed and why.\n\n  "
+        + "\n  ".join(scores)
     )

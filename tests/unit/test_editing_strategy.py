@@ -31,6 +31,7 @@ from backend.editorial.policy import SelectionPolicy
 from backend.editorial.semantics import EditorialValue, ShotPurpose, ShotSemantics
 from backend.editorial.strategy import (
     MAX_SEAM_DRIFT,
+    ReactionPolicy,
     MAX_TRIM_FRACTION,
     NEUTRAL,
     ContextPolicy,
@@ -78,11 +79,18 @@ class _Shot:
 class _Reading:
     """What `EditorialReading` gives the shaper, for one moment."""
 
-    def __init__(self, purpose: ShotPurpose, dead: float = 0.0, cuts: _Cuts | None = None):
+    def __init__(
+        self,
+        purpose: ShotPurpose,
+        dead: float = 0.0,
+        cuts: _Cuts | None = None,
+        response: float = 0.0,
+    ):
         self._semantics = ShotSemantics(
             moment_id="mom-1",
             purpose=purpose,
             value=EditorialValue(context=1.0 - dead),
+            response_seconds=response,
         )
         self._shot = _Shot(cuts=cuts) if cuts else None
 
@@ -288,3 +296,71 @@ class TestTheBriefWinsOverTheStyle:
             None, intent=_Brief(), style_context=self._Doctrine(max_drift=99.0)
         )
         assert strategy.cut.max_drift == MAX_SEAM_DRIFT
+
+
+class TestHoldingAShotForItsResponse:
+    """The one policy here that lengthens a shot rather than trimming it.
+
+    Measured before it existed: of 22 selected shots somebody responded to,
+    **18 stopped before the response finished**, by a median of two seconds,
+    with a median of 1,357 unused seconds of recording sitting after the clip.
+    """
+
+    def test_it_is_off_by_default(self) -> None:
+        assert ReactionPolicy().is_neutral
+        assert apply([_moment()], NEUTRAL) is not None
+
+    def test_a_shot_is_held_until_the_response_finishes(self) -> None:
+        before = _moment()
+        strategy = EditingStrategy(reaction=ReactionPolicy(hold_for_response=True))
+        after = apply(
+            [before],
+            strategy,
+            _Reading(ShotPurpose.REACTION, response=2.0),
+            {"media-1": 10_000.0},
+        )[0]
+        assert after.context_end == before.context_end + 2.0
+
+    def test_it_never_holds_longer_than_its_bound(self) -> None:
+        """Beyond the bound the "response" is a coarse transcript segment
+        rather than a sentence -- they run to 392 seconds on this machine."""
+        policy = ReactionPolicy(hold_for_response=True, max_extra=3.0)
+        after = apply(
+            [_moment()],
+            EditingStrategy(reaction=policy),
+            _Reading(ShotPurpose.REACTION, response=60.0),
+            {"media-1": 10_000.0},
+        )[0]
+        assert after.context_end == _moment().context_end + 3.0
+
+    def test_it_never_reads_past_the_end_of_the_recording(self) -> None:
+        before = _moment()
+        after = apply(
+            [before],
+            EditingStrategy(reaction=ReactionPolicy(hold_for_response=True)),
+            _Reading(ShotPurpose.REACTION, response=3.0),
+            {"media-1": before.context_end + 1.0},
+        )[0]
+        assert after.context_end == before.context_end + 1.0
+
+    def test_a_shot_nobody_responded_to_is_left_alone(self) -> None:
+        before = _moment()
+        after = apply(
+            [before],
+            EditingStrategy(reaction=ReactionPolicy(hold_for_response=True)),
+            _Reading(ShotPurpose.ACTION, response=2.0),
+            {"media-1": 10_000.0},
+        )
+        assert after[0] is before
+
+    def test_a_reaction_with_no_measured_response_is_left_alone(self) -> None:
+        """The purpose can be set by the speech lane while the transcript has
+        no edge to hold to. No number, no hold."""
+        before = _moment()
+        after = apply(
+            [before],
+            EditingStrategy(reaction=ReactionPolicy(hold_for_response=True)),
+            _Reading(ShotPurpose.REACTION, response=0.0),
+            {"media-1": 10_000.0},
+        )
+        assert after[0] is before

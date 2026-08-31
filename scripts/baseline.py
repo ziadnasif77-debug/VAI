@@ -160,7 +160,7 @@ def _measure(database, config, project_id: str, target: float) -> dict:
         policy = resolve(config, style)
         strategy = editorial_strategy.resolve(policy)
         try:
-            shaped = editorial_strategy.apply(moments, strategy, reading)
+            shaped = editorial_strategy.apply(moments, strategy, reading, durations)
             proposed = propose(
                 shaped,
                 mode=VideoMode.STORY,

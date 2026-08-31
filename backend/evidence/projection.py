@@ -191,10 +191,43 @@ def _inside(span: Span, store: Mapping[str, Sequence[Any]], attribute: str) -> t
     records = [
         record
         for record in store.get(span.media_id, ())
-        if span.contains(getattr(record, attribute, None))
+        if _within(span, record, attribute)
     ]
     records.sort(key=lambda record: getattr(record, attribute, 0.0))
     return tuple(records)
+
+
+def _within(span: Span, record: Any, attribute: str) -> bool:
+    """Whether a record touches the span at all -- not merely starts in it.
+
+    The first version asked only whether the record's *start* fell inside, and
+    for anything with a duration that is the wrong question. A transcript
+    segment running from 1951s to 2070s does not start inside a window at
+    2015s, so an eight-second look-ahead found no speech in the middle of
+    somebody talking for two minutes.
+
+    Measured on this machine: transcript segments run to 392 seconds and
+    average 52 on the recordings whose transcriber emitted coarse ones, and
+    those are precisely the recordings where the speech lane and this
+    projection disagreed -- 29 times against 2 agreements on one of them,
+    while a recording with 3.8-second segments agreed 21 times against 8. The
+    lane was right and this was under-reporting.
+
+    Two things depended on it and both were quietly weakened: `_reaction`,
+    which asks whether somebody speaks after a shot, and `CutPoints.forbidden`
+    -- the rule that stops a cut landing inside a spoken word.
+    """
+    start = getattr(record, attribute, None)
+    if start is None:
+        return False
+    end = getattr(record, "end_seconds", None)
+    if end is None:
+        end = getattr(record, "end", None)
+    if end is None:
+        # An instant: a frame, a scene boundary, a screen reading. It is
+        # inside or it is not.
+        return span.contains(start)
+    return float(start) < span.end_seconds and float(end) > span.start_seconds
 
 
 __all__ = ["Evidence", "Span", "Stores", "project"]

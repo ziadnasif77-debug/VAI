@@ -1958,6 +1958,13 @@ class StyleShotsConfig(_Section):
     #: the video ends rather than trails off.
     trim_weak_ending: bool = False
 
+    #: Hold a shot somebody responded to until the response lands (V2-P1.4).
+    #:
+    #: The one setting here that *lengthens* a shot. Measured before it
+    #: existed: 18 of 22 selected shots somebody responded to stopped before
+    #: the response finished, by a median of two seconds.
+    hold_for_response: bool = False
+
 
 class StyleEntry(_Section):
     """One named style, versioned.

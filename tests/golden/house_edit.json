@@ -1714,9 +1714,9 @@
         "effect_density": 0.875,
         "ending": 0.705,
         "intensity": 0.508,
-        "pacing": 0.826,
+        "pacing": 0.917,
         "structure": 1.0,
-        "total": 0.827,
+        "total": 0.841,
         "variety": 1.0
       },
       "clips": 12,
@@ -1785,7 +1785,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.827,
+      "judge_total": 0.8406,
       "median_shot": 50.14,
       "profile": "A",
       "timeline": {
@@ -1882,9 +1882,9 @@
         "effect_density": 0.101,
         "ending": 0.428,
         "intensity": 0.337,
-        "pacing": 0.643,
+        "pacing": 0.5,
         "structure": 1.0,
-        "total": 0.532,
+        "total": 0.511,
         "variety": 0.256
       },
       "clips": 15,
@@ -1968,7 +1968,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.5324,
+      "judge_total": 0.511,
       "median_shot": 68.37,
       "profile": "C",
       "timeline": {

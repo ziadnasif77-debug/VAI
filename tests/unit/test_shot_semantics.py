@@ -29,6 +29,7 @@ from backend.core.models.enums import GameEventType, MomentType
 from backend.editorial.evidence import EditorialEvidence, State
 from backend.editorial.semantics import (
     BUSY_EVENTS,
+    RESPONSE_WINDOW,
     ESTABLISHED_LABELS,
     NAMED_FLOOR,
     REACTION_WORDS,
@@ -39,6 +40,12 @@ from backend.editorial.semantics import (
 from backend.moments.formation import Moment
 
 pytestmark = pytest.mark.unit
+
+
+@dataclass
+class _Said:
+    start: float
+    end: float
 
 
 @dataclass
@@ -54,7 +61,6 @@ class _Projection:
 
     def words(self, limit: int = 0) -> str:
         return self.said
-
 
 @dataclass
 class _Event:
@@ -233,7 +239,17 @@ class TestEachComponentReadsItsOwnStore:
 
 
 class TestTheLanesRefineButAreNotRequired:
-    """Fifteen of this machine's seventeen projects have no semantic lanes."""
+    """A reading must still work when the lanes will not load.
+
+    An earlier version of this docstring said fifteen of this machine's
+    seventeen projects have no semantic lanes, which was wrong and was
+    repeated into `semantics.py`. Only two have them *cached*:
+    `load_timeline` says "stored when they are current, built when not", so
+    every project gets lanes and most pay for them at read time. What these
+    tests actually protect is the failure path -- a recording whose lanes
+    cannot be built at all, which is a real state and the one the reading
+    reports as `unknown` rather than as calm footage.
+    """
 
     def test_a_reading_without_lanes_still_names_a_purpose(self) -> None:
         semantics = read(
@@ -337,3 +353,62 @@ class TestTheRealMomentClass:
         """
         moment = self._moment(id="mom-xyz")
         assert moment.id == str(moment.metadata.get("id"))
+
+
+class TestHowLongTheResponseRuns:
+    """`response_seconds` is what `ReactionPolicy` holds a shot for.
+
+    It has to be a measurement. The first version took the latest end of every
+    transcript segment overlapping the look-ahead window, and on this machine's
+    coarser recordings those segments run to 392 seconds -- so every reaction
+    shot asked for the policy's bound and the hold became a flat three seconds
+    wearing a measurement's clothes. Every one of the 33 holds it produced was
+    exactly 3.00s, which is what gave it away. These tests hold it to being a
+    number that varies with the footage.
+    """
+
+    def test_it_measures_the_first_response_not_the_last_segment(self) -> None:
+        semantics = read(
+            _evidence(source_start=40.0, source_end=58.0),
+            inside=_Projection(),
+            after=_Segments((58.5, 60.0), (58.5, 300.0)),
+        )
+        assert semantics.purpose is ShotPurpose.REACTION
+        assert semantics.response_seconds == 2.0
+
+    def test_speech_already_running_is_not_a_response_to_hold_for(self) -> None:
+        """A segment that began before the shot ended is commentary carrying
+        on, and holding the shot for it would follow the transcriber."""
+        semantics = read(
+            _evidence(source_start=40.0, source_end=58.0),
+            inside=_Projection(),
+            after=_Segments((10.0, 300.0)),
+        )
+        assert semantics.response_seconds == 0.0
+
+    def test_it_is_bounded_by_the_reading_window(self) -> None:
+        semantics = read(
+            _evidence(source_start=40.0, source_end=58.0),
+            inside=_Projection(),
+            after=_Segments((58.5, 400.0)),
+        )
+        assert semantics.response_seconds == RESPONSE_WINDOW
+
+    def test_a_shot_nobody_responded_to_carries_no_response(self) -> None:
+        semantics = read(_evidence(), inside=_Projection(), after=_Projection())
+        assert semantics.response_seconds == 0.0
+
+
+class _Segments:
+    """A projection whose `said` records carry real start and end times."""
+
+    def __init__(self, *spans):
+        self.said = tuple(_Said(start, end) for start, end in spans)
+        self.events = ()
+
+    @property
+    def named_events(self) -> tuple:
+        return ()
+
+    def words(self, limit: int = 0) -> str:
+        return "word " * REACTION_WORDS

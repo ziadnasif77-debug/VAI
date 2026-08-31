@@ -218,6 +218,13 @@ Two promises hold it together, and both are tested:
 - **A doctrine cannot exceed its declared range.** Every multiplier is fenced
   in `config/style.yaml`, composing two legal policies cannot produce an
   illegal one, and the bound is checked again when the value is read.
+- **A cut never lands inside a spoken word — and now it can see them.** The
+  evidence projection filtered records by whether their *start* fell inside the
+  window, which for a transcript segment running from 1951s to 2070s means an
+  eight-second look-ahead at 2015s found silence in the middle of somebody
+  talking for two minutes. Fixed, the speech lane and the transcript went from
+  disagreeing 104 times to zero, and the rule against cutting mid-sentence
+  gained 1,677 spans it had been blind to.
 - **The house edit is frozen, project by project.** `tests/golden/house_edit.json`
   holds the exact edit this machine made for all 17 of its projects — selection
   and order, the winning profile, the hook, the ending, the timeline's clip
@@ -225,6 +232,11 @@ Two promises hold it together, and both are tested:
   that moves one boundary by 40 ms fails it. Only the default style is frozen:
   the other five exist to differ, and `tests/integration/test_style_differentiation.py`
   is the complement that says they may not stop.
+
+  It fails in **two** places, because two different things can move. One is the
+  video. The other is the judge's opinion of a video that did not change — an
+  axis is a rating, not a property, and improving the judge moves every recorded
+  axis while every frame stays put. Both still fail; a failure now says which.
 
 ## What it does not claim
 
@@ -529,7 +541,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 2615 tests (~43 min)
+.venv/bin/python -m pytest              # 2626 tests (~42 min)
 .venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .

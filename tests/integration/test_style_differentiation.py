@@ -102,7 +102,7 @@ def _edits(config, database) -> dict[str, dict[str, dict]]:
         for style in (HOUSE, *STYLES):
             policy = resolve(config, style)
             strategy = editorial_strategy.resolve(policy)
-            shaped = editorial_strategy.apply(moments, strategy, reading)
+            shaped = editorial_strategy.apply(moments, strategy, reading, durations)
             proposed = propose(
                 shaped,
                 mode=VideoMode.STORY,

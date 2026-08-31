@@ -124,6 +124,68 @@ Verified before freezing:
 - the frozen contract still **catches a real change** — a 0.25 s move on every
   cut point is caught on 17 of 17 projects.
 
+## P1.4 — the reaction decision
+
+Two hypotheses were measured and discarded before any code was written.
+
+**Pairing by situation.** Only 14 of 33 reaction shots belong to a situation at
+all, and just **2** of those situations contain another moment. There was
+nothing to pair.
+
+**Pairing by proximity.** The gap from a reaction shot to what precedes it has
+a median of **21.2 s**. The gap for every other kind of shot: **21.1 s**.
+Proximity distinguishes nothing, and building on it would have been the
+merge-by-adjacency the situations layer already measured and refused.
+
+Then the definition turned out to read the other way round. `ShotPurpose.REACTION`
+means *somebody responded to this shot* — the response is in the seconds
+**after** it, and the shot is the thing being reacted to.
+
+### The defect underneath
+
+`backend/evidence/projection.py` filtered records by whether their *start* fell
+inside the span. For anything with a duration that is the wrong question, and
+this machine's coarser transcripts have segments running to 392 seconds.
+
+| | before | after |
+|---|---:|---:|
+| speech lane and transcript agree | 50 | **154** |
+| lane claims speech, transcript has none | **104** | **0** |
+| speech spans the cut-safety rule can see | — | **1,677** |
+| cut-point quality, every style | 0.098 | **0.115** |
+
+The middle row is the one that mattered: V2-P3's rule against cutting inside a
+spoken word was blind to any sentence that began before the shot.
+
+### ReactionPolicy
+
+Of 22 selected shots somebody responded to, **18 stopped before the response
+finished** — a median of 2.0 s short, with a median of 1,357 unused seconds of
+recording sitting after the clip. So the policy holds a shot until the response
+lands, bounded at 3 s. `funny` and `competitive` ask for it.
+
+**Its first implementation was fake and the numbers said so.** It fired 33
+times and every single hold was exactly 3.00 s — the bound, always — because it
+took the latest end of every overlapping segment rather than the end of the
+first one that *starts* after the shot. A policy whose output is a constant is
+not a measurement. Corrected, it fires 9 times with real values: 1.5, 1.81,
+2.6, 3.0.
+
+| | P1 | P1.4 |
+|---|---:|---:|
+| cut-point quality | 0.1005 | 0.1150 |
+| median shot — funny | 41.27 s | 41.51 s |
+| median shot — competitive | 37.55 s | 37.78 s |
+| judge total | 0.7022 | 0.7018 |
+| **house videos changed** | — | **0** |
+
+### A claim that had been shipped wrong
+
+`semantics.py` and its tests said "fifteen of this machine's seventeen projects
+have no semantic lanes". `load_timeline` says *"stored when they are current,
+built when not"* — every project gets lanes and only two have them **cached**.
+Both statements are corrected.
+
 ## Not built
 
 **P1.4 reaction, P1.5 rhythm and contrast, P1.6 visual continuity** are

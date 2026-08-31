@@ -243,6 +243,11 @@ style:
         trim_lead_in: 0.30
         trim_tail: 0.10
         dead_time_weight: 0.8
+        # A joke lands on the laugh, and the laugh is in the seconds after the
+        # shot. `trim_tail` above is deliberately small for the same reason;
+        # this is the other half of it -- the tail is not merely spared, it is
+        # held until the response finishes.
+        hold_for_response: true
         # Opening on a weak beat is how a funny video stops being one. The
         # ending is left alone: a joke's last laugh is often its quietest
         # shot, and `_ending` protects a reaction but not a wry one.
@@ -273,6 +278,8 @@ style:
         # the result wants the walk to the lobby at either end.
         trim_weak_opening: true
         trim_weak_ending: true
+        # The call after the play is part of the play.
+        hold_for_response: true
 
     minimal:
       version: 1
