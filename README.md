@@ -148,12 +148,27 @@ was measured across 255 events on three recordings and deliberately refused,
 because time alone cannot tell "this fight is still going" from "something else
 happened nearby".
 
-**The style decides what gets selected, not just what gets decorated.** Ask for
-`gaming_fast` and you get twelve different moments than the house edit;
-`cinematic`, `funny` and `minimal` each differ by ten, and no two of them cut
-alike — measured before a single effect is placed. A style reaches the
-optimiser as five bounded multipliers on the objective it already has, so the
-optimiser's own code is untouched and still deterministic.
+**The style decides what gets selected, not just what gets decorated.** A style
+reaches the optimiser as five bounded multipliers on the objective it already
+has, so the optimiser's own code is untouched and still deterministic. Measured
+across 17 projects and 6 styles before a single effect is placed: style-edits
+byte-identical to the house edit fell from 55 of 85 to **10 of 85**.
+
+**And how a shot is cut, not only which shots.** Selection alone is not enough
+to make a style, and the number that proved it is stark: on the eight sessions
+holding less footage than the target length, the optimiser keeps every moment,
+so five different styles produced **one identical video, 40 times out of 40**.
+A style now also says how much run-up a shot keeps, where its edges land, and
+whether a stretch that earns nothing is priced. That works whether or not
+anything was left to choose, and 32 of those 40 now differ.
+
+**Dead time means something.** `dead_time_score` was zero on all 435 stored
+moments and could not be anything else — the pass that finds dead stretches
+searches the gaps *between* moments, and the penalty that reads it measures
+*inside* one. Rather than repair the arithmetic, the question changed: a dead
+stretch is one that adds no context, no anticipation, no progression, no payoff
+and no reaction. Each is read from a different store, deadness is what is left
+after the strongest claim, and no style sees it until it asks.
 
 **Chronology is constitutional.** No engine may reorder events; a stronger
 moment never precedes what happened before it. The single exception is the
@@ -166,14 +181,15 @@ rather than assumed from the inputs.
 
 ```bash
 # the same session, four editorial decisions
-"high energy"   → gaming_fast   shorter shots, dead time expensive, spectacle first
-"cinematic"     → cinematic     longer shots, narrative first, silence tolerated
-"funny"         → funny         variety high, repetition costly, the pause kept
-"minimal"       → minimal       no decoration, and no editorial opinion either
+"high energy"   → gaming_fast   shorter shots, tight run-ups, dead time expensive
+"cinematic"     → cinematic     cuts land on the footage's own seams, silence kept
+"funny"         → funny         the walk-up trimmed, the reaction never
+"competitive"   → competitive   tight at both ends, cut on seams, dead time costly
+"minimal"       → minimal       no decoration, and the hardest price on dead time
 ```
 
-The difference is in **selection and structure**, which is the part that makes
-it an edit rather than a filter. The same doctrine then reaches pacing, audio,
+The difference is in **selection, context and cut points**, which is the part
+that makes it an edit rather than a filter. The same doctrine then reaches pacing, audio,
 the counterfactual judge and the post-render critic — a `cinematic` edit is not
 called fatigued at forty seconds of one level, and a `minimal` edit is not
 marked down for having no effects.
@@ -187,6 +203,13 @@ Two promises hold it together, and both are tested:
 - **A doctrine cannot exceed its declared range.** Every multiplier is fenced
   in `config/style.yaml`, composing two legal policies cannot produce an
   illegal one, and the bound is checked again when the value is read.
+- **The house edit is frozen, project by project.** `tests/golden/house_edit.json`
+  holds the exact edit this machine made for all 17 of its projects — selection
+  and order, the winning profile, the hook, the ending, the timeline's clip
+  boundaries after clamping, the finished length, the eight judge axes. A change
+  that moves one boundary by 40 ms fails it. Only the default style is frozen:
+  the other five exist to differ, and `tests/integration/test_style_differentiation.py`
+  is the complement that says they may not stop.
 
 ## What it does not claim
 
@@ -227,6 +250,28 @@ it.
 consumer outside the schema. It found 51 orphans on its first run — settings
 that read as enabled and were never read by anything — and the branch either
 wired them or deleted them.
+
+That check has a blind spot worth naming, because it hid two settings for a
+year. It reads YAML. `dead_time_policy` and `context_preservation` are not YAML
+leaves — they are fields of the editing brief, parsed from what you type,
+echoed back in the confirmation, stored, and learned as preferences. Nothing in
+the editing pipeline had ever read either one. You could write "احذف الأجزاء
+الميتة", be told the policy was now aggressive, and receive byte-identical
+footage. Both are wired now; the coverage tool still cannot see their kind.
+
+**One judge axis got worse, and it is still worse.** Giving styles a say in how
+shots are cut moved the pacing axis down on the three that trim — the axis
+divides shot spread by the mean, so shortening shots reads as unevenness even
+though absolute variance fell four seconds. Its ideal of 1.2 is also a number
+no edit this system makes has ever approached; the house's own spread is 1.888.
+Three attempts to give styles their own ideal were reverted, one of them
+instructive: raising `cinematic`'s improved its pacing score *and* its judge
+total, until the house-shaped counterfactual profile started winning again and
+`cinematic` went back to producing the house edit exactly. The judge's per-style
+taste decides which of three profiles is rendered, so a change of taste is a
+change of edit. The regression stands, in
+[docs/P0_RESULTS.md](docs/P0_RESULTS.md), because tuning the constant until the
+number went away would have been fitting the metric.
 
 ---
 
@@ -418,6 +463,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | `scripts/serve.py` | everything: interface, API, job worker, daily scheduler |
 | `scripts/autostart.py` | register the scheduled task that starts it on its own |
 | `scripts/daily_cycle.py` | drive one daily heartbeat by hand |
+| `scripts/baseline.py` | measure every style's edit, diff a saved run, freeze the house edit |
 | `scripts/doctor.py` | what is missing, and what the pipeline will fall back to |
 | `scripts/db_init.py` | create the database |
 | `scripts/config_coverage.py` | every YAML leaf, and whether any code reads it |
@@ -441,6 +487,8 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/PROFILES.md](docs/PROFILES.md) | writing a game profile — anatomy, the measured method, pitfalls |
 | [docs/STYLE.md](docs/STYLE.md) | the Style Bible — what belongs in it, what stays in code, and why |
 | [docs/ANALYTICS.md](docs/ANALYTICS.md) | outcome data — what it needs, what it stores, what it refuses to guess |
+| [docs/BASELINE.md](docs/BASELINE.md) | the edit this system makes, measured — and the regression contract |
+| [docs/P0_RESULTS.md](docs/P0_RESULTS.md) | before → after → delta for the editing upgrade, regression included |
 | [docs/TUNING.md](docs/TUNING.md) | controlled tuning — the six guards, and how to turn it on |
 | `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
 | [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
@@ -448,7 +496,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 2536 tests (~42 min)
+.venv/bin/python -m pytest              # 2585 tests (~44 min)
 .venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
