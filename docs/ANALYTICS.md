@@ -36,14 +36,49 @@ printed.
 
 ## The two things it needs
 
-**1. The analytics scope.** Authorisation granted before V2-P9 covers
-`auth/youtube` and nothing else. A refresh token keeps the scopes it was issued
-with, so widening the request in code does not widen a grant already on disk —
-the token store records what Google actually granted, and the fetcher checks it
-before making a request rather than discovering a 403 halfway through a report.
+**1. The analytics scope — and an OAuth client that can be granted it.**
 
-Signing in again grants `auth/yt-analytics.readonly`. Uploading is unaffected
-either way; the extra scope is only needed to read.
+A refresh token keeps the scopes it was issued with, so widening the request in
+code does not widen a grant already on disk. The token store records what Google
+actually granted, and the fetcher checks it before making a request rather than
+discovering a 403 halfway through a report:
+
+```bash
+python scripts/youtube_auth.py            # what the stored grant covers
+python scripts/youtube_auth.py --connect  # sign in again
+```
+
+**The client type decides what is even possible**, which cost this project an
+afternoon to learn. Measured against Google's own endpoints:
+
+| | |
+|---|---|
+| device flow + `youtube` | accepted |
+| device flow + `yt-analytics.readonly` | `400 invalid_scope` |
+| loopback flow, "TV and Limited Input" client | blocked |
+| loopback flow, "Desktop app" client | works |
+
+Google's device flow — a code typed on another screen — supports a restricted
+scope list that excludes YouTube Analytics, and it requires a **TV and Limited
+Input** client. That same client type is one Google blocks the loopback redirect
+for. So with that client the analytics scope cannot be obtained *by any flow*.
+
+`config/publishing.yaml` therefore names a **Desktop app** client, and
+`scripts/youtube_auth.py` signs in through the loopback flow. If you are setting
+this up fresh, create the client as *Desktop app* at
+[console.cloud.google.com](https://console.cloud.google.com/apis/credentials) —
+not TV, whatever the device flow's convenience suggests.
+
+**And enable the API.** Separate from the sign-in, and easy to miss because a
+perfectly good authorisation still fails without it:
+
+```
+https://console.cloud.google.com/apis/library/youtubeanalytics.googleapis.com
+```
+
+The refusal reads `accessNotConfigured`, and the fetcher now says so rather than
+blaming the scope — which it did, sending a reader back to a sign-in they had
+just completed correctly.
 
 **2. A video this system published.** Attribution comes from the PUBLISH job's
 own result, which carries the video id YouTube assigned. A video on the channel
@@ -93,8 +128,22 @@ neither, and this layer does not claim to know it.
 
 ## State on this machine
 
-At the time of writing: four videos published through this system, zero
-outcomes stored, and a stored authorisation that predates the analytics scope.
-The fetcher lists the four and stops with the sentence above. That is the
-honest state, and it is why nothing in this project claims to learn from
-outcome data yet.
+At the time of writing, with the sign-in and the API both in place, four
+published videos were measured:
+
+```
+4 of 4 video(s) measured; 4 stored
+
+  4-FvLE130Ck    0 views        ← a number: published, watched by nobody
+  Z6FHb42UhqE    not measured   ← still private; private videos report nothing
+  bN4BBCMc_0A    not measured
+  NESJ1xeP60A    not measured
+```
+
+Those are two different states and the store keeps them apart. Writing `0` for
+all four would have made an unwatched video and an unmeasured one
+indistinguishable, which is the distinction this whole layer is built around.
+
+Zero retention points, because a curve needs an audience. That is why nothing
+in this project claims to learn from outcome data yet: the pipe is connected
+and almost nothing has come through it.

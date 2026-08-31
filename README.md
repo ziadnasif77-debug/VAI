@@ -193,11 +193,14 @@ Two promises hold it together, and both are tested:
 This project is deliberately careful about the difference between a mechanism
 and a claim.
 
-**It does not learn from your audience — yet.** The plumbing exists: the
-analytics scope, the fetcher, the tables, the join to the style that cut each
-video. What does not exist is data. On the machine this was built for: four
-published videos, **zero measured**, and an authorisation that predates the
-analytics scope. Every surface says so rather than showing zeros.
+**It does not learn from your audience — yet.** The plumbing exists and is
+connected: the analytics scope, the fetcher, the tables, the join to the style
+that cut each video. What has not come through it is data. On the machine this
+was built for, all four published videos are now measured — and one reports
+zero views while three report *nothing at all*, because they are still private.
+Those are different states and the store keeps them apart; writing `0` for all
+four would have made an unwatched video and an unmeasured one
+indistinguishable. Zero retention points, because a curve needs an audience.
 
 **It does not predict retention.** A retention curve is a measurement of one
 video that has already been watched. Nothing here treats it as a forecast for
@@ -348,6 +351,25 @@ Optional, for the natural-language editing in the chat panel (§63):
 ollama pull qwen2.5:7b-instruct
 ```
 
+### Publishing to YouTube
+
+The OAuth client must be a **Desktop app** client, not "TV and Limited Input".
+That is not a preference: Google's device flow requires the TV type and refuses
+the YouTube Analytics scopes on it, *and* blocks the loopback redirect for it —
+so with a TV client the analytics permission cannot be obtained by any flow at
+all. Measured against Google's own endpoints, after this project spent an
+afternoon discovering it the slow way.
+
+```bash
+python scripts/youtube_auth.py            # what the stored grant covers
+python scripts/youtube_auth.py --connect  # sign in through the browser
+```
+
+Reading analytics also needs the **YouTube Analytics API enabled** on the Cloud
+project, which is separate from the sign-in and fails with `accessNotConfigured`
+when it is missing. [docs/ANALYTICS.md](docs/ANALYTICS.md) has the whole
+sequence.
+
 Without it the chat still works — the rule parser understands the common
 phrasings, and only the unusual ones are lost (§95).
 `python scripts/verify_phase13.py` shows what the model adds when it is there.
@@ -399,6 +421,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | `scripts/doctor.py` | what is missing, and what the pipeline will fall back to |
 | `scripts/db_init.py` | create the database |
 | `scripts/config_coverage.py` | every YAML leaf, and whether any code reads it |
+| `scripts/youtube_auth.py` | see what the stored YouTube sign-in covers, or widen it |
 | `scripts/fetch_outcomes.py` | read what the audience did with a published video |
 | `scripts/tuning.py` | look at controlled tuning, and undo it |
 | `scripts/profile_report.py` | mine a recording for a game profile's regions |

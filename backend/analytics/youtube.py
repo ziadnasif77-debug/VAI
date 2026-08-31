@@ -187,6 +187,39 @@ class YouTubeAnalytics:
 
     # -- one authorised GET -------------------------------------------------
 
+    @staticmethod
+    def _refusal(status: int, raw: bytes) -> str:
+        """Say what Google actually refused, not what seems likely.
+
+        The first version blamed the scope for every 401 and 403. When the
+        scope was finally granted and the call still failed, the message sent
+        the reader back to the sign-in they had just completed correctly --
+        the real answer, `accessNotConfigured`, was in the body all along and
+        the message was hiding it behind a guess.
+        """
+        try:
+            error = (json.loads(raw.decode("utf-8")) or {}).get("error", {})
+        except Exception:
+            error = {}
+        reason = str((error.get("errors") or [{}])[0].get("reason") or "")
+        message = str(error.get("message") or "").strip()
+
+        if reason == "accessNotConfigured":
+            return (
+                "The YouTube Analytics API is not enabled for this Google "
+                "Cloud project. That is separate from the sign-in, which is "
+                "fine. Enable it and retry:\n"
+                "  https://console.cloud.google.com/apis/library/"
+                "youtubeanalytics.googleapis.com"
+            )
+        if reason in ("insufficientPermissions", "forbidden") or status == 401:
+            return (
+                "YouTube refused the request as unauthorised. The stored "
+                "sign-in may predate the analytics scope; "
+                "run scripts/youtube_auth.py to see what it covers."
+            )
+        return message or f"YouTube Analytics refused the request ({status})."
+
     def _report(self, query: dict[str, str]) -> dict[str, Any]:
         refusal = self.why_not()
         if refusal:
@@ -214,8 +247,7 @@ class YouTubeAnalytics:
                 ) from error
         if status in (401, 403):
             raise PublishError(
-                "YouTube refused the analytics request. The authorisation may "
-                "predate the analytics scope; sign in again.",
+                self._refusal(status, raw),
                 code=ErrorCode.PUBLISH_AUTH_FAILED,
                 details={"status": status, "body": raw[:400].decode("utf-8", "replace")},
             )

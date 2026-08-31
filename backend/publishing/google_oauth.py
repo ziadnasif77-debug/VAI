@@ -434,7 +434,12 @@ class LoopbackFlow:
         self._transport = transport or UrllibTransport()
 
     def authorise(
-        self, *, timeout_seconds: int = 300, on_url: Any = None, port: int = 0
+        self,
+        *,
+        timeout_seconds: int = 300,
+        on_url: Any = None,
+        port: int = 0,
+        host: str = "127.0.0.1",
     ) -> dict[str, Any]:
         """Run the whole flow and return the token, or raise saying why.
 
@@ -449,6 +454,11 @@ class LoopbackFlow:
         attempt -- and an address that changes between attempts is one a person
         cannot come back to. Loopback redirects accept any port for an
         installed-app client, so pinning one costs nothing.
+
+        ``host`` is the name in the redirect. Google's own guidance is the
+        literal address rather than ``localhost``, and which of the two a
+        client accepts is a property of how that client was registered -- not
+        something this code can decide, only something it can offer.
         """
         import http.server
         import socket
@@ -494,7 +504,7 @@ class LoopbackFlow:
                 recoverable=True,
             ) from error
         server.timeout = timeout_seconds
-        redirect = f"http://localhost:{port}/"
+        redirect = f"http://{host}:{port}/"
         query = urllib.parse.urlencode(
             {
                 "client_id": self._client_id,

@@ -62,7 +62,14 @@ publishing:
     # Data API enabled). The id is public by design and may live here; the
     # secret goes in its own file so this file never carries one. The granted
     # token is written to token_file under the data root, owner-only.
-    client_id: 583344787316-pm8rf3ftbtiep687fkjl5hm2rf0bdval.apps.googleusercontent.com
+    # A **Desktop app** client, not the "TV and Limited Input" one this used
+    # until 2026-08-31. That type is what Google's device flow requires, and
+    # it is also the type for which Google blocks the loopback redirect and
+    # refuses the YouTube Analytics scopes -- measured both ways against
+    # Google's own endpoints. A desktop client can do neither the device flow
+    # nor without a browser, and can do everything else, which is the right
+    # trade for an application that already opens one.
+    client_id: 583344787316-u7fgtb43fmevq2daebnbmep6m1d1bl02.apps.googleusercontent.com
     client_secret_file: .credentials/google_client_secret.txt
     token_file: .credentials/youtube_oauth.json
     default_playlist: null

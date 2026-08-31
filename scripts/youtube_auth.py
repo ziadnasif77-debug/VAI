@@ -87,6 +87,12 @@ def main() -> int:
         help="the local port the code comes back on; fixed so the consent "
         "address is the same every attempt",
     )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="the name in the redirect. Google's guidance is the literal "
+        "address; some clients were registered for 'localhost' instead",
+    )
     arguments = parser.parse_args()
 
     config = load_config()
@@ -110,7 +116,9 @@ def main() -> int:
         return 0
 
     if arguments.connect:
-        return _connect(config, paths, tokens, arguments.timeout, arguments.port)
+        return _connect(
+            config, paths, tokens, arguments.timeout, arguments.port, arguments.host
+        )
     return _status(tokens)
 
 
@@ -143,7 +151,14 @@ def _status(tokens) -> int:
     return 0
 
 
-def _connect(config, paths, tokens, timeout: int, port: int = DEFAULT_PORT) -> int:
+def _connect(
+    config,
+    paths,
+    tokens,
+    timeout: int,
+    port: int = DEFAULT_PORT,
+    host: str = "127.0.0.1",
+) -> int:
     """Sign in through the browser, because analytics cannot come any other way.
 
     The device flow -- a code typed on another screen -- is what this project
@@ -181,7 +196,7 @@ def _connect(config, paths, tokens, timeout: int, port: int = DEFAULT_PORT) -> i
 
     try:
         token = flow.authorise(
-            timeout_seconds=max(30, timeout), on_url=show, port=port
+            timeout_seconds=max(30, timeout), on_url=show, port=port, host=host
         )
     except Exception as error:
         print(f"The sign-in did not complete: {str(error)[:220]}")
