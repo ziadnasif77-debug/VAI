@@ -1,26 +1,36 @@
 """Sign in to YouTube, or see what the stored sign-in actually covers.
 
-The application already does this from the Export screen, through three API
-endpoints and a polling loop in the browser. This is the same device flow with
-no server in front of it, and it exists for one reason:
+The application signs in from the Export screen, through three API endpoints
+and a polling loop in the browser. This exists beside that for two reasons, and
+the second one was a surprise.
 
-    Re-authorising should not require starting the application, because
-    starting the application starts the day's production.
+**Re-authorising should not require starting the application**, because
+starting the application starts the day's production. Granting a read
+permission would otherwise produce and publish a video as a side effect.
 
-That is a real collision. V2-P9 widened what a new grant asks for to include
-`yt-analytics.readonly`, and a refresh token keeps the scopes it was *issued*
-with -- so widening the request in code does not widen a grant already on disk.
-Reading analytics therefore needs a fresh sign-in, and needing the whole
-pipeline awake to do it would mean producing and publishing a video as a side
-effect of granting a read permission.
+**And the flow the application uses cannot grant it.** V2-P9 widened what a new
+grant asks for to include `yt-analytics.readonly` and shipped that, without
+checking whether the device flow supports the scope. It does not: measured
+against Google's own endpoint with this client id, `youtube` alone is accepted
+and anything containing `yt-analytics.readonly` comes back `invalid_scope`. So
+the change did not merely fail to gain the read permission -- it broke sign-in
+altogether, because the same constant is what the device flow asks with. The
+device flow now asks for what it can have, and this script uses the loopback
+flow, which has no such restriction.
 
     python scripts/youtube_auth.py              # what the stored grant covers
     python scripts/youtube_auth.py --connect    # sign in again, widening it
     python scripts/youtube_auth.py --disconnect # forget the stored grant
 
-`--connect` prints a URL and a code. Nothing here ever sees a password: the
-approval happens on Google's own page, in your browser, and this waits for
-Google to say it was approved.
+`--connect` opens a browser. It has to: Google's device flow -- a code typed on
+another screen, which is what this project used -- is restricted to a scope
+list that excludes YouTube Analytics. Measured against Google's own endpoint
+with this client, `yt-analytics.readonly` comes back `invalid_scope` there,
+alone or in company.
+
+Nothing here ever sees a password. The approval happens on Google's own page,
+and the only thing that returns to this machine is a one-time code, on a local
+port that answers exactly one request and then stops.
 """
 
 from __future__ import annotations
@@ -28,7 +38,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -40,7 +49,20 @@ for _stream in (sys.stdout, sys.stderr):
 from backend.config.loader import load_config
 from backend.config.paths import build_paths, find_repository_root
 from backend.publishing import build_token_provider, youtube_client
-from backend.publishing.google_oauth import ANALYTICS_SCOPE, UPLOAD_SCOPE, DeviceFlow
+from backend.publishing.google_oauth import (
+    ANALYTICS_SCOPE,
+    UPLOAD_SCOPE,
+    LoopbackFlow,
+)
+
+#: The local port the authorisation code comes back on.
+#:
+#: Fixed rather than free-chosen. A free port means a different consent address
+#: every attempt, and an address that changes between attempts is one nobody
+#: can come back to -- which is exactly how the first two attempts here were
+#: lost. Loopback redirects accept any port for an installed-app client, so
+#: this costs nothing and buys an address that stays true.
+DEFAULT_PORT: int = 8971
 
 #: What each scope buys, in the words of what it stops working without.
 MEANS = {
@@ -56,7 +78,14 @@ def main() -> int:
         "--disconnect", action="store_true", help="forget the stored grant"
     )
     parser.add_argument(
-        "--timeout", type=int, default=300, help="seconds to wait for approval"
+        "--timeout", type=int, default=600, help="seconds to wait for approval"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help="the local port the code comes back on; fixed so the consent "
+        "address is the same every attempt",
     )
     arguments = parser.parse_args()
 
@@ -81,7 +110,7 @@ def main() -> int:
         return 0
 
     if arguments.connect:
-        return _connect(config, paths, tokens, arguments.timeout)
+        return _connect(config, paths, tokens, arguments.timeout, arguments.port)
     return _status(tokens)
 
 
@@ -114,12 +143,19 @@ def _status(tokens) -> int:
     return 0
 
 
-def _connect(config, paths, tokens, timeout: int) -> int:
-    """The device flow, in a terminal.
+def _connect(config, paths, tokens, timeout: int, port: int = DEFAULT_PORT) -> int:
+    """Sign in through the browser, because analytics cannot come any other way.
 
-    Deliberately noisy about what is happening. A sign-in that prints a code
-    and then goes quiet for two minutes is indistinguishable from one that
-    has failed, and this one polls at the interval Google asks for.
+    The device flow -- a code typed on another screen -- is what this project
+    used, and Google restricts it to a scope list that excludes YouTube
+    Analytics. Measured against Google's own endpoint with this client:
+    `yt-analytics.readonly` comes back `invalid_scope` there, alone or in
+    company. A read permission is not obtainable that way however the request
+    is phrased, so this opens a browser instead.
+
+    Nothing here sees a password. The approval happens on Google's own page,
+    and the only thing that returns to this machine is a one-time code, on a
+    local port that answers exactly one request and then stops.
     """
     client = youtube_client(config, paths.data_root)
     if client is None:
@@ -128,46 +164,40 @@ def _connect(config, paths, tokens, timeout: int) -> int:
     client_id, client_secret = client
 
     before = tokens.granted_scopes()
-    flow = DeviceFlow(client_id=client_id, client_secret=client_secret)
+    flow = LoopbackFlow(client_id=client_id, client_secret=client_secret)
+
+    print("\nA browser tab is opening for you to approve two permissions:\n")
+    for means in MEANS.values():
+        print(f"  - {means}")
+
+    def show(url: str) -> None:
+        # Printed before the wait, and flushed. The first version printed it
+        # afterwards, which is exactly when it stops being any use: a person
+        # whose browser did not open sat looking at nothing for fifteen
+        # minutes and was then handed the address they had needed at the start.
+        print("\nIf no tab opened, open this by hand:\n", flush=True)
+        print(f"  {url}\n", flush=True)
+        print(f"Waiting up to {max(30, timeout)}s.", flush=True)
+
     try:
-        grant = flow.begin()
+        token = flow.authorise(
+            timeout_seconds=max(30, timeout), on_url=show, port=port
+        )
     except Exception as error:
-        print(f"Google would not start the sign-in: {str(error)[:200]}")
+        print(f"The sign-in did not complete: {str(error)[:220]}")
+        if getattr(flow, "url", ""):
+            print(f"\nOpen this by hand and try again:\n  {flow.url}")
         return 2
 
-    public = grant.public()
-    print("\n  Open this page:      " + str(public["verification_url"]))
-    print("  Enter this code:     " + str(public["user_code"]))
-    print(
-        "\n  Approve BOTH permissions on the page -- the second one is the "
-        "analytics\n  read that this whole step exists for."
-    )
-    print("\nWaiting for you to approve", end="", flush=True)
-
-    deadline = time.monotonic() + max(30, timeout)
-    interval = max(5, int(getattr(grant, "interval", 5) or 5))
-    while time.monotonic() < deadline:
-        time.sleep(interval)
-        print(".", end="", flush=True)
-        try:
-            token = flow.poll(grant)
-        except Exception as error:
-            print(f"\n\nThe sign-in was refused or expired: {str(error)[:200]}")
-            return 2
-        if token is None:
-            continue
-        tokens.store.save(token)
-        print("\n\nSigned in.\n")
-        gained = sorted(tokens.granted_scopes() - before)
-        for scope in gained:
-            print(f"  gained  {MEANS.get(scope, scope)}")
-        if not gained:
-            print("  (the same scopes as before -- nothing was widened)")
-        print("\nNow:  python scripts/fetch_outcomes.py")
-        return 0
-
-    print("\n\nGave up waiting. Nothing was changed; run it again when ready.")
-    return 2
+    tokens.store.save(token)
+    print("Signed in.\n")
+    gained = sorted(tokens.granted_scopes() - before)
+    for scope in gained:
+        print(f"  gained  {MEANS.get(scope, scope)}")
+    if not gained:
+        print("  (the same scopes as before -- nothing was widened)")
+    print("\nNow:  python scripts/fetch_outcomes.py")
+    return 0
 
 
 if __name__ == "__main__":
