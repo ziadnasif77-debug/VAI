@@ -54,6 +54,7 @@ DefectCode = Literal[
     "effect_overuse",
     "audio_fatigue",
     "visual_fatigue",
+    "style_violation",
 ]
 DEFECTS: Final[tuple[DefectCode, ...]] = (
     "low_intensity_tail",
@@ -66,6 +67,7 @@ DEFECTS: Final[tuple[DefectCode, ...]] = (
     "effect_overuse",
     "audio_fatigue",
     "visual_fatigue",
+    "style_violation",
 )
 
 #: Which verb answers which defect. A defect with no answer is still worth
@@ -92,6 +94,12 @@ ANSWERS: Final[dict[str, tuple[Action, ...]]] = {
     "weak_ending": (),
     "audio_fatigue": (),
     "visual_fatigue": (),
+    # A style violation is a selection or a pacing decision that did not match
+    # the doctrine the edit was cut under. Neither is correctable after the
+    # render: trimming a shot does not make the style right, and re-selecting
+    # is a different video. It is reported so the owner can change the style or
+    # the doctrine, which is the only thing that would actually answer it.
+    "style_violation": (),
 }
 
 

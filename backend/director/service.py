@@ -18,6 +18,7 @@ it earns it, and a recorded reason when it does not.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from backend.core.duration import format_duration
 from backend.core.errors import GamingEditorError
@@ -87,6 +88,7 @@ def build_blueprint(
     intent_text: str,
     target_seconds: float,
     style: str = "story",
+    reading: Any = None,
 ) -> Blueprint | BlueprintRejection:
     """Ask the Director for the shape of this edit.
 
@@ -104,7 +106,7 @@ def build_blueprint(
     shown = list(moments[:MAX_MOMENTS_SHOWN])
     prompt = load_prompt("narrative.blueprint")
     rendered = prompt.render(
-        moments=_describe(shown),
+        moments=_describe(shown, reading),
         intent=intent_text or "a highlights video of this session",
         target=format_duration(target_seconds),
         style=style,
@@ -125,24 +127,60 @@ def build_blueprint(
     return _validated(payload, len(shown))
 
 
-def _describe(moments: Sequence[Moment]) -> str:
+def _describe(moments: Sequence[Moment], reading: Any = None) -> str:
     """The moments as numbered lines: what happened, when, and how sure.
 
     Deliberately terse and entirely factual. The model is being asked to order
     evidence, and prose about how exciting a clip is would be the scorer's
     opinion arriving as if it were an observation.
+
+    V2-P11 adds what the editorial reading found, where there is one: which
+    situation a moment belongs to, whether the tension it carried let go,
+    whether somebody speaks afterwards. Those are measurements too -- the
+    lanes' own -- and they are the difference between asking a model to order a
+    list and asking it to arrange an edit.
+
+    Nothing is invented for the model's benefit. A moment the reading could not
+    observe says so, because a line that omits it reads as a quiet moment
+    rather than an unwatched one.
     """
     lines = []
     for index, moment in enumerate(moments):
         events = sorted({event.event_type.value for event in moment.events})
         named = ", ".join(event for event in events if event != "unknown_event")
-        lines.append(
+        line = (
             f"{index}. [{format_duration(moment.context_start)}] "
             f"{moment.moment_type.value} "
             f"({format_duration(moment.context_duration)}, score {moment.score:.2f})"
             + (f" -- {named}" if named else "")
         )
+        lines.append(line + _editorial(moment, reading))
     return "\n".join(lines)
+
+
+def _editorial(moment: Moment, reading: Any) -> str:
+    """What the editorial reading says about one moment, in a clause.
+
+    Empty when there is no reading -- the state every caller was in before
+    V2-P11, and the state a project with no semantic lanes is still in.
+    """
+    if reading is None:
+        return ""
+    shot = reading.shot(moment)
+    if shot is None:
+        return ""
+    notes: list[str] = []
+    if shot.situation_id:
+        notes.append(f"part of {shot.situation_id}")
+    if shot.phase:
+        notes.append(shot.phase)
+    if shot.resolves:
+        notes.append("resolves")
+    if shot.reaction_follows:
+        notes.append("reaction after")
+    if not shot.observed:
+        notes.append("nothing was recorded here")
+    return f"  [{'; '.join(notes)}]" if notes else ""
 
 
 def _validated(payload: dict, available: int) -> Blueprint | BlueprintRejection:

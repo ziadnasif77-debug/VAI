@@ -57,6 +57,15 @@ style:
     audio.silence_min_strength: { min: 0.3, max: 1.0 }
     judgement.ideal_effects_per_minute: { min: 0.0, max: 8.0 }
     judgement.ideal_speech_share: { min: 0.0, max: 0.9 }
+    # (V2-P11) What a style may ask of the *selection*. These reach the
+    # optimiser as bounded multipliers on the objective it already has -- never
+    # as a taste it has to read -- so the optimiser stays deterministic and a
+    # style that asks for something absurd is refused rather than obeyed.
+    selection.entertainment: { min: 0.25, max: 3.0 }
+    selection.narrative: { min: 0.25, max: 3.0 }
+    selection.variety: { min: 0.25, max: 3.0 }
+    selection.repetition_penalty: { min: 0.25, max: 3.0 }
+    selection.dead_time_penalty: { min: 0.25, max: 3.0 }
     critique.hook_seconds: { min: 5.0, max: 30.0 }
     critique.effects_per_ten_seconds: { min: 1.0, max: 12.0 }
     critique.fatigue_seconds: { min: 10.0, max: 60.0 }
@@ -118,6 +127,14 @@ style:
         Longer shots, quieter emphasis, silence used deliberately. The effects
         profile of this name already suppresses impact and flash and boosts
         bars and slow motion; this is the rest of that decision.
+      selection:
+        # Fewer, stronger situations held longer. Narrative over spectacle,
+        # and a high tolerance for a quiet stretch that earns the next one --
+        # a cinematic edit that punishes dead time is just a fast edit.
+        narrative: 1.30
+        entertainment: 0.85
+        variety: 0.70
+        dead_time_penalty: 0.60
       pacing:
         band_scale: 1.35
         stutter_relief: 1.05
@@ -146,8 +163,14 @@ style:
     gaming_fast:
       version: 1
       description: >-
-        Faster than the default and decorated harder by its effects profile.
-        Only the cut rate is claimed here; the rest is unauthored and says so.
+        The high-energy read: the strongest minutes, cut short, with dead time
+        expensive. Entertainment over narrative -- this style is not telling a
+        story, it is not letting the viewer look away.
+      selection:
+        entertainment: 1.45
+        narrative: 0.80
+        dead_time_penalty: 1.80
+        repetition_penalty: 1.30
       pacing:
         band_scale: 0.8
 
@@ -161,17 +184,44 @@ style:
 
     funny:
       version: 1
-      description: Unauthored. Cuts like the default and decorates like itself.
+      description: >-
+        A joke needs its setup. Variety high because the same gag twice is not
+        twice as funny, and dead time cheap because the pause before a
+        punchline is the punchline.
+      selection:
+        variety: 1.60
+        repetition_penalty: 1.70
+        dead_time_penalty: 0.55
+        narrative: 0.90
 
     competitive:
       version: 1
-      description: Unauthored. Cuts like the default and decorates like itself.
+      description: >-
+        The play, clearly, with the context that makes it a play. Repetition is
+        cheap here -- five clean kills of the same kind is what this audience
+        came for -- and dead time is not.
+      selection:
+        entertainment: 1.20
+        repetition_penalty: 0.50
+        dead_time_penalty: 1.50
 
     minimal:
       version: 1
       description: >-
-        No decoration at all, by its effects profile. The judge is told not to
-        expect any, or it would mark every minimal edit down for the absence.
+        No decoration at all, by its effects profile, and no editorial opinion
+        either: the session in its own order, the strongest parts kept. The
+        judge is told not to expect effects, or it would mark every minimal
+        edit down for their absence.
+      selection:
+        # The one style that leans on nothing, and the doctrine has to say so
+        # in numbers or it is a description rather than a decision. Strip every
+        # trick and what is left is whether the thing follows: narrative up,
+        # spectacle down -- a moment that needs decoration to land does not
+        # land here -- and no hunting for variety, because a minimal edit is
+        # not a survey.
+        narrative: 1.35
+        entertainment: 0.75
+        variety: 0.70
       judgement:
         ideal_effects_per_minute: 0.0
 

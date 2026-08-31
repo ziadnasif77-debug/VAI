@@ -29,13 +29,13 @@ from backend.database.repositories.projects import ProjectRepository
 from backend.database.repositories.transcript import TranscriptRepository
 from backend.director import build_blueprint
 from backend.director.models import Blueprint
+from backend.editorial import doctrine
 from backend.interaction.models import EditingIntent, MessageRole
 from backend.interaction.service import InteractionService
 from backend.interaction.store import ConversationStore, IntentStore
 from backend.moments.formation import Moment
 from backend.narrative.story import NarrativePlan, build_plan
 from backend.pipeline.workers.base import WorkerContext
-from backend.style import bible as style_bible
 
 logger = get_logger("pipeline.workers.story", LogChannel.PIPELINE)
 
@@ -176,7 +176,11 @@ class StoryWorker:
         from backend.narrative import judge as judging
         from backend.narrative.plans import propose
 
-        director = self._director(context, intent, target)
+        # V2-P11: read the footage editorially once -- shots and situations,
+        # derived from stores the analysis stages already filled. Nothing is
+        # stored, so nothing can be invalidated by a style or a duration.
+        editorial = self._reading(context, moments, durations)
+        director = self._director(context, intent, target, editorial)
         if not context.config.narrative.counterfactuals.enabled:
             return (
                 build_plan(
@@ -193,6 +197,13 @@ class StoryWorker:
                 [],
             )
 
+        # V2-P11: the style reaches the selection here, as a bounded policy the
+        # optimiser consumes rather than a taste it would have to read. The
+        # house style resolves to neutral, so this line changed no edit until
+        # a project asked for a style with a selection doctrine.
+        editing = doctrine.resolve(
+            context.config, intent.style, database=context.database
+        )
         proposed = propose(
             moments,
             mode=mode,
@@ -203,6 +214,7 @@ class StoryWorker:
             speech=speech,
             media_durations=durations,
             director=director,
+            selection=editing.selection,
         )
         if not proposed:
             raise NarrativeError(
@@ -216,9 +228,7 @@ class StoryWorker:
         # exists, so the taste that judges these plans is the one about to cut
         # them. The stamp answers the opposite question -- what cut the video
         # that is already on disk -- and belongs to the stages after RENDER.
-        style = style_bible.resolve(
-            context.config, intent.style, database=context.database
-        )
+        style = editing
         scored = [
             (
                 profile,
@@ -253,8 +263,37 @@ class StoryWorker:
         )
         return winner[1], verdicts
 
+    def _reading(self, context: WorkerContext, moments, durations):
+        """The editorial reading, or nothing when it cannot be made.
+
+        Never fatal: the Director and the pacing engine both take `None` and
+        behave exactly as they did before this layer existed, which is what
+        makes the layer safe to add to a pipeline that already works.
+        """
+        from backend.editorial import reading as editorial_reading
+
+        try:
+            return editorial_reading.read(
+                context.database,
+                context.config,
+                moments=moments,
+                media_ids=sorted({m.media_id for m in moments}),
+                durations=durations,
+            )
+        except Exception:
+            logger.exception(
+                "The footage could not be read editorially; the edit is made "
+                "from the moments alone",
+                extra={"project_id": context.project_id},
+            )
+            return None
+
     def _director(
-        self, context: WorkerContext, intent: EditingIntent, target: float
+        self,
+        context: WorkerContext,
+        intent: EditingIntent,
+        target: float,
+        reading=None,
     ) -> Callable[[Sequence[Moment]], Blueprint | None] | None:
         """The Director, or nothing, as a callable ``build_plan`` can hand a list.
 
@@ -294,6 +333,7 @@ class StoryWorker:
                     intent_text=brief,
                     target_seconds=target,
                     style=intent.style,
+                    reading=reading,
                 )
             finally:
                 # §54: this is the last model to run before the render, and

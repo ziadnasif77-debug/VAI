@@ -83,6 +83,25 @@ class PacingContext:
     #: How much the picture is moving where the shot would end, 0..1.
     motion_at_cut: float = 0.5
 
+    # -- V2-P11: what the editorial reading found about this shot -----------
+    #
+    # All optional, all defaulting to what the engine assumed before they
+    # existed, so a call without a reading produces the identical length. The
+    # engine still reads the session rather than the timeline: these say what
+    # this *shot* is, not what the edit around it looks like.
+
+    #: The part of its situation's arc this shot plays, when one was read.
+    part: str = ""
+    #: Whether the tension this shot carries lets go inside it. A payoff that
+    #: resolves has earned its tail; one that does not is still going.
+    resolves: bool = False
+    #: Whether somebody starts speaking after this shot. Cutting away from a
+    #: reaction before it begins is the commonest way to lose one.
+    reaction_follows: bool = False
+    #: The nearest safe out-point the footage itself offers, or ``inf``.
+    #: A cut on a seam the footage already has is invisible.
+    seam_at: float = float("inf")
+
 
 @dataclass(frozen=True, slots=True)
 class ShotLength:
@@ -157,6 +176,26 @@ def shot_length(
             float(taste.stillness_relief) if taste is not None else STILLNESS_RELIEF
         )
         rules.append("held for something to cut on; the picture is still here")
+
+    # V2-P11: the shot's own arc. A payoff that resolved inside the shot has
+    # finished saying what it had to say; one that has not is still going, and
+    # cutting it at the band's cap is cutting a sentence in half.
+    if context.part == "payoff" and not context.resolves and seconds < high:
+        seconds = min(high, seconds * 1.2)
+        rules.append("the payoff has not resolved yet; held longer")
+
+    # A reaction that has not started cannot be cut away from.
+    if context.reaction_follows and not context.speech:
+        seconds = max(seconds, seconds + 0.4)
+        rules.append("held for the reaction that follows")
+
+    # Land on a seam the footage already has, when one is close enough that
+    # taking it costs less than the invisibility is worth.
+    if context.seam_at < float("inf"):
+        offer = context.seam_at - context.position
+        if 0.0 < offer <= seconds + 0.5 and offer >= low * 0.5:
+            seconds = offer
+            rules.append(f"landed on a seam the footage already has at +{offer:.2f}s")
 
     if context.role == "hook":
         # The opening has fifteen seconds to earn the rest, and this is the

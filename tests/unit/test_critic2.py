@@ -492,3 +492,84 @@ def _finished(database, project_id: str, result: dict) -> None:
         "VALUES (?, ?, 'critic2', 'completed', 1.0, ?, ?, ?)",
         (f"job-{project_id[-8:]}", project_id, json.dumps(result), now, now),
     )
+
+
+class TestTheCriticChecksTheStyleItWasCutAs:
+    """V2-P11: did the machine do what it said it would?
+
+    A different question from whether the result is good, and measured against
+    the doctrine the edit was *actually* made under -- P8's stamp, not the
+    brief as it reads today.
+    """
+
+    def _clips(self, seconds: float, count: int = 20):
+        return [
+            _Shot(f"clip-{index}", index * seconds, seconds, 0.5)
+            for index in range(count)
+        ]
+
+    def test_a_patient_style_cut_fast_is_a_violation(self, config) -> None:
+        from backend.critic2.watch import _style_violations
+        from backend.style import bible
+
+        patient = bible.resolve(config, "cinematic")
+        found = _style_violations(self._clips(1.2), (), 120.0, patient)
+
+        assert [item.code for item in found] == ["style_violation"]
+        assert "faster than it was meant to be" in found[0].detail
+
+    def test_the_same_edit_is_not_a_violation_of_a_fast_style(self, config) -> None:
+        from backend.critic2.watch import _style_violations
+        from backend.style import bible
+
+        fast = bible.resolve(config, "gaming_fast")
+
+        assert _style_violations(self._clips(1.9), (), 120.0, fast) == []
+
+    def test_a_style_that_wants_no_effects_and_got_some_is_a_violation(
+        self, config
+    ) -> None:
+        from backend.critic2.watch import _style_violations
+        from backend.style import bible
+
+        minimal = bible.resolve(config, "minimal")
+        placed = [_effect(f"fx-{index}", index * 5.0) for index in range(8)]
+        found = _style_violations(self._clips(2.4), placed, 120.0, minimal)
+
+        assert any("effects a minute" in item.detail for item in found)
+
+    def test_restraint_is_not_a_violation(self, config) -> None:
+        # A style that wanted effects and got fewer has been restrained, which
+        # the emphasis engine is allowed to do when the footage does not earn
+        # them. Only the other direction is a violation.
+        from backend.critic2.watch import _style_violations
+        from backend.style import bible
+
+        house = bible.resolve(config, "best_moments")
+
+        assert _style_violations(self._clips(2.4), (), 120.0, house) == []
+
+    def test_with_no_style_there_is_nothing_to_violate(self) -> None:
+        from backend.critic2.watch import _style_violations
+
+        assert _style_violations(self._clips(2.4), (), 120.0, None) == []
+
+    def test_it_is_reported_and_never_acted_on(self) -> None:
+        """§42 has no verb that answers a style violation, and says so.
+
+        Trimming a shot does not make a style right and re-selecting is a
+        different video. Inventing a correction here would be exactly the
+        failure P7 exists to prevent.
+        """
+        assert ANSWERS["style_violation"] == ()
+
+        finding = Finding(
+            code="style_violation",
+            at_seconds=0.0,
+            detail="cut faster than it was meant to be",
+            confidence=0.9,
+        )
+        made, refused = corrections([finding], clips=[])
+
+        assert made == []
+        assert any("no verb" in reason for reason in refused)

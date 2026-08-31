@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from backend.core.logging import LogChannel, get_logger
+from backend.editorial.policy import NEUTRAL, SelectionPolicy
 from backend.moments.formation import Moment
 from backend.narrative.story import NarrativePlan, build_plan
 
@@ -39,6 +40,10 @@ class PlanProfile:
     #: Multipliers on the optimiser's own objective weights. 1.0 leaves the
     #: configured value alone, so the balanced profile IS the shipped
     #: behaviour and any regression shows up as a difference from it.
+    #:
+    #: Kept as plain fields rather than a :class:`SelectionPolicy` so the three
+    #: profiles read as one table; :meth:`policy` is the conversion, and it is
+    #: the only place the two vocabularies meet.
     entertainment: float = 1.0
     narrative: float = 1.0
     variety: float = 1.0
@@ -48,6 +53,16 @@ class PlanProfile:
     #: sameness expensive, not to make difference slightly cheaper.
     repetition_penalty: float = 1.0
     dead_time_penalty: float = 1.0
+
+    def policy(self) -> SelectionPolicy:
+        """This profile's balance, as the type the optimiser's seam speaks."""
+        return SelectionPolicy(
+            entertainment=self.entertainment,
+            narrative=self.narrative,
+            variety=self.variety,
+            repetition_penalty=self.repetition_penalty,
+            dead_time_penalty=self.dead_time_penalty,
+        )
     why: str = ""
 
 
@@ -89,6 +104,9 @@ def propose(
     media_durations: Mapping[str, float] | None = None,
     director: Callable[[Sequence[Moment]], Any] | None = None,
     profiles: Sequence[PlanProfile] = PROFILES,
+    # Not `policy`: that name is taken by the duration band, and two meanings
+    # of one word in one signature is a trap for whoever reads it next.
+    selection: SelectionPolicy = NEUTRAL,
 ) -> list[tuple[PlanProfile, NarrativePlan]]:
     """One plan per profile, over the same moments.
 
@@ -103,7 +121,7 @@ def propose(
             moments,
             mode=mode,
             target_seconds=target_seconds,
-            config=_weighted(config, profile),
+            config=_weighted(config, profile, selection),
             policy=policy,
             chronological=chronological,
             speech=speech,
@@ -123,31 +141,19 @@ def propose(
     return proposed
 
 
-def _weighted(config: Any, profile: PlanProfile) -> Any:
-    """The narrative config with this profile's balance applied."""
-    weights = config.optimizer.objective_weights
-    penalties = config.optimizer.objective_penalties
-    return config.model_copy(
-        update={
-            "optimizer": config.optimizer.model_copy(
-                update={
-                    "objective_weights": weights.model_copy(
-                        update={
-                            "entertainment": weights.entertainment * profile.entertainment,
-                            "narrative": weights.narrative * profile.narrative,
-                            "variety": weights.variety * profile.variety,
-                        }
-                    ),
-                    "objective_penalties": penalties.model_copy(
-                        update={
-                            "repetition": penalties.repetition * profile.repetition_penalty,
-                            "dead_time": penalties.dead_time * profile.dead_time_penalty,
-                        }
-                    ),
-                }
-            )
-        }
-    )
+def _weighted(config: Any, profile: PlanProfile, selection: SelectionPolicy) -> Any:
+    """The narrative config with this profile's balance and the style's, applied.
+
+    Both at once and neither winning outright: a profile asks for a different
+    balance *of the same edit*, a style asks for a different edit, and they are
+    both true. The composition is bounded by :class:`SelectionPolicy`, so two
+    legal asks cannot make an illegal objective.
+
+    This function used to build the modified config itself. It now says the
+    same thing in one typed place, which is what lets a style reach the
+    optimiser without the optimiser ever reading a style.
+    """
+    return selection.then(profile.policy()).applied_to(config)
 
 
 __all__ = ["PROFILES", "PlanProfile", "propose"]

@@ -1895,6 +1895,27 @@ class StyleCritiqueConfig(_Section):
     repeat_run: int = 3
 
 
+class StyleSelectionConfig(_Section):
+    """What a style asks of the selection (V2-P11).
+
+    Five multipliers on the objective the optimiser already has -- never a
+    taste it would have to read. A style saying "I prefer reactions" would
+    need the optimiser to learn a new vocabulary; a style saying "variety
+    matters 1.6x more here" speaks the language the knapsack already solves in.
+    Translating one into the other is the doctrine layer's job, and keeping it
+    outside the optimiser is what leaves the optimiser deterministic.
+
+    All 1.0 means "the configured objective, unchanged" -- and the house style
+    leaves every one of them alone, so adopting this changed no selection.
+    """
+
+    entertainment: float = 1.0
+    narrative: float = 1.0
+    variety: float = 1.0
+    repetition_penalty: float = 1.0
+    dead_time_penalty: float = 1.0
+
+
 class StyleEntry(_Section):
     """One named style, versioned.
 
@@ -1909,6 +1930,7 @@ class StyleEntry(_Section):
 
     version: int = Field(ge=1)
     description: str = ""
+    selection: StyleSelectionConfig = Field(default_factory=StyleSelectionConfig)
     pacing: StylePacingConfig = Field(default_factory=StylePacingConfig)
     audio: StyleAudioConfig = Field(default_factory=StyleAudioConfig)
     judgement: StyleJudgementConfig = Field(default_factory=StyleJudgementConfig)
@@ -1976,7 +1998,7 @@ def _style_values(entry: StyleEntry) -> dict[str, float]:
     """The style's numbers, flattened to the keys ``limits`` names."""
     return {
         f"{section}.{field}": float(value)
-        for section in ("pacing", "audio", "judgement", "critique")
+        for section in ("selection", "pacing", "audio", "judgement", "critique")
         for field, value in getattr(entry, section).model_dump().items()
         if isinstance(value, (int, float)) and not isinstance(value, bool)
     }

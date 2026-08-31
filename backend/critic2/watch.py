@@ -44,6 +44,21 @@ HOOK_SECONDS: Final[float] = 15.0
 #: The last shot is measured against the edit's own average heat.
 ENDING_RATIO: Final[float] = 0.7
 
+#: What a shot runs at ``band_scale`` 1.0, near enough to compare against.
+#: The house bands are 8-15s calm, 4-8s normal, 2.5-4s tension, 1.2-2.5s high,
+#: 0.8-1.8s climax, and a real edit is mostly normal and tension -- so the
+#: median of a house edit sits near the top of that middle. Measured at 2.4s
+#: across the gate project's 63 shots.
+_EXPECTED_MEDIAN: Final[float] = 2.4
+
+#: How far the median may sit from what the scale implies before it is called
+#: a violation. Wide on purpose: this measures whether the machine did what it
+#: said, not whether it did it perfectly, and the footage gets a vote.
+_STYLE_TOLERANCE: Final[float] = 0.35
+
+#: Effects a minute above the style's own ideal before it is a violation.
+_EFFECT_TOLERANCE: Final[float] = 1.0
+
 #: The window the density is read over.
 WINDOW_SECONDS: Final[float] = 10.0
 
@@ -84,6 +99,7 @@ def findings(
     found += _ending(clips, reader, duration_seconds)
     found += _effect_overuse(effects, duration_seconds, taste)
     found += _fatigue(clips, reader, planned_silences, duration_seconds, taste)
+    found += _style_violations(clips, effects, duration_seconds, style)
     found.sort(key=lambda item: item.at_seconds)
     logger.info(
         "Watched the render",
@@ -264,6 +280,84 @@ def _effect_overuse(
                 )
             )
             break
+    return found
+
+
+def _style_violations(
+    clips: Sequence[Any],
+    effects: Sequence[Any],
+    duration_seconds: float,
+    style: Any = None,
+) -> list[Finding]:
+    """Where the finished video did not turn out to be the style it was cut as.
+
+    The measurement is against the doctrine the edit was actually made under --
+    P8's stamp, not the brief as it reads today -- so this asks whether the
+    machine did what it said it would, which is a different question from
+    whether the result is good.
+
+    Nothing here is correctable. Trimming a shot does not make a style right,
+    and re-selecting is a different video; §42 has no verb for either, and
+    inventing one would be the failure P7 exists to prevent. These are reported
+    so a person can change the style or the doctrine, which is the only thing
+    that would answer them.
+    """
+    if style is None or not clips or duration_seconds <= 0:
+        return []
+    found: list[Finding] = []
+
+    pacing = getattr(style, "pacing", None)
+    scale = float(getattr(pacing, "band_scale", 1.0) or 1.0)
+    lengths = sorted(clip.duration for clip in clips)
+    median = lengths[len(lengths) // 2]
+    # A style that scales the bands up should produce longer shots than one
+    # that scales them down. The comparison is against the scale itself rather
+    # than against an absolute: what "long" means is the band's business.
+    expected = _EXPECTED_MEDIAN * scale
+    if median < expected * (1.0 - _STYLE_TOLERANCE):
+        found.append(
+            Finding(
+                code="style_violation",
+                at_seconds=0.0,
+                detail=(
+                    f"shots run {median:.1f}s where this style's bands ask for "
+                    f"about {expected:.1f}s -- it was cut faster than it was "
+                    f"meant to be"
+                ),
+                confidence=min(1.0, (expected - median) / max(expected, 1e-6)),
+                measured={
+                    "median_seconds": round(median, 2),
+                    "expected_seconds": round(expected, 2),
+                    "band_scale": scale,
+                },
+            )
+        )
+
+    judgement = getattr(style, "judgement", None)
+    ideal = float(getattr(judgement, "ideal_effects_per_minute", -1.0))
+    if ideal >= 0.0:
+        per_minute = len(effects) / max(duration_seconds / 60.0, 1e-6)
+        # Only one direction: a style that wanted none and got some has been
+        # violated, and one that wanted some and got fewer has been restrained,
+        # which the emphasis engine is allowed to do when the footage does not
+        # earn them.
+        if per_minute > ideal + _EFFECT_TOLERANCE:
+            found.append(
+                Finding(
+                    code="style_violation",
+                    at_seconds=0.0,
+                    detail=(
+                        f"{per_minute:.1f} effects a minute where this style "
+                        f"asks for {ideal:.1f}"
+                    ),
+                    confidence=min(1.0, (per_minute - ideal) / max(ideal, 1.0)),
+                    measured={
+                        "per_minute": round(per_minute, 2),
+                        "ideal": ideal,
+                        "effects": len(effects),
+                    },
+                )
+            )
     return found
 
 
