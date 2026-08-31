@@ -82,6 +82,7 @@ class Critic2Worker:
             clips=clips,
             effects=self._effects(context),
             floor_for=lambda clip_id: floor_for(levels.get(clip_id), context.config),
+            style=self._style(context),
         )
         result = {
             "watched_frames": sum(len(names) for names in looks.values()),
@@ -197,6 +198,7 @@ class Critic2Worker:
             effects=self._effects(context),
             planned_silences=self._planned_silences(context),
             duration_seconds=timeline.duration,
+            style=self._style(context),
         )
         return found, looks
 
@@ -493,10 +495,14 @@ class Critic2Worker:
     def _requeue(self, context: WorkerContext) -> None:
         """Send the render and its checks round once more.
 
-        Not this stage: it is the one running, and a job cannot re-queue
-        itself. The runner brings it back on its own -- CRITIC2 depends on QA,
-        so re-queueing QA re-queues the second pass by construction, which is
-        the whole reason the dependency points that way.
+        Not this stage: a job cannot re-queue itself while it is running. The
+        first version of this comment claimed the runner would bring CRITIC2
+        back "by construction" because it depends on QA -- it does not. A
+        dependency gates whether a stage *may* run, not whether a completed
+        job returns to the queue, so the second pass never happened outside a
+        hand-written script and the no-degradation lock never fired on a real
+        video. :func:`owes_a_second_look` is the condition the runner checks
+        when QA finishes, and it is what closes the loop.
         """
         from backend.services.job_manager import JobManager
 
@@ -538,6 +544,19 @@ class Critic2Worker:
         )
         return float((job.result or {}).get("quality_score", 0.0)) if job else 0.0
 
+    def _style(self, context: WorkerContext):
+        """The taste that made this video, not the one the brief names now.
+
+        A person who switches preset after a render has not changed the file
+        on disk, and judging it by the new style would report defects the edit
+        was never trying to avoid.
+        """
+        from backend.style import bible as style_bible
+
+        return style_bible.for_project(
+            context.database, context.config, context.project_id
+        )
+
     def _effects(self, context: WorkerContext):
         """Placed effects, in programme time, each with its row id.
 
@@ -572,4 +591,35 @@ class Critic2Worker:
         return [tuple(item) for item in planned or []]
 
 
-__all__ = ["MAX_FRAMES", "Critic2Worker"]
+def owes_a_second_look(database: Any, project_id: str) -> bool:
+    """Whether the critic corrected an edit and has not yet judged the result.
+
+    True exactly between the two passes: a snapshot exists, so corrections
+    were applied and re-rendered, and the stored result has no verdict in it
+    yet. Pass two always writes ``kept``, so this can never be true twice for
+    the same correction -- which is what stops the pair from trading a render
+    for a re-render for ever.
+    """
+    try:
+        snapshot = database.fetch_one(
+            "SELECT 1 AS present FROM critic2_snapshots WHERE project_id = ?",
+            (project_id,),
+        )
+        if snapshot is None:
+            return False
+        row = database.fetch_one(
+            "SELECT status, result FROM analysis_jobs "
+            "WHERE project_id = ? AND stage = 'critic2'",
+            (project_id,),
+        )
+    except Exception:
+        logger.exception("Whether a second look is owed could not be read")
+        return False
+    if row is None or row["status"] != "completed":
+        return False
+    from backend.database.connection import loads
+
+    return "kept" not in (loads(row["result"] or "{}") or {})
+
+
+__all__ = ["MAX_FRAMES", "Critic2Worker", "owes_a_second_look"]

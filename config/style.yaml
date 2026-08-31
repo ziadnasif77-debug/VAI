@@ -1,0 +1,150 @@
+# The Style Bible (V2-P8).
+#
+# A style already existed here, and it reached exactly one place. The presets
+# in `interaction.yaml` set `intent.style`, `effects.yaml: style_profiles`
+# says how strongly that style decorates, and `backend/effects/planner.py`
+# reads it. Nothing else in the editorial stack knew a style existed -- not
+# one cut length, not one audio decision, not one thing the judge values, not
+# one defect threshold. Those were module constants in Python, the same for
+# every video this machine will ever make.
+#
+# This file is the body behind the name. It holds taste and only taste:
+#
+#   * A measurement stays in code. `SILENCE_DB = -40.0` is what silence *is*;
+#     moving it here would not let anyone change the channel, it would let
+#     them break the reading.
+#   * A vocabulary stays in code. Levels, roles, lanes, defect codes and the
+#     correction verbs are the language the stages speak, not preferences.
+#   * A limit the hardware imposes stays in the file that owns the hardware.
+#
+# Two rules make this a bible rather than more YAML:
+#
+#   1. Every style carries a `version`. A change of taste becomes an event you
+#      can point at, and every edit records the style and version that made it
+#      (table `edit_styles`), so "which videos were cut this way" has an
+#      answer that does not depend on anyone's memory.
+#   2. Every tunable declares its legal range once, under `limits`. Nobody may
+#      set a value outside it -- not a person editing this file, and not the
+#      controlled tuning of P10. A fence built before the thing it fences is
+#      the only kind worth having.
+#
+# Nothing here was learned. These numbers were authored, and most of them were
+# authored by being copied out of the Python that already held them.
+
+style:
+  # The body used by a project that names no style, and by any style whose
+  # body is not authored below.
+  #
+  # `default` rather than `best_moments` so that this file and the effects
+  # library give the same answer to the same question: `EffectsConfig.profile`
+  # falls back to the `default` profile for a name it does not know, and a
+  # bible that fell back to something else would decorate a typo as one style
+  # and cut it as another.
+  default: default
+
+  # The legal range of every tunable, declared once because a bound is a
+  # property of the machine rather than of a taste. A style that violates one
+  # refuses to load, naming the key: clamping it silently would turn this file
+  # into a suggestion.
+  limits:
+    pacing.band_scale: { min: 0.5, max: 2.0 }
+    pacing.stutter_relief: { min: 1.0, max: 1.6 }
+    pacing.stillness_relief: { min: 1.0, max: 1.8 }
+    pacing.ending_relief: { min: 1.0, max: 2.5 }
+    pacing.on_the_beat_seconds: { min: 0.1, max: 1.0 }
+    audio.min_section_seconds: { min: 8.0, max: 60.0 }
+    audio.silence_before_payoff: { min: 0.0, max: 2.0 }
+    audio.silence_min_strength: { min: 0.3, max: 1.0 }
+    judgement.ideal_effects_per_minute: { min: 0.0, max: 8.0 }
+    judgement.ideal_speech_share: { min: 0.0, max: 0.9 }
+    critique.hook_seconds: { min: 5.0, max: 30.0 }
+    critique.effects_per_ten_seconds: { min: 1.0, max: 12.0 }
+    critique.fatigue_seconds: { min: 10.0, max: 60.0 }
+    critique.repeat_run: { min: 2, max: 6 }
+
+  # One entry per style the effects library knows, because a name that
+  # decorates and cannot cut is the half-a-style this phase exists to finish.
+  #
+  # An entry that overrides nothing is not an oversight: it says this style
+  # cuts the way the machine has always cut, and the defaults it inherits are
+  # the exact constants that were in Python before this file existed. Adopting
+  # the bible therefore changes no video until someone edits it, which is the
+  # only honest way to introduce a document claiming to describe what already
+  # happens.
+  bible:
+    best_moments:
+      version: 1
+      description: >-
+        The channel as it is cut today: the session's own shape, emphasis
+        where the footage earns it, speech left alone.
+
+    cinematic:
+      version: 1
+      description: >-
+        Longer shots, quieter emphasis, silence used deliberately. The effects
+        profile of this name already suppresses impact and flash and boosts
+        bars and slow motion; this is the rest of that decision.
+      pacing:
+        band_scale: 1.35
+        stutter_relief: 1.05
+        stillness_relief: 1.5
+        ending_relief: 2.0
+        on_the_beat_seconds: 0.5
+      audio:
+        min_section_seconds: 35.0
+        silence_before_payoff: 1.4
+        silence_min_strength: 0.5
+        shelves:
+          calm: low
+          normal: low
+          tension: low
+          high: build
+          climax: peak
+      judgement:
+        ideal_effects_per_minute: 1.2
+        ideal_speech_share: 0.45
+      critique:
+        hook_seconds: 20.0
+        effects_per_ten_seconds: 2.0
+        fatigue_seconds: 40.0
+        repeat_run: 4
+
+    gaming_fast:
+      version: 1
+      description: >-
+        Faster than the default and decorated harder by its effects profile.
+        Only the cut rate is claimed here; the rest is unauthored and says so.
+      pacing:
+        band_scale: 0.8
+
+    story:
+      version: 1
+      description: >-
+        Told rather than shown off. Unauthored beyond the judge's preference
+        for speech, which is what the mode is for.
+      judgement:
+        ideal_speech_share: 0.5
+
+    funny:
+      version: 1
+      description: Unauthored. Cuts like the default and decorates like itself.
+
+    competitive:
+      version: 1
+      description: Unauthored. Cuts like the default and decorates like itself.
+
+    minimal:
+      version: 1
+      description: >-
+        No decoration at all, by its effects profile. The judge is told not to
+        expect any, or it would mark every minimal edit down for the absence.
+      judgement:
+        ideal_effects_per_minute: 0.0
+
+    default:
+      version: 1
+      description: >-
+        The house body, used by a project that named no style and by any name
+        this file does not know. Overrides nothing, which is the claim that
+        the machine's own constants are the channel's taste -- the same claim
+        best_moments makes, and the reason the two are identical.

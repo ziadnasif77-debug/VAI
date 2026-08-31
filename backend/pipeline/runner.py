@@ -38,6 +38,7 @@ from backend.core.logging import LogChannel, get_logger, log_context
 from backend.core.models.enums import JobStage, JobStatus, MediaState
 from backend.core.models.jobs import Job
 from backend.database.connection import Database
+from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository
 from backend.media.ffmpeg import CancelledError, FFmpegRunner
 from backend.pipeline.workers import default_workers
@@ -119,7 +120,9 @@ class PipelineRunner:
         the log rather than in the return type: no queued jobs, no job whose
         dependencies are met, and a next job whose stage has no worker yet.
         """
-        job = self._jobs.next_runnable(project_id)
+        job = self._jobs.next_runnable(
+            project_id, runnable=lambda stage: stage in self._workers
+        )
         if job is None:
             # Every per-media chain is done, so the stages that reason across
             # all of them can now be queued. This is the moment §46 means by
@@ -127,19 +130,25 @@ class PipelineRunner:
             # would let STORY start while a second recording was still being
             # analysed, and it has to see them all.
             if not self._queue_project_stages(project_id):
-                return None
-            job = self._jobs.next_runnable(project_id)
+                return self._paused(project_id)
+            job = self._jobs.next_runnable(
+                project_id, runnable=lambda stage: stage in self._workers
+            )
             if job is None:
-                return None
+                return self._paused(project_id)
 
-        if job.stage not in self._workers:
+        return self.run_job(job.id)
+
+    def _paused(self, project_id: str) -> None:
+        """Say which stage the queue is waiting on, if it is waiting on one."""
+        waiting = self._jobs.next_runnable(project_id)
+        if waiting is not None:
             logger.info(
                 "Pipeline paused: no worker for this stage yet",
-                extra={"project_id": project_id, "stage": job.stage.value,
-                       "job_id": job.id},
+                extra={"project_id": project_id, "stage": waiting.stage.value,
+                       "job_id": waiting.id},
             )
-            return None
-        return self.run_job(job.id)
+        return None
 
     def _queue_project_stages(self, project_id: str) -> bool:
         """Queue the project-wide stages once every media file is finished.
@@ -265,9 +274,39 @@ class PipelineRunner:
 
         completed = self._jobs.complete(job_id, result=_serialisable(result))
         if completed.stage is JobStage.QA:
+            if self._second_look(completed):
+                # The critic corrected this edit and has not yet judged the
+                # result. Nothing is delivered until it has: publishing a
+                # video the critic is about to revert would be the worst
+                # possible ordering of these two stages.
+                return RunOutcome(job=completed)
             self._maybe_auto_publish(completed)
             self._maybe_auto_shorts(completed)
         return RunOutcome(job=completed)
+
+    def _second_look(self, job: Job) -> bool:
+        """Put CRITIC2 back for its second pass, if it is owed one.
+
+        A stage cannot re-queue itself while it is running, so the critic asks
+        for the render and QA it needs and the loop is closed here, when that
+        QA lands.
+        """
+        from backend.pipeline.workers.critic2_worker import owes_a_second_look
+
+        if not owes_a_second_look(self._db, job.project_id):
+            return False
+        try:
+            for pending in JobRepository(self._db).list_for_project(job.project_id):
+                if pending.stage is JobStage.CRITIC2:
+                    self._jobs.requeue(pending.id)
+                    logger.info(
+                        "The critic was returned for its second pass",
+                        extra={"project_id": job.project_id, "job_id": pending.id},
+                    )
+                    return True
+        except Exception:
+            logger.exception("The critic could not be returned for its second pass")
+        return False
 
     def _maybe_auto_shorts(self, job: Job) -> None:
         """Queue the vertical cuts when the owner's standing config asks.

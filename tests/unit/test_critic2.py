@@ -429,3 +429,66 @@ class TestTheRollbackDoesNotSpin:
         assert worker._apply(context, repository, timeline, [nowhere]) == 0
         # Otherwise the stage retires for this project having changed nothing.
         assert worker._spent(context) is None
+
+
+class TestTheSecondPassHappensWithoutBeingAsked:
+    """The loop the first version could not close.
+
+    ``_requeue`` re-queued the render and QA and its comment claimed CRITIC2
+    would return "by construction" because it depends on QA. A dependency
+    gates whether a stage *may* run, not whether a completed job goes back in
+    the queue -- so on a real pipeline the second pass never happened, and the
+    no-degradation lock never fired on a video anyone would watch.
+    """
+
+    def test_a_correction_owes_a_verdict(
+        self, database, project_manager, config
+    ) -> None:
+        from backend.pipeline.workers.critic2_worker import owes_a_second_look
+
+        project, _repository, _timeline = _seed(database, project_manager, config)
+        context = SimpleNamespace(database=database, project_id=project.id)
+        assert owes_a_second_look(database, project.id) is False
+
+        Critic2Worker()._snapshot(context, 80.0)
+        _finished(database, project.id, {"revision": 1, "applied": 3})
+
+        assert owes_a_second_look(database, project.id) is True
+
+    def test_a_verdict_is_owed_only_once(
+        self, database, project_manager, config
+    ) -> None:
+        from backend.pipeline.workers.critic2_worker import owes_a_second_look
+
+        project, _repository, _timeline = _seed(database, project_manager, config)
+        context = SimpleNamespace(database=database, project_id=project.id)
+        Critic2Worker()._snapshot(context, 80.0)
+        # Pass two always writes "kept", and that is the whole termination
+        # argument: the pair cannot trade a render for a re-render for ever.
+        _finished(database, project.id, {"revision": 1, "kept": True})
+
+        assert owes_a_second_look(database, project.id) is False
+
+    def test_an_uncorrected_edit_owes_nothing(
+        self, database, project_manager, config
+    ) -> None:
+        from backend.pipeline.workers.critic2_worker import owes_a_second_look
+
+        project, _repository, _timeline = _seed(database, project_manager, config)
+        _finished(database, project.id, {"revision": 0, "findings": []})
+
+        assert owes_a_second_look(database, project.id) is False
+
+
+def _finished(database, project_id: str, result: dict) -> None:
+    """A completed CRITIC2 job carrying this result."""
+    import json
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    database.execute(
+        "INSERT INTO analysis_jobs "
+        "(id, project_id, stage, status, progress, result, created_at, completed_at) "
+        "VALUES (?, ?, 'critic2', 'completed', 1.0, ?, ?, ?)",
+        (f"job-{project_id[-8:]}", project_id, json.dumps(result), now, now),
+    )

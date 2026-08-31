@@ -148,6 +148,36 @@ class TestChronologyConstitution:
             [self._clip(300, role="hook"), self._clip(10), self._clip(50)]
         )
 
+    def test_a_hook_split_into_pieces_is_still_one_cold_open(self) -> None:
+        """The bug every hooked edit hit since V2-P1.
+
+        The walking splitter cuts a shot into pieces, so a hook long enough to
+        be split arrives as two or three consecutive clips. Stripping only
+        index zero left the rest of the hook in the body, where the first real
+        clip legitimately precedes it -- and the EDL failed with
+        chronology_violated on every edit built with a hook. Correct by the
+        letter of the check, wrong by its intent.
+        """
+        ensure_chronological(
+            [
+                self._clip(300, role="hook"),
+                self._clip(312, role="hook"),
+                self._clip(10),
+                self._clip(50),
+            ]
+        )
+
+    def test_the_pieces_of_a_cold_open_still_run_forward(self) -> None:
+        # A split hook is one preview, not a licence to shuffle.
+        with pytest.raises(ValidationError, match="the cold open runs backwards"):
+            ensure_chronological(
+                [
+                    self._clip(312, role="hook"),
+                    self._clip(300, role="hook"),
+                    self._clip(10),
+                ]
+            )
+
     def test_a_hook_anywhere_else_obeys_time(self) -> None:
         with pytest.raises(ValidationError, match="chronology_violated"):
             ensure_chronological(

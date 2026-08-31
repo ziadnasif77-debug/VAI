@@ -35,6 +35,7 @@ from backend.interaction.store import ConversationStore, IntentStore
 from backend.moments.formation import Moment
 from backend.narrative.story import NarrativePlan, build_plan
 from backend.pipeline.workers.base import WorkerContext
+from backend.style import bible as style_bible
 
 logger = get_logger("pipeline.workers.story", LogChannel.PIPELINE)
 
@@ -211,8 +212,19 @@ class StoryWorker:
             )
 
         reader = _reader_for(context, proposed[0][1])
+        # From the brief, not from the stamp: this stage runs before the edit
+        # exists, so the taste that judges these plans is the one about to cut
+        # them. The stamp answers the opposite question -- what cut the video
+        # that is already on disk -- and belongs to the stages after RENDER.
+        style = style_bible.resolve(context.config, intent.style)
         scored = [
-            (profile, plan, judging.judge(plan, reader=reader, config=context.config))
+            (
+                profile,
+                plan,
+                judging.judge(
+                    plan, reader=reader, config=context.config, style=style
+                ),
+            )
             for profile, plan in proposed
         ]
         winner = judging.best(scored)

@@ -1838,6 +1838,126 @@ class PresetConfig(_Section):
 
 
 # ---------------------------------------------------------------------------
+# style.yaml
+# ---------------------------------------------------------------------------
+
+
+class StyleLimit(_Section):
+    """The legal range of one tunable, declared once for every style."""
+
+    min: float
+    max: float
+
+    @model_validator(mode="after")
+    def _ordered(self) -> StyleLimit:
+        if self.max < self.min:
+            raise ValueError(f"a limit of {self.min}..{self.max} is empty")
+        return self
+
+
+class StylePacingConfig(_Section):
+    """How this style cuts.
+
+    ``band_scale`` multiplies the bands in ``editorial.yaml`` rather than
+    restating them: what a level means in seconds is the mechanism, and how
+    long this channel likes to hold a shot is the taste.
+    """
+
+    band_scale: float = 1.0
+    stutter_relief: float = 1.15
+    stillness_relief: float = 1.25
+    ending_relief: float = 1.5
+    on_the_beat_seconds: float = 0.35
+
+
+class StyleAudioConfig(_Section):
+    """How this style sounds. ``shelves`` maps a semantic level to a music bed."""
+
+    min_section_seconds: float = 20.0
+    silence_before_payoff: float = 0.8
+    silence_min_strength: float = 0.6
+    shelves: dict[str, str] = Field(default_factory=dict)
+
+
+class StyleJudgementConfig(_Section):
+    """What the counterfactual judge considers a good edit of this kind."""
+
+    ideal_effects_per_minute: float = 3.0
+    ideal_speech_share: float = 0.35
+
+
+class StyleCritiqueConfig(_Section):
+    """What counts as a defect in a video cut this way."""
+
+    hook_seconds: float = 15.0
+    effects_per_ten_seconds: float = 4.0
+    fatigue_seconds: float = 25.0
+    repeat_run: int = 3
+
+
+class StyleEntry(_Section):
+    """One named style, versioned.
+
+    The name is the one the effects library already uses -- there is no second
+    namespace, because ``intent.style`` has selected a decoration profile
+    since Phase 8 of V1 and the only thing missing was a body behind it.
+
+    The version is not decoration: every edit records the style and version
+    that produced it, so "which videos were cut this way" is answerable from
+    the database rather than from memory.
+    """
+
+    version: int = Field(ge=1)
+    description: str = ""
+    pacing: StylePacingConfig = Field(default_factory=StylePacingConfig)
+    audio: StyleAudioConfig = Field(default_factory=StyleAudioConfig)
+    judgement: StyleJudgementConfig = Field(default_factory=StyleJudgementConfig)
+    critique: StyleCritiqueConfig = Field(default_factory=StyleCritiqueConfig)
+
+
+class StyleConfig(_Section):
+    """The Style Bible: taste, versioned, fenced.
+
+    Measurements and vocabulary are deliberately absent. A silence threshold
+    in decibels is what silence *is*, and the roles of a composition are the
+    language P4 speaks; moving either here would not let anyone change the
+    channel, it would let them break the reading.
+    """
+
+    default: str = "signature"
+    limits: dict[str, StyleLimit] = Field(default_factory=dict)
+    bible: dict[str, StyleEntry] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _within_the_fence(self) -> StyleConfig:
+        if self.bible and self.default not in self.bible:
+            raise ValueError(
+                f"the default style {self.default!r} is not in the bible: "
+                f"{sorted(self.bible)}"
+            )
+        for name, entry in self.bible.items():
+            for key, value in _style_values(entry).items():
+                limit = self.limits.get(key)
+                if limit is None:
+                    continue
+                if not limit.min <= value <= limit.max:
+                    raise ValueError(
+                        f"style {name!r} sets {key}={value}, outside its "
+                        f"declared range {limit.min}..{limit.max}"
+                    )
+        return self
+
+
+def _style_values(entry: StyleEntry) -> dict[str, float]:
+    """The style's numbers, flattened to the keys ``limits`` names."""
+    return {
+        f"{section}.{field}": float(value)
+        for section in ("pacing", "audio", "judgement", "critique")
+        for field, value in getattr(entry, section).model_dump().items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    }
+
+# ---------------------------------------------------------------------------
 # Aggregate
 # ---------------------------------------------------------------------------
 
@@ -1870,6 +1990,7 @@ class AppConfig(_Section):
     critique: CritiqueConfig = Field(default_factory=CritiqueConfig)
     daily: DailyConfig = Field(default_factory=DailyConfig)
     editorial: EditorialConfig = Field(default_factory=EditorialConfig)
+    style: StyleConfig = Field(default_factory=StyleConfig)
     publishing: PublishingConfig
     interaction: InteractionConfig = Field(default_factory=InteractionConfig)
     presets: dict[str, PresetConfig]

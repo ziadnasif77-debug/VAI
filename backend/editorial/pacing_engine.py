@@ -96,7 +96,9 @@ class ShotLength:
         return self.seconds
 
 
-def shot_length(context: PacingContext, config: Any) -> ShotLength:
+def shot_length(
+    context: PacingContext, config: Any, style: Any = None
+) -> ShotLength:
     """How long the shot starting at ``context.position`` may run.
 
     The band for the level is the starting point. Every rule after it names
@@ -105,17 +107,26 @@ def shot_length(context: PacingContext, config: Any) -> ShotLength:
     """
     pacing = config.editorial.pacing
     band = getattr(pacing.bands, context.level)
-    seconds = float(band.max)
-    rules: list[str] = [f"{context.level} band caps at {band.max:.1f}s"]
+    # V2-P8: the band is the mechanism -- what a level means in seconds -- and
+    # the scale is the taste. A style that holds shots longer says so once
+    # here rather than by restating every band.
+    taste = style.pacing if style is not None else None
+    scale = float(taste.band_scale) if taste is not None else 1.0
+    low = float(band.min) * scale
+    high = float(band.max) * scale
+    seconds = high
+    rules: list[str] = [f"{context.level} band caps at {high:.1f}s"]
+    if abs(scale - 1.0) > 1e-9:
+        rules.append(f"{style.name} scales the bands by {scale:.2f}")
 
     # Sustained tension tightens within the band rather than across it: a
     # session that has been climbing for half a minute is not the same as one
     # that spiked once, and the level alone cannot tell them apart.
-    if context.tension > 0.6 and seconds > band.min:
-        tightened = max(band.min, seconds * (1.0 - 0.25 * (context.tension - 0.6) / 0.4))
+    if context.tension > 0.6 and seconds > low:
+        tightened = max(low, seconds * (1.0 - 0.25 * (context.tension - 0.6) / 0.4))
         if tightened < seconds:
             seconds = tightened
-            rules.append(f"sustained tension {context.tension:.2f} tightens toward {band.min:.1f}s")
+            rules.append(f"sustained tension {context.tension:.2f} tightens toward {low:.1f}s")
 
     # Never end a shot inside a sentence. This is the one rule that may
     # lengthen past the band: half a sentence is a defect the viewer hears,
@@ -126,7 +137,10 @@ def shot_length(context: PacingContext, config: Any) -> ShotLength:
 
     # Land on the beat. A cut a beat early is the most common amateur tell in
     # a gaming edit: the explosion happens in the next shot, not this one.
-    if context.next_event_in <= seconds + ON_THE_BEAT_SECONDS and not context.speech:
+    on_the_beat = (
+        float(taste.on_the_beat_seconds) if taste is not None else ON_THE_BEAT_SECONDS
+    )
+    if context.next_event_in <= seconds + on_the_beat and not context.speech:
         landed = max(0.1, context.next_event_in)
         if abs(landed - seconds) > 1e-6:
             seconds = landed
@@ -134,21 +148,23 @@ def shot_length(context: PacingContext, config: Any) -> ShotLength:
 
     # Break a stutter. Two machine-gun shots are pace; five are a glitch.
     if 0.0 < context.previous_length < STUTTER_SECONDS and seconds < STUTTER_SECONDS:
-        seconds *= STUTTER_RELIEF
+        seconds *= float(taste.stutter_relief) if taste is not None else STUTTER_RELIEF
         rules.append("lengthened to break a run of very short shots")
 
     # Cut on movement. A join on a still frame is a join the viewer sees.
     if context.motion_at_cut < STILL_MOTION and not context.speech:
-        seconds *= STILLNESS_RELIEF
+        seconds *= (
+            float(taste.stillness_relief) if taste is not None else STILLNESS_RELIEF
+        )
         rules.append("held for something to cut on; the picture is still here")
 
     if context.role == "hook":
         # The opening has fifteen seconds to earn the rest, and this is the
         # one place the doctrine asks for speed over comfort.
-        seconds = max(band.min, seconds * 0.75)
+        seconds = max(low, seconds * 0.75)
         rules.append("tightened for the hook")
     elif context.role == "ending":
-        seconds *= ENDING_RELIEF
+        seconds *= float(taste.ending_relief) if taste is not None else ENDING_RELIEF
         rules.append("the last shot keeps its tail")
 
     floor = float(pacing.min_piece_seconds)

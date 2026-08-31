@@ -28,6 +28,7 @@ from ai.ocr.fake_provider import FakeOcrProvider
 from backend.core.models.enums import JobStage, VideoMode
 from backend.core.models.media import MediaImport
 from backend.core.models.project import ProjectCreate
+from backend.critic.service import MAX_TRIM_FRACTION
 from backend.database.repositories.timeline import TimelineRepository
 from backend.pipeline.runner import PipelineRunner
 from backend.pipeline.workers.critique_worker import CritiqueWorker
@@ -135,7 +136,16 @@ class TestTheEditActuallyChanges:
         after = TimelineRepository(database).load(project.id).video_clips()
         assert outcome.succeeded
         assert outcome.job.result["applied"], outcome.job.result["refused"]
-        assert after[0].source_in == pytest.approx(before[0].source_in + 1.0, abs=0.01)
+        # A trim is capped at half a shot (MAX_TRIM_FRACTION), and V2-P1's
+        # walking splitter made the opening shot short enough for that cap to
+        # bite: this fixture's first piece is 1.75s, so a second off the front
+        # becomes 0.875s and the note records "asked for 1.0s; capped". The
+        # rule is the Critic's, tested in tests/unit/test_critic.py; what this
+        # test is about is whether the trim reaches the *stored* timeline.
+        landed = min(1.0, before[0].duration * MAX_TRIM_FRACTION)
+        assert after[0].source_in == pytest.approx(
+            before[0].source_in + landed, abs=0.01
+        )
         # And only that clip moved.
         assert after[0].source_out == pytest.approx(before[0].source_out, abs=0.01)
 

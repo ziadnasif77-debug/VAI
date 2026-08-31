@@ -63,6 +63,7 @@ def findings(
     effects: Sequence[Any] = (),
     planned_silences: Sequence[tuple[float, float]] = (),
     duration_seconds: float,
+    style: Any = None,
 ) -> list[Finding]:
     """Everything wrong with this video that can be measured.
 
@@ -73,12 +74,16 @@ def findings(
         effects: placed effects, for the density check.
     """
     found: list[Finding] = []
-    found += _repetition(clips, looks)
+    # V2-P8: what counts as a defect depends on how the video was cut. A
+    # patient edit holding a shot for forty seconds is not fatigued, and a
+    # style that decorates twice a minute is not overusing effects at three.
+    taste = getattr(style, "critique", None)
+    found += _repetition(clips, looks, taste)
     found += _tails(clips, reader)
-    found += _hook(clips, reader)
+    found += _hook(clips, reader, taste)
     found += _ending(clips, reader, duration_seconds)
-    found += _effect_overuse(effects, duration_seconds)
-    found += _fatigue(clips, reader, planned_silences, duration_seconds)
+    found += _effect_overuse(effects, duration_seconds, taste)
+    found += _fatigue(clips, reader, planned_silences, duration_seconds, taste)
     found.sort(key=lambda item: item.at_seconds)
     logger.info(
         "Watched the render",
@@ -91,7 +96,9 @@ def findings(
     return found
 
 
-def _repetition(clips: Sequence[Any], looks: dict[str, tuple[str, ...]]) -> list[Finding]:
+def _repetition(
+    clips: Sequence[Any], looks: dict[str, tuple[str, ...]], style: Any = None
+) -> list[Finding]:
     """Three shots in a row that look like the same thing.
 
     Compared on what the vision model saw in the RENDER, not on moment types:
@@ -99,6 +106,7 @@ def _repetition(clips: Sequence[Any], looks: dict[str, tuple[str, ...]]) -> list
     differently can be the same corridor twice.
     """
     found: list[Finding] = []
+    least = int(getattr(style, "repeat_run", REPEAT_RUN))
     run: list[Any] = []
     for clip in clips:
         here = set(looks.get(clip.id, ()))
@@ -109,10 +117,10 @@ def _repetition(clips: Sequence[Any], looks: dict[str, tuple[str, ...]]) -> list
         if alike:
             run.append(clip)
             continue
-        if len(run) >= REPEAT_RUN:
+        if len(run) >= least:
             found.append(_repeat_finding(run, looks))
         run = [clip]
-    if len(run) >= REPEAT_RUN:
+    if len(run) >= least:
         found.append(_repeat_finding(run, looks))
     return found
 
@@ -173,11 +181,14 @@ def _tails(clips: Sequence[Any], reader: SemanticReader | None) -> list[Finding]
     return found
 
 
-def _hook(clips: Sequence[Any], reader: SemanticReader | None) -> list[Finding]:
+def _hook(
+    clips: Sequence[Any], reader: SemanticReader | None, style: Any = None
+) -> list[Finding]:
     """Whether the opening earns the rest of the video."""
     if reader is None or not clips:
         return []
-    opening = reader.intensity_between(0.0, min(HOOK_SECONDS, clips[-1].timeline_end))
+    window = float(getattr(style, "hook_seconds", HOOK_SECONDS))
+    opening = reader.intensity_between(0.0, min(window, clips[-1].timeline_end))
     whole = reader.intensity_between(0.0, clips[-1].timeline_end)
     if whole <= 0.0 or opening >= whole:
         return []
@@ -189,7 +200,7 @@ def _hook(clips: Sequence[Any], reader: SemanticReader | None) -> list[Finding]:
             code="weak_hook",
             at_seconds=0.0,
             detail=(
-                f"the first {HOOK_SECONDS:.0f}s sit at {ratio:.0%} of the video's own "
+                f"the first {window:.0f}s sit at {ratio:.0%} of the video's own "
                 "average -- the opening is quieter than what follows it"
             ),
             confidence=min(1.0, (0.85 - ratio) * 2),
@@ -223,23 +234,26 @@ def _ending(
     ]
 
 
-def _effect_overuse(effects: Sequence[Any], duration_seconds: float) -> list[Finding]:
+def _effect_overuse(
+    effects: Sequence[Any], duration_seconds: float, style: Any = None
+) -> list[Finding]:
     """Where emphasis piles up faster than a viewer can read it."""
     if not effects:
         return []
     # Programme time, not the stored clip-relative time. Reading the latter
     # put every effect of a 250s video inside one ten-second window.
+    cap = float(getattr(style, "effects_per_ten_seconds", EFFECTS_PER_TEN_SECONDS))
     times = sorted(float(item.timeline_start) for item in effects)
     found: list[Finding] = []
     for index, at in enumerate(times):
         window = [other for other in times[index:] if other - at <= 10.0]
-        if len(window) > EFFECTS_PER_TEN_SECONDS:
+        if len(window) > cap:
             found.append(
                 Finding(
                     code="effect_overuse",
                     at_seconds=at,
                     detail=f"{len(window)} effects inside ten seconds at {at:.0f}s",
-                    confidence=min(1.0, len(window) / (EFFECTS_PER_TEN_SECONDS * 2)),
+                    confidence=min(1.0, len(window) / (cap * 2)),
                     measured={
                         "effects": len(window),
                         "window_seconds": 10.0,
@@ -258,6 +272,7 @@ def _fatigue(
     reader: SemanticReader | None,
     planned_silences: Sequence[tuple[float, float]],
     duration_seconds: float,
+    style: Any = None,
 ) -> list[Finding]:
     """A long stretch where nothing changes.
 
@@ -266,7 +281,8 @@ def _fatigue(
     not changing, speech absent and no event landing, for long enough that a
     viewer has nothing to hold onto.
     """
-    if reader is None or duration_seconds <= FATIGUE_SECONDS:
+    tiring = float(getattr(style, "fatigue_seconds", FATIGUE_SECONDS))
+    if reader is None or duration_seconds <= tiring:
         return []
     step = 1.0
     start = 0.0
@@ -278,7 +294,7 @@ def _fatigue(
         speaking = reader.value_at("speech", at) >= 0.5
         eventful = reader.value_at("events", at) >= 0.3
         if here != level or speaking or eventful:
-            if at - start >= FATIGUE_SECONDS and not _overlaps(start, at, planned_silences):
+            if at - start >= tiring and not _overlaps(start, at, planned_silences):
                 found.append(
                     Finding(
                         code="visual_fatigue",
@@ -287,12 +303,37 @@ def _fatigue(
                             f"{at - start:.0f}s at one level with no speech and no event, "
                             f"from {start:.0f}s"
                         ),
-                        confidence=min(1.0, (at - start) / (FATIGUE_SECONDS * 2)),
+                        confidence=min(1.0, (at - start) / (tiring * 2)),
                         measured={"seconds": round(at - start, 1), "level": level},
                     )
                 )
             level, start = here, at
         at += step
+
+    # The last stretch is flushed here rather than left in the loop. A video
+    # that stays flat all the way to its end never triggers the change branch
+    # above, so the most fatigued shape there is -- one level, no speech, no
+    # events, right to the credits -- was the one shape this check could not
+    # see.
+    if duration_seconds - start >= tiring and not _overlaps(
+        start, duration_seconds, planned_silences
+    ):
+        found.append(
+            Finding(
+                code="visual_fatigue",
+                at_seconds=start,
+                detail=(
+                    f"{duration_seconds - start:.0f}s at one level with no speech "
+                    f"and no event, from {start:.0f}s to the end"
+                ),
+                confidence=min(1.0, (duration_seconds - start) / (tiring * 2)),
+                measured={
+                    "seconds": round(duration_seconds - start, 1),
+                    "level": level,
+                    "to_the_end": True,
+                },
+            )
+        )
     return found
 
 
@@ -308,6 +349,7 @@ def corrections(
     floor_for=None,
     min_confidence: float = 0.5,
     min_clips: int = 4,
+    style: Any = None,
 ) -> tuple[list[EditCorrection], list[str]]:
     """Turn findings into changes, or say why they could not be.
 
@@ -316,6 +358,10 @@ def corrections(
     not address what was seen is worse than the defect, because the report
     would then say the problem was handled.
     """
+    # The same thresholds the findings were made with. A critic that names a
+    # defect by one number and then refuses to act on it by another is worse
+    # than one that does neither.
+    taste = getattr(style, "critique", None)
     by_id = {clip.id: clip for clip in clips}
     made: list[EditCorrection] = []
     refused: list[str] = []
@@ -333,9 +379,11 @@ def corrections(
         if finding.code == "low_intensity_tail":
             _trim_tail(finding, by_id, floor_for, made, refused, where)
         elif finding.code == "repetition":
-            _thin_repeat(finding, by_id, clips, dropped, made, refused, where, min_clips)
+            _thin_repeat(
+                finding, by_id, clips, dropped, made, refused, where, min_clips, taste
+            )
         elif finding.code == "effect_overuse":
-            _thin_effects(finding, effects, made, refused, where)
+            _thin_effects(finding, effects, made, refused, where, taste)
     return made, refused
 
 
@@ -369,7 +417,9 @@ def _trim_tail(finding, by_id, floor_for, made, refused, where) -> None:
     )
 
 
-def _thin_repeat(finding, by_id, clips, dropped, made, refused, where, min_clips) -> None:
+def _thin_repeat(
+    finding, by_id, clips, dropped, made, refused, where, min_clips, style=None
+) -> None:
     """Drop the weakest shot of a repeated run.
 
     One, not all of them: three shots of the same corridor is a defect, and
@@ -378,7 +428,7 @@ def _thin_repeat(finding, by_id, clips, dropped, made, refused, where, min_clips
     one.
     """
     run = [by_id[item] for item in finding.measured.get("clip_ids", ()) if item in by_id]
-    if len(run) < REPEAT_RUN:
+    if len(run) < int(getattr(style, "repeat_run", REPEAT_RUN)):
         refused.append(f"{where}: the run is no longer in the edit")
         return
     if len(clips) - len(dropped) <= min_clips:
@@ -404,7 +454,7 @@ def _thin_repeat(finding, by_id, clips, dropped, made, refused, where, min_clips
     )
 
 
-def _thin_effects(finding, effects, made, refused, where) -> None:
+def _thin_effects(finding, effects, made, refused, where, style=None) -> None:
     """Remove the weakest free-standing effects until the pile reads as one.
 
     Never a composition member. P4 admits a sentence whole or not at all, and
@@ -417,7 +467,8 @@ def _thin_effects(finding, effects, made, refused, where) -> None:
         item for item in effects if at <= item.timeline_start <= at + WINDOW_SECONDS
     ]
     free = [item for item in window if not item.composition_id]
-    excess = len(window) - int(EFFECTS_PER_TEN_SECONDS)
+    cap = int(getattr(style, "effects_per_ten_seconds", EFFECTS_PER_TEN_SECONDS))
+    excess = len(window) - cap
     if excess <= 0:
         refused.append(f"{where}: {len(window)} effects here is not a pile after all")
         return

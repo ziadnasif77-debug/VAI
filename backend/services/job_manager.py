@@ -11,6 +11,7 @@ across all of them (game events onward).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from backend.config.schema import AppConfig
@@ -434,11 +435,21 @@ class JobManager:
 
     # -- scheduling and recovery ----------------------------------------
 
-    def next_runnable(self, project_id: str) -> Job | None:
+    def next_runnable(
+        self, project_id: str, *, runnable: Callable[[JobStage], bool] | None = None
+    ) -> Job | None:
         """Return the next job whose dependencies are satisfied.
 
         Stage order decides priority, so the pipeline advances breadth-first
         through a project's media rather than finishing one file completely.
+
+        ``runnable`` lets the caller skip a stage it cannot execute. Without
+        it, one stage with no worker strands everything behind it: V2-P7 added
+        CRITIC2 to the automatic chain, and any worker set that stops at QA --
+        a test fixture, a build missing a worker -- then left a queued Reel
+        sitting behind a stage nobody could run. The same reasoning as the
+        ``include_manual`` note above: a job that was asked for must not be
+        stranded by a stage that has nothing to do with it.
         """
         completed = self._jobs.completed_stages(project_id)
         # include_manual: SS51 forbids QUEUEING a delivery uninvited, and that
@@ -453,8 +464,11 @@ class JobManager:
                 continue
             if job.cancel_requested:
                 continue
-            if job.stage in ready or not dependencies_of(job.stage):
-                return job
+            if job.stage not in ready and dependencies_of(job.stage):
+                continue
+            if runnable is not None and not runnable(job.stage):
+                continue
+            return job
         return None
 
     def recover(self, project_id: str | None = None) -> list[Job]:

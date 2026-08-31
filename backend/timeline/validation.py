@@ -344,17 +344,29 @@ def ensure_chronological(clips: Sequence[Any]) -> None:
 
     The owner's law, verbatim: no engine may reorder events; a stronger
     moment never precedes what happened before it. The single exception is
-    the cold-open hook -- a clip carrying ``role == "hook"`` may sit at
-    index zero as a declared preview of what is coming; anywhere else it
-    obeys time like everything.
+    the cold-open hook -- a clip carrying ``role == "hook"`` may open the
+    edit as a declared preview of what is coming; anywhere else it obeys
+    time like everything.
+
+    The exception is the *leading run* of hook clips, not the first clip.
+    V2-P1's walking splitter cuts a shot into pieces, so a hook long enough
+    to be split arrives as two or three consecutive pieces -- and stripping
+    only index zero left the rest of the hook sitting in the body, where the
+    first real clip legitimately precedes it. Every edit built with a hook
+    since that phase failed here, correctly by the letter of the check and
+    wrongly by its intent. The pieces still have to be in order among
+    themselves: a split hook is one preview, not a licence to shuffle.
 
     Raises ``ValidationError(chronology_violated)`` rather than warning:
     a plan that rewrites time is not a worse plan, it is not a plan this
     product ships.
     """
     body = list(clips)
-    if body and getattr(body[0], "role", "") == "hook":
-        body = body[1:]
+    opening = 0
+    while opening < len(body) and getattr(body[opening], "role", "") == "hook":
+        opening += 1
+    _in_order(body[:opening], "the cold open")
+    body = body[opening:]
     previous_key: tuple[str, float] | None = None
     for clip in body:
         key = (str(clip.media_id), _source_start(clip))
@@ -371,6 +383,21 @@ def ensure_chronological(clips: Sequence[Any]) -> None:
                 details={"at_source_seconds": key[1]},
             )
         previous_key = key
+
+
+def _in_order(clips: Sequence[Any], what: str) -> None:
+    """The pieces of one shot, still in the order the recording made them."""
+    previous: tuple[str, float] | None = None
+    for clip in clips:
+        key = (str(clip.media_id), _source_start(clip))
+        if previous is not None and key[0] == previous[0] and key[1] < previous[1] - 1e-6:
+            raise ValidationError(
+                f"chronology_violated: {what} runs backwards "
+                f"({key[1]:.1f}s after {previous[1]:.1f}s).",
+                code=ErrorCode.INVALID_EDL,
+                details={"at_source_seconds": key[1]},
+            )
+        previous = key
 
 
 __all__ = [

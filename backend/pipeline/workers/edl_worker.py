@@ -41,6 +41,7 @@ from backend.effects.models import EffectInstance, EffectPlan
 from backend.effects.planner import EffectPlanner, PlannedMoment
 from backend.interaction.service import InteractionService
 from backend.pipeline.workers.base import WorkerContext
+from backend.style import bible as style_bible
 from backend.timeline import captions as caption_builder
 from backend.timeline import retime, validation
 from backend.timeline.builder import build_timeline, clips_from_story_result
@@ -70,9 +71,14 @@ class EdlWorker:
         durations = self._durations(context)
         policy = context.config.output.duration_policy()
 
+        # V2-P8: which taste is cutting. Resolved once here and recorded, so
+        # the renderer, QA and the post-render critic judge the video by the
+        # style that made it rather than by whatever the brief says later.
+        style = style_bible.resolve(context.config, self._asked_style(context))
+
         guard = context.config.narrative.screen_guard
         if guard.enabled:
-            planned = self._guarded(context, planned, durations, guard)
+            planned = self._guarded(context, planned, durations, guard, style)
             if not planned:
                 context.report(1.0, "Every planned clip was a dead opening")
                 return {
@@ -147,6 +153,10 @@ class EdlWorker:
         written = TimelineRepository(context.database).replace(
             context.project_id, timeline, captions=built_captions, effects=instances
         )
+        # Recorded with the edit rather than after it: an edit whose style is
+        # unknown cannot be compared with anything later, which is the whole
+        # of what P9 will need from this phase.
+        style_bible.stamp(context.database, context.project_id, style)
         context.report(1.0, f"{written} clips on the timeline")
 
         if built.warnings:
@@ -162,6 +172,8 @@ class EdlWorker:
             "effects_by_engine": {
                 engine.value: len(effects.for_engine(engine)) for engine in EffectEngine
             },
+            "style": style.name,
+            "style_version": style.version,
             "validation": report.summary(),
             "clamped": list(built.clamped),
             "warnings": [*built.warnings, *(str(item) for item in report.warnings)],
@@ -196,7 +208,18 @@ class EdlWorker:
             if item.metadata.duration_seconds
         }
 
-    def _guarded(self, context, planned, durations, guard):
+    def _asked_style(self, context: WorkerContext) -> str | None:
+        """What this project's brief calls its style, if it can be read."""
+        try:
+            intent = InteractionService(
+                context.database, context.config
+            ).current_intent(context.project_id)
+        except Exception:
+            logger.info("No editing brief; the house style cuts this one")
+            return None
+        return intent.style
+
+    def _guarded(self, context, planned, durations, guard, style=None):
         """§77's screen states and the stored scene seams, applied to bounds."""
         from ai.ocr import create_ocr_provider
         from backend.analysis import frame_state
@@ -323,7 +346,7 @@ class EdlWorker:
                     high_tier_max_seconds=45.0,
                     low_tier_max_seconds=100.0,
                 )
-            return pacing_engine.shot_length(pacing_context, context.config)
+            return pacing_engine.shot_length(pacing_context, context.config, style)
 
         # Where a hot stretch has neither a scene change nor an event --
         # 40 continuous seconds of action produced zero of both -- the

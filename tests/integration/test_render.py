@@ -73,7 +73,16 @@ def render_config():
         update={
             "youtube_preset": config.youtube_preset.model_copy(
                 update={"resolution": 720, "fps": 30}
-            )
+            ),
+            # The shipped configuration restricts imports to the owner's
+            # recording vault (V2-P0), and this module builds its fixture
+            # clips in a temporary directory. The shared ``config`` fixture
+            # clears the same list for the same reason; this one loaded the
+            # file directly and did not, so every test in this module errored
+            # at setup with PATH_NOT_ALLOWED from the moment that rule shipped.
+            "application": config.application.model_copy(
+                update={"media_source_roots": []}
+            ),
         }
     )
     reset_config_cache()

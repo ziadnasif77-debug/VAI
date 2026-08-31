@@ -117,6 +117,7 @@ def plan_audio(
     spoken: Sequence[tuple[float, float]] = (),
     beats: Sequence[tuple[float, float]] = (),
     config: Any,
+    style: Any = None,
 ) -> AudioPlan:
     """Decide what the soundtrack does.
 
@@ -126,10 +127,13 @@ def plan_audio(
             whatever spans the caller passed.
         spoken: ``(start, end)`` speech, in timeline seconds.
         beats: ``(seconds, strength)`` payoff anchors, for the silences.
+        style: the resolved Style Bible entry (V2-P8). Without one the
+            constants below apply, which are the values this module has always
+            used and the ones the bible's defaults restate.
     """
     notes: list[str] = []
-    sections = _sections(reader, duration_seconds, config, notes)
-    silences = _silences(beats, spoken, config, notes)
+    sections = _sections(reader, duration_seconds, config, notes, style)
+    silences = _silences(beats, spoken, config, notes, style)
     return AudioPlan(
         sections=tuple(sections),
         speech_spans=tuple(spoken),
@@ -148,8 +152,12 @@ def _sections(
     duration_seconds: float,
     config: Any,
     notes: list[str],
+    style: Any = None,
 ) -> list[MusicSection]:
     """One bed per stretch of the session, merged until each is worth a swap."""
+    shortest = float(
+        getattr(getattr(style, "audio", None), "min_section_seconds", MIN_SECTION_SECONDS)
+    )
     music = config.audio.music
     if reader is None or not music.enabled or not music.change_on_section:
         return []
@@ -159,10 +167,14 @@ def _sections(
 
     merged: list[MusicSection] = []
     for segment in shape:
-        shelf = SHELF_FOR.get(segment.level, "build")
+        shelf = (
+            style.shelf_for(segment.level, SHELF_FOR.get(segment.level, "build"))
+            if style is not None
+            else SHELF_FOR.get(segment.level, "build")
+        )
         if merged and (
             merged[-1].shelf == shelf
-            or segment.end_seconds - segment.start_seconds < MIN_SECTION_SECONDS
+            or segment.end_seconds - segment.start_seconds < shortest
         ):
             # Same bed, or a stretch too short to be worth changing for.
             previous = merged[-1]
@@ -224,6 +236,7 @@ def _silences(
     spoken: Sequence[tuple[float, float]],
     config: Any,
     notes: list[str],
+    style: Any = None,
 ) -> list[PlannedSilence]:
     """A held breath before the strongest payoffs.
 
@@ -233,11 +246,14 @@ def _silences(
     """
     if not config.audio.music.enabled:
         return []
+    taste = getattr(style, "audio", None)
+    floor = float(getattr(taste, "silence_min_strength", SILENCE_MIN_STRENGTH))
+    lead = float(getattr(taste, "silence_before_payoff", SILENCE_BEFORE_PAYOFF))
     planned: list[PlannedSilence] = []
     for seconds, strength in sorted(beats, key=lambda item: -item[1]):
-        if strength < SILENCE_MIN_STRENGTH:
+        if strength < floor:
             continue
-        start = seconds - SILENCE_BEFORE_PAYOFF
+        start = seconds - lead
         if start < 0:
             continue
         if any(a < seconds and start < b for a, b in spoken):

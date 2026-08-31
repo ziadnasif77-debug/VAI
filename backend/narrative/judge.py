@@ -77,13 +77,17 @@ class PlanScore:
         }
 
 
-def judge(plan: Any, *, reader: SemanticReader | None, config: Any) -> PlanScore:
+def judge(
+    plan: Any, *, reader: SemanticReader | None, config: Any, style: Any = None
+) -> PlanScore:
     """Score one plan on eight axes, with a sentence for each (§80)."""
     moments = list(plan.moments)
     if not moments:
         return PlanScore(why=("the plan is empty",))
 
     why: list[str] = []
+    # V2-P8: what this style considers a good amount of each.
+    taste = getattr(style, "judgement", None)
     axes = {
         "coherence": _coherence(moments, why),
         "structure": _structure(plan, moments, why),
@@ -91,8 +95,8 @@ def judge(plan: Any, *, reader: SemanticReader | None, config: Any) -> PlanScore
         "intensity": _intensity(moments, reader, why),
         "variety": _variety(moments, why),
         "ending": _ending(moments, reader, why),
-        "effect_density": _effect_density(moments, plan, why),
-        "audio_density": _audio_density(moments, reader, why),
+        "effect_density": _effect_density(moments, plan, why, taste),
+        "audio_density": _audio_density(moments, reader, why, taste),
     }
     total = sum(AXIS_WEIGHTS[name] * value for name, value in axes.items())
     total /= sum(AXIS_WEIGHTS.values())
@@ -197,7 +201,9 @@ def _ending(moments: Sequence[Any], reader: SemanticReader | None, why: list[str
     return value
 
 
-def _effect_density(moments: Sequence[Any], plan: Any, why: list[str]) -> float:
+def _effect_density(
+    moments: Sequence[Any], plan: Any, why: list[str], style: Any = None
+) -> float:
     """How much emphasis the footage can carry, before any is planned.
 
     Measured from what the moments offer -- named events are what a
@@ -211,12 +217,22 @@ def _effect_density(moments: Sequence[Any], plan: Any, why: list[str]) -> float:
         if getattr(event.event_type, "value", "") != "unknown_event"
     )
     per_minute = anchors / max(seconds / 60.0, 1e-6)
-    value = max(0.0, 1.0 - abs(per_minute - IDEAL_EFFECTS_PER_MINUTE) / IDEAL_EFFECTS_PER_MINUTE)
+    # V2-P8: a minimal style is not a worse edit for having no effects.
+    ideal = float(getattr(style, "ideal_effects_per_minute", IDEAL_EFFECTS_PER_MINUTE))
+    if ideal <= 0.0:
+        value = 1.0 if per_minute <= 0.05 else max(0.0, 1.0 - per_minute)
+    else:
+        value = max(0.0, 1.0 - abs(per_minute - ideal) / ideal)
     why.append(f"effect density {value:.2f}: {per_minute:.1f} nameable beat(s) per minute")
     return min(1.0, value)
 
 
-def _audio_density(moments: Sequence[Any], reader: SemanticReader | None, why: list[str]) -> float:
+def _audio_density(
+    moments: Sequence[Any],
+    reader: SemanticReader | None,
+    why: list[str],
+    style: Any = None,
+) -> float:
     """How much of the edit somebody is talking over.
 
     All speech is a podcast; none is a silent film. Neither is wrong, and the
@@ -230,7 +246,8 @@ def _audio_density(moments: Sequence[Any], reader: SemanticReader | None, why: l
         window = reader.window("speech", moment.context_start, moment.context_end)
         share.append(sum(window) / len(window) if window else 0.0)
     spoken = sum(share) / len(share)
-    value = max(0.0, 1.0 - abs(spoken - IDEAL_SPEECH_SHARE) / max(IDEAL_SPEECH_SHARE, 1e-6))
+    ideal = float(getattr(style, "ideal_speech_share", IDEAL_SPEECH_SHARE))
+    value = max(0.0, 1.0 - abs(spoken - ideal) / max(ideal, 1e-6))
     why.append(f"audio density {value:.2f}: somebody is talking over {spoken:.0%} of it")
     return min(1.0, value)
 

@@ -574,6 +574,7 @@ class RenderWorker:
     def _audio_plan(self, context: WorkerContext, timeline, spoken, duration_seconds):
         """What the soundtrack should do, or an empty plan (§95)."""
         from backend.audio_director.plan import AudioPlan, plan_audio
+        from backend.style import bible as style_bible
 
         try:
             reader = self._programme_reader(context, timeline, duration_seconds)
@@ -595,6 +596,9 @@ class RenderWorker:
                 spoken=spoken,
                 beats=beats,
                 config=context.config,
+                style=style_bible.for_project(
+                    context.database, context.config, context.project_id
+                ),
             )
         except Exception:
             logger.exception("No audio plan; the mix falls back to one bed")
