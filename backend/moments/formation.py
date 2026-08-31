@@ -124,6 +124,23 @@ class Moment:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
+    def id(self) -> str:
+        """The stored identity, or empty for a moment nothing has saved yet.
+
+        It lives in ``metadata`` because a moment exists before a row does --
+        formation makes it, scoring changes it, and only then is it written.
+        That is a fine design and it was undocumented, so four call sites
+        reached for ``moment.id``, got the ``getattr`` default, and quietly
+        did nothing. The editorial reading was one of them: it produced an
+        empty reading on every real project from the day it shipped, and no
+        test saw it because every fixture built moments without ids.
+
+        Reading it here rather than in each caller means the convention has
+        one place to be wrong.
+        """
+        return str(self.metadata.get("id") or "")
+
+    @property
     def duration(self) -> float:
         return self.end_seconds - self.start_seconds
 

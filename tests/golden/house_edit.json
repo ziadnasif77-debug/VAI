@@ -1,0 +1,3499 @@
+{
+  "note": "The house edit, frozen. Regenerate with scripts/baseline.py --freeze only when a change to the house style is intended and reviewed.",
+  "projects": {
+    "proj-13cfabc9c3a5": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.266,
+        "ending": 0.776,
+        "intensity": 0.437,
+        "pacing": 0.79,
+        "structure": 1.0,
+        "total": 0.728,
+        "variety": 0.63
+      },
+      "clips": 9,
+      "ending_type": "skill",
+      "fingerprint": [
+        [
+          "surprise",
+          0.0,
+          43.493
+        ],
+        [
+          "chaos",
+          55.517,
+          82.75
+        ],
+        [
+          "tension",
+          137.367,
+          61.183
+        ],
+        [
+          "tension",
+          194.667,
+          64.633
+        ],
+        [
+          "surprise",
+          259.05,
+          36.5
+        ],
+        [
+          "surprise",
+          295.05,
+          28.417
+        ],
+        [
+          "surprise",
+          323.05,
+          15.5
+        ],
+        [
+          "surprise",
+          337.3,
+          23.7
+        ],
+        [
+          "skill",
+          360.3,
+          94.534
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.728,
+      "median_shot": 43.49,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "a8622b",
+            0.0,
+            43.493
+          ],
+          [
+            "a8622b",
+            55.517,
+            138.267
+          ],
+          [
+            "a8622b",
+            138.267,
+            198.55
+          ],
+          [
+            "a8622b",
+            198.55,
+            259.3
+          ],
+          [
+            "a8622b",
+            259.05,
+            295.55
+          ],
+          [
+            "a8622b",
+            295.55,
+            323.467
+          ],
+          [
+            "a8622b",
+            323.467,
+            338.55
+          ],
+          [
+            "a8622b",
+            338.55,
+            361.0
+          ],
+          [
+            "a8622b",
+            361.0,
+            454.834
+          ]
+        ],
+        "clamped": 0,
+        "clips": 9,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 443.06,
+        "transitions": [
+          "cut",
+          "fade"
+        ]
+      },
+      "total_seconds": 450.7
+    },
+    "proj-17d505ef9a3e": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.059,
+        "ending": 0.735,
+        "intensity": 0.316,
+        "pacing": 0.928,
+        "structure": 0.8,
+        "total": 0.628,
+        "variety": 0.222
+      },
+      "clips": 6,
+      "ending_type": "skill",
+      "fingerprint": [
+        [
+          "surprise",
+          0.0,
+          90.567
+        ],
+        [
+          "surprise",
+          86.32,
+          29.727
+        ],
+        [
+          "surprise",
+          129.067,
+          72.8
+        ],
+        [
+          "surprise",
+          201.55,
+          55.557
+        ],
+        [
+          "surprise",
+          289.367,
+          39.783
+        ],
+        [
+          "skill",
+          402.334,
+          52.5
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.6285,
+      "median_shot": 54.03,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "3f8433",
+            0.0,
+            90.567
+          ],
+          [
+            "3f8433",
+            90.567,
+            116.047
+          ],
+          [
+            "3f8433",
+            129.067,
+            201.867
+          ],
+          [
+            "3f8433",
+            201.867,
+            257.107
+          ],
+          [
+            "3f8433",
+            289.367,
+            329.15
+          ],
+          [
+            "3f8433",
+            402.334,
+            454.834
+          ]
+        ],
+        "clamped": 0,
+        "clips": 6,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 336.37,
+        "transitions": [
+          "cut",
+          "fade"
+        ]
+      },
+      "total_seconds": 340.9
+    },
+    "proj-266ddeed52d1": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.311,
+        "ending": 0.461,
+        "intensity": 0.393,
+        "pacing": 0.59,
+        "structure": 0.6,
+        "total": 0.545,
+        "variety": 0.233
+      },
+      "clips": 5,
+      "ending_type": "chaos",
+      "fingerprint": [
+        [
+          "surprise",
+          0.0,
+          12.25
+        ],
+        [
+          "chaos",
+          7.25,
+          39.917
+        ],
+        [
+          "chaos",
+          47.167,
+          121.833
+        ],
+        [
+          "chaos",
+          158.167,
+          89.806
+        ],
+        [
+          "chaos",
+          234.667,
+          186.999
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.5453,
+      "median_shot": 89.81,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "fde145",
+            0.0,
+            12.25
+          ],
+          [
+            "fde145",
+            12.25,
+            47.167
+          ],
+          [
+            "fde145",
+            47.167,
+            169.0
+          ],
+          [
+            "fde145",
+            169.0,
+            247.973
+          ],
+          [
+            "fde145",
+            247.973,
+            421.666
+          ]
+        ],
+        "clamped": 0,
+        "clips": 5,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 421.67,
+        "transitions": [
+          "cut",
+          "fade"
+        ]
+      },
+      "total_seconds": 450.8
+    },
+    "proj-26c6caed828f": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.059,
+        "ending": 0.735,
+        "intensity": 0.316,
+        "pacing": 0.928,
+        "structure": 0.8,
+        "total": 0.628,
+        "variety": 0.222
+      },
+      "clips": 6,
+      "ending_type": "skill",
+      "fingerprint": [
+        [
+          "surprise",
+          0.0,
+          90.567
+        ],
+        [
+          "surprise",
+          86.32,
+          29.727
+        ],
+        [
+          "surprise",
+          129.067,
+          72.8
+        ],
+        [
+          "surprise",
+          201.55,
+          55.557
+        ],
+        [
+          "surprise",
+          289.367,
+          39.783
+        ],
+        [
+          "skill",
+          402.334,
+          52.5
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.6285,
+      "median_shot": 54.03,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "584b85",
+            0.0,
+            90.567
+          ],
+          [
+            "584b85",
+            90.567,
+            116.047
+          ],
+          [
+            "584b85",
+            129.067,
+            201.867
+          ],
+          [
+            "584b85",
+            201.867,
+            257.107
+          ],
+          [
+            "584b85",
+            289.367,
+            329.15
+          ],
+          [
+            "584b85",
+            402.334,
+            454.834
+          ]
+        ],
+        "clamped": 0,
+        "clips": 6,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 336.37,
+        "transitions": [
+          "cut",
+          "fade"
+        ]
+      },
+      "total_seconds": 340.9
+    },
+    "proj-2ce806696c76": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.439,
+        "ending": 0.746,
+        "intensity": 0.481,
+        "pacing": 0.931,
+        "structure": 0.6,
+        "total": 0.657,
+        "variety": 0.278
+      },
+      "clips": 3,
+      "ending_type": "skill",
+      "fingerprint": [
+        [
+          "tension",
+          0.0,
+          68.99
+        ],
+        [
+          "tension",
+          63.1,
+          182.28
+        ],
+        [
+          "skill",
+          443.633,
+          67.784
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.6575,
+      "median_shot": 68.99,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "6c37a1",
+            0.0,
+            68.99
+          ],
+          [
+            "6c37a1",
+            68.99,
+            245.38
+          ],
+          [
+            "6c37a1",
+            443.633,
+            511.417
+          ]
+        ],
+        "clamped": 0,
+        "clips": 3,
+        "roles": [
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 313.16,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 319.1
+    },
+    "proj-2f8308d1e559": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 0.944,
+        "effect_density": 0.419,
+        "ending": 0.766,
+        "intensity": 0.454,
+        "pacing": 0.735,
+        "structure": 1.0,
+        "total": 0.728,
+        "variety": 0.667
+      },
+      "clips": 19,
+      "ending_type": "tension",
+      "fingerprint": [
+        [
+          "tension",
+          0.0,
+          98.05
+        ],
+        [
+          "skill",
+          101.0,
+          105.25
+        ],
+        [
+          "chaos",
+          324.3,
+          83.067
+        ],
+        [
+          "tension",
+          398.433,
+          103.233
+        ],
+        [
+          "surprise",
+          507.45,
+          9.183
+        ],
+        [
+          "tension",
+          507.45,
+          114.6
+        ],
+        [
+          "surprise",
+          704.55,
+          25.75
+        ],
+        [
+          "tension",
+          723.833,
+          77.717
+        ],
+        [
+          "chaos",
+          805.75,
+          37.25
+        ],
+        [
+          "chaos",
+          844.25,
+          59.383
+        ],
+        [
+          "tension",
+          1029.48,
+          103.62
+        ],
+        [
+          "tension",
+          1128.3,
+          70.25
+        ],
+        [
+          "surprise",
+          1255.3,
+          15.75
+        ],
+        [
+          "chaos",
+          1284.367,
+          23.633
+        ],
+        [
+          "chaos",
+          1307.0,
+          14.5
+        ],
+        [
+          "surprise",
+          1322.3,
+          76.0
+        ],
+        [
+          "chaos",
+          1837.933,
+          73.567
+        ],
+        [
+          "chaos",
+          1911.25,
+          14.5
+        ],
+        [
+          "tension",
+          2076.967,
+          88.933
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.7276,
+      "median_shot": 73.57,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "b56016",
+            0.0,
+            98.05
+          ],
+          [
+            "b56016",
+            101.0,
+            206.25
+          ],
+          [
+            "b56016",
+            324.3,
+            407.367
+          ],
+          [
+            "b56016",
+            407.367,
+            501.667
+          ],
+          [
+            "b56016",
+            507.45,
+            516.633
+          ],
+          [
+            "b56016",
+            516.633,
+            622.05
+          ],
+          [
+            "b56016",
+            704.55,
+            730.3
+          ],
+          [
+            "b56016",
+            730.3,
+            801.55
+          ],
+          [
+            "b56016",
+            805.75,
+            843.0
+          ],
+          [
+            "b56016",
+            844.25,
+            903.633
+          ],
+          [
+            "b56016",
+            1029.48,
+            1133.1
+          ],
+          [
+            "b56016",
+            1133.1,
+            1198.55
+          ],
+          [
+            "b56016",
+            1255.3,
+            1271.05
+          ],
+          [
+            "b56016",
+            1284.367,
+            1308.0
+          ],
+          [
+            "b56016",
+            1308.0,
+            1321.5
+          ],
+          [
+            "b56016",
+            1322.3,
+            1398.3
+          ],
+          [
+            "b56016",
+            1837.933,
+            1911.5
+          ],
+          [
+            "b56016",
+            1911.25,
+            1925.75
+          ],
+          [
+            "b56016",
+            2076.967,
+            2165.9
+          ]
+        ],
+        "clamped": 0,
+        "clips": 19,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1163.85,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1194.2
+    },
+    "proj-30f5d0b6b6f3": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.953,
+        "ending": 0.696,
+        "intensity": 0.492,
+        "pacing": 0.0,
+        "structure": 1.0,
+        "total": 0.706,
+        "variety": 1.0
+      },
+      "clips": 13,
+      "ending_type": "skill",
+      "fingerprint": [
+        [
+          "chaos",
+          0.0,
+          31.5
+        ],
+        [
+          "tension",
+          30.167,
+          19.2
+        ],
+        [
+          "tension",
+          44.567,
+          32.877
+        ],
+        [
+          "chaos",
+          76.2,
+          37.8
+        ],
+        [
+          "defeat",
+          113.15,
+          166.35
+        ],
+        [
+          "skill",
+          271.7,
+          54.6
+        ],
+        [
+          "surprise",
+          318.5,
+          39.267
+        ],
+        [
+          "clutch",
+          355.3,
+          35.7
+        ],
+        [
+          "chaos",
+          390.0,
+          28.75
+        ],
+        [
+          "chaos",
+          417.5,
+          15.5
+        ],
+        [
+          "skill",
+          431.367,
+          34.883
+        ],
+        [
+          "chaos",
+          461.5,
+          53.2
+        ],
+        [
+          "skill",
+          566.416,
+          37.8
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.7058,
+      "median_shot": 35.7,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "eb4e8a",
+            0.0,
+            31.5
+          ],
+          [
+            "eb4e8a",
+            31.5,
+            49.367
+          ],
+          [
+            "eb4e8a",
+            49.367,
+            77.443
+          ],
+          [
+            "eb4e8a",
+            77.443,
+            114.0
+          ],
+          [
+            "eb4e8a",
+            114.0,
+            279.5
+          ],
+          [
+            "eb4e8a",
+            279.5,
+            326.3
+          ],
+          [
+            "eb4e8a",
+            326.3,
+            357.767
+          ],
+          [
+            "eb4e8a",
+            357.767,
+            391.0
+          ],
+          [
+            "eb4e8a",
+            391.0,
+            418.75
+          ],
+          [
+            "eb4e8a",
+            418.75,
+            433.0
+          ],
+          [
+            "eb4e8a",
+            433.0,
+            466.25
+          ],
+          [
+            "eb4e8a",
+            466.25,
+            514.7
+          ],
+          [
+            "eb4e8a",
+            566.416,
+            604.216
+          ]
+        ],
+        "clamped": 0,
+        "clips": 13,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 552.5,
+        "transitions": [
+          "cut",
+          "fade"
+        ]
+      },
+      "total_seconds": 587.4
+    },
+    "proj-445ae3666902": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 0.625,
+        "effect_density": 0.328,
+        "ending": 0.811,
+        "intensity": 0.348,
+        "pacing": 0.774,
+        "structure": 1.0,
+        "total": 0.664,
+        "variety": 0.667
+      },
+      "clips": 25,
+      "ending_type": "tension",
+      "fingerprint": [
+        [
+          "chaos",
+          134.267,
+          57.7
+        ],
+        [
+          "surprise",
+          210.8,
+          15.5
+        ],
+        [
+          "chaos",
+          304.367,
+          60.2
+        ],
+        [
+          "chaos",
+          393.75,
+          51.5
+        ],
+        [
+          "surprise",
+          708.933,
+          46.133
+        ],
+        [
+          "chaos",
+          1051.467,
+          89.6
+        ],
+        [
+          "surprise",
+          1145.267,
+          59.133
+        ],
+        [
+          "surprise",
+          1240.567,
+          51.1
+        ],
+        [
+          "defeat",
+          1299.467,
+          51.2
+        ],
+        [
+          "chaos",
+          1470.667,
+          33.583
+        ],
+        [
+          "chaos",
+          1674.667,
+          31.867
+        ],
+        [
+          "surprise",
+          1940.3,
+          71.75
+        ],
+        [
+          "surprise",
+          2345.8,
+          47.75
+        ],
+        [
+          "chaos",
+          2813.367,
+          64.6
+        ],
+        [
+          "chaos",
+          2965.633,
+          77.5
+        ],
+        [
+          "chaos",
+          3075.733,
+          30.767
+        ],
+        [
+          "surprise",
+          3360.367,
+          18.767
+        ],
+        [
+          "surprise",
+          3684.267,
+          47.033
+        ],
+        [
+          "chaos",
+          3802.0,
+          54.933
+        ],
+        [
+          "surprise",
+          3884.867,
+          15.933
+        ],
+        [
+          "chaos",
+          4078.467,
+          38.1
+        ],
+        [
+          "surprise",
+          4185.333,
+          15.0
+        ],
+        [
+          "surprise",
+          4665.367,
+          19.933
+        ],
+        [
+          "surprise",
+          5127.033,
+          45.017
+        ],
+        [
+          "tension",
+          5548.6,
+          65.633
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.6637,
+      "median_shot": 47.75,
+      "profile": "C",
+      "timeline": {
+        "boundaries": [
+          [
+            "9e6c65",
+            134.267,
+            191.967
+          ],
+          [
+            "9e6c65",
+            210.8,
+            226.3
+          ],
+          [
+            "9e6c65",
+            304.367,
+            364.567
+          ],
+          [
+            "9e6c65",
+            393.75,
+            445.25
+          ],
+          [
+            "9e6c65",
+            708.933,
+            755.067
+          ],
+          [
+            "9e6c65",
+            1051.467,
+            1141.067
+          ],
+          [
+            "9e6c65",
+            1145.267,
+            1204.4
+          ],
+          [
+            "9e6c65",
+            1240.567,
+            1291.667
+          ],
+          [
+            "9e6c65",
+            1299.467,
+            1350.667
+          ],
+          [
+            "9e6c65",
+            1470.667,
+            1504.25
+          ],
+          [
+            "9e6c65",
+            1674.667,
+            1706.533
+          ],
+          [
+            "9e6c65",
+            1940.3,
+            2012.05
+          ],
+          [
+            "9e6c65",
+            2345.8,
+            2393.55
+          ],
+          [
+            "9e6c65",
+            2813.367,
+            2877.967
+          ],
+          [
+            "9e6c65",
+            2965.633,
+            3043.133
+          ],
+          [
+            "9e6c65",
+            3075.733,
+            3106.5
+          ],
+          [
+            "9e6c65",
+            3360.367,
+            3379.133
+          ],
+          [
+            "9e6c65",
+            3684.267,
+            3731.3
+          ],
+          [
+            "9e6c65",
+            3802.0,
+            3856.933
+          ],
+          [
+            "9e6c65",
+            3884.867,
+            3900.8
+          ],
+          [
+            "9e6c65",
+            4078.467,
+            4116.567
+          ],
+          [
+            "9e6c65",
+            4185.333,
+            4200.333
+          ],
+          [
+            "9e6c65",
+            4665.367,
+            4685.3
+          ],
+          [
+            "9e6c65",
+            5127.033,
+            5172.05
+          ],
+          [
+            "9e6c65",
+            5548.6,
+            5614.233
+          ]
+        ],
+        "clamped": 0,
+        "clips": 25,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1160.23,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1160.2
+    },
+    "proj-51f5477dde1e": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.398,
+        "ending": 0.891,
+        "intensity": 0.459,
+        "pacing": 0.499,
+        "structure": 1.0,
+        "total": 0.753,
+        "variety": 0.971
+      },
+      "clips": 17,
+      "ending_type": "defeat",
+      "fingerprint": [
+        [
+          "tension",
+          79.167,
+          54.8
+        ],
+        [
+          "surprise",
+          143.75,
+          45.07
+        ],
+        [
+          "chaos",
+          225.567,
+          85.566
+        ],
+        [
+          "fail",
+          321.133,
+          166.233
+        ],
+        [
+          "chaos",
+          473.933,
+          74.368
+        ],
+        [
+          "surprise",
+          608.705,
+          25.545
+        ],
+        [
+          "tension",
+          795.9,
+          45.6
+        ],
+        [
+          "surprise",
+          833.967,
+          59.9
+        ],
+        [
+          "surprise",
+          902.767,
+          37.765
+        ],
+        [
+          "surprise",
+          971.5,
+          33.126
+        ],
+        [
+          "surprise",
+          988.667,
+          48.1
+        ],
+        [
+          "tension",
+          1112.367,
+          126.383
+        ],
+        [
+          "rare",
+          1232.75,
+          108.073
+        ],
+        [
+          "surprise",
+          1375.75,
+          39.95
+        ],
+        [
+          "surprise",
+          1415.7,
+          23.55
+        ],
+        [
+          "surprise",
+          1666.0,
+          61.82
+        ],
+        [
+          "defeat",
+          1718.8,
+          118.667
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.7535,
+      "median_shot": 54.8,
+      "profile": "C",
+      "timeline": {
+        "boundaries": [
+          [
+            "b72e31",
+            79.167,
+            133.967
+          ],
+          [
+            "b72e31",
+            143.75,
+            188.82
+          ],
+          [
+            "b72e31",
+            225.567,
+            311.133
+          ],
+          [
+            "b72e31",
+            321.133,
+            487.367
+          ],
+          [
+            "b72e31",
+            487.367,
+            548.302
+          ],
+          [
+            "b72e31",
+            608.705,
+            634.25
+          ],
+          [
+            "b72e31",
+            795.9,
+            841.5
+          ],
+          [
+            "b72e31",
+            841.5,
+            893.867
+          ],
+          [
+            "b72e31",
+            902.767,
+            940.532
+          ],
+          [
+            "b72e31",
+            971.5,
+            1004.626
+          ],
+          [
+            "b72e31",
+            1004.626,
+            1036.767
+          ],
+          [
+            "b72e31",
+            1112.367,
+            1238.75
+          ],
+          [
+            "b72e31",
+            1238.75,
+            1340.823
+          ],
+          [
+            "b72e31",
+            1375.75,
+            1415.7
+          ],
+          [
+            "b72e31",
+            1415.7,
+            1439.25
+          ],
+          [
+            "b72e31",
+            1666.0,
+            1727.82
+          ],
+          [
+            "b72e31",
+            1727.82,
+            1837.467
+          ]
+        ],
+        "clamped": 0,
+        "clips": 17,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1102.57,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1154.5
+    },
+    "proj-67d1d971b600": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.433,
+        "ending": 0.878,
+        "intensity": 0.46,
+        "pacing": 0.456,
+        "structure": 1.0,
+        "total": 0.752,
+        "variety": 1.0
+      },
+      "clips": 18,
+      "ending_type": "defeat",
+      "fingerprint": [
+        [
+          "tension",
+          84.1,
+          54.667
+        ],
+        [
+          "surprise",
+          161.55,
+          33.75
+        ],
+        [
+          "chaos",
+          242.567,
+          74.566
+        ],
+        [
+          "fail",
+          337.867,
+          158.5
+        ],
+        [
+          "chaos",
+          490.5,
+          63.25
+        ],
+        [
+          "surprise",
+          621.367,
+          20.683
+        ],
+        [
+          "tension",
+          634.04,
+          137.927
+        ],
+        [
+          "tension",
+          806.5,
+          39.8
+        ],
+        [
+          "surprise",
+          851.767,
+          49.9
+        ],
+        [
+          "surprise",
+          920.567,
+          23.667
+        ],
+        [
+          "surprise",
+          971.5,
+          37.8
+        ],
+        [
+          "surprise",
+          1006.467,
+          38.1
+        ],
+        [
+          "tension",
+          1122.967,
+          120.583
+        ],
+        [
+          "rare",
+          1249.75,
+          95.5
+        ],
+        [
+          "surprise",
+          1393.55,
+          27.0
+        ],
+        [
+          "surprise",
+          1428.3,
+          18.75
+        ],
+        [
+          "surprise",
+          1683.8,
+          50.267
+        ],
+        [
+          "defeat",
+          1735.167,
+          109.5
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.7518,
+      "median_shot": 50.08,
+      "profile": "C",
+      "timeline": {
+        "boundaries": [
+          [
+            "1e900c",
+            84.1,
+            138.767
+          ],
+          [
+            "1e900c",
+            161.55,
+            195.3
+          ],
+          [
+            "1e900c",
+            242.567,
+            317.133
+          ],
+          [
+            "1e900c",
+            337.867,
+            496.367
+          ],
+          [
+            "1e900c",
+            496.367,
+            553.75
+          ],
+          [
+            "1e900c",
+            621.367,
+            642.05
+          ],
+          [
+            "1e900c",
+            642.05,
+            771.967
+          ],
+          [
+            "1e900c",
+            806.5,
+            846.3
+          ],
+          [
+            "1e900c",
+            851.767,
+            901.667
+          ],
+          [
+            "1e900c",
+            920.567,
+            944.233
+          ],
+          [
+            "1e900c",
+            971.5,
+            1009.3
+          ],
+          [
+            "1e900c",
+            1009.3,
+            1044.567
+          ],
+          [
+            "1e900c",
+            1122.967,
+            1243.55
+          ],
+          [
+            "1e900c",
+            1249.75,
+            1345.25
+          ],
+          [
+            "1e900c",
+            1393.55,
+            1420.55
+          ],
+          [
+            "1e900c",
+            1428.3,
+            1447.05
+          ],
+          [
+            "1e900c",
+            1683.8,
+            1734.067
+          ],
+          [
+            "1e900c",
+            1735.167,
+            1844.667
+          ]
+        ],
+        "clamped": 0,
+        "clips": 18,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1137.5,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1154.2
+    },
+    "proj-6d5b6e27703c": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.875,
+        "ending": 0.705,
+        "intensity": 0.508,
+        "pacing": 0.63,
+        "structure": 1.0,
+        "total": 0.798,
+        "variety": 1.0
+      },
+      "clips": 12,
+      "ending_type": "chaos",
+      "fingerprint": [
+        [
+          "tension",
+          0.0,
+          25.27
+        ],
+        [
+          "chaos",
+          20.947,
+          32.503
+        ],
+        [
+          "clutch",
+          49.267,
+          73.133
+        ],
+        [
+          "defeat",
+          114.4,
+          61.413
+        ],
+        [
+          "skill",
+          167.433,
+          65.1
+        ],
+        [
+          "chaos",
+          226.25,
+          68.55
+        ],
+        [
+          "skill",
+          290.25,
+          53.217
+        ],
+        [
+          "tension",
+          340.133,
+          40.467
+        ],
+        [
+          "tension",
+          374.32,
+          27.58
+        ],
+        [
+          "defeat",
+          400.3,
+          128.4
+        ],
+        [
+          "surprise",
+          517.16,
+          40.39
+        ],
+        [
+          "chaos",
+          555.5,
+          47.062
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.7976,
+      "median_shot": 50.14,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "6d40a3",
+            0.0,
+            25.27
+          ],
+          [
+            "6d40a3",
+            25.27,
+            53.45
+          ],
+          [
+            "6d40a3",
+            53.45,
+            122.4
+          ],
+          [
+            "6d40a3",
+            122.4,
+            175.813
+          ],
+          [
+            "6d40a3",
+            175.813,
+            232.533
+          ],
+          [
+            "6d40a3",
+            232.533,
+            294.8
+          ],
+          [
+            "6d40a3",
+            294.8,
+            343.467
+          ],
+          [
+            "6d40a3",
+            343.467,
+            380.6
+          ],
+          [
+            "6d40a3",
+            380.6,
+            401.9
+          ],
+          [
+            "6d40a3",
+            401.9,
+            528.7
+          ],
+          [
+            "6d40a3",
+            528.7,
+            557.55
+          ],
+          [
+            "6d40a3",
+            557.55,
+            602.562
+          ]
+        ],
+        "clamped": 0,
+        "clips": 12,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 602.56,
+        "transitions": [
+          "cut",
+          "fade"
+        ]
+      },
+      "total_seconds": 663.1
+    },
+    "proj-86edde704be0": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 0.684,
+        "effect_density": 0.104,
+        "ending": 0.428,
+        "intensity": 0.31,
+        "pacing": 0.592,
+        "structure": 1.0,
+        "total": 0.525,
+        "variety": 0.233
+      },
+      "clips": 20,
+      "ending_type": "surprise",
+      "fingerprint": [
+        [
+          "surprise",
+          0.0,
+          23.867
+        ],
+        [
+          "surprise",
+          200.8,
+          87.71
+        ],
+        [
+          "surprise",
+          371.87,
+          44.73
+        ],
+        [
+          "surprise",
+          470.55,
+          93.83
+        ],
+        [
+          "surprise",
+          574.55,
+          30.5
+        ],
+        [
+          "surprise",
+          745.3,
+          21.0
+        ],
+        [
+          "surprise",
+          849.167,
+          47.633
+        ],
+        [
+          "surprise",
+          899.8,
+          42.0
+        ],
+        [
+          "surprise",
+          970.1,
+          20.95
+        ],
+        [
+          "surprise",
+          1273.05,
+          56.5
+        ],
+        [
+          "surprise",
+          1688.34,
+          34.56
+        ],
+        [
+          "surprise",
+          1892.18,
+          68.37
+        ],
+        [
+          "tension",
+          2314.533,
+          110.767
+        ],
+        [
+          "surprise",
+          2557.467,
+          41.1
+        ],
+        [
+          "tension",
+          2949.267,
+          132.073
+        ],
+        [
+          "tension",
+          3075.86,
+          20.504
+        ],
+        [
+          "tension",
+          3082.24,
+          62.6
+        ],
+        [
+          "surprise",
+          3506.78,
+          111.77
+        ],
+        [
+          "surprise",
+          3667.27,
+          63.34
+        ],
+        [
+          "surprise",
+          3996.21,
+          39.24
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.5252,
+      "median_shot": 46.18,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "45722f",
+            0.0,
+            23.867
+          ],
+          [
+            "45722f",
+            200.8,
+            288.51
+          ],
+          [
+            "45722f",
+            371.87,
+            416.6
+          ],
+          [
+            "45722f",
+            470.55,
+            564.38
+          ],
+          [
+            "45722f",
+            574.55,
+            605.05
+          ],
+          [
+            "45722f",
+            745.3,
+            766.3
+          ],
+          [
+            "45722f",
+            849.167,
+            896.8
+          ],
+          [
+            "45722f",
+            899.8,
+            941.8
+          ],
+          [
+            "45722f",
+            970.1,
+            991.05
+          ],
+          [
+            "45722f",
+            1273.05,
+            1329.55
+          ],
+          [
+            "45722f",
+            1688.34,
+            1722.9
+          ],
+          [
+            "45722f",
+            1892.18,
+            1960.55
+          ],
+          [
+            "45722f",
+            2314.533,
+            2425.3
+          ],
+          [
+            "45722f",
+            2557.467,
+            2598.567
+          ],
+          [
+            "45722f",
+            2949.267,
+            3081.34
+          ],
+          [
+            "45722f",
+            3081.34,
+            3096.364
+          ],
+          [
+            "45722f",
+            3096.364,
+            3144.84
+          ],
+          [
+            "45722f",
+            3506.78,
+            3618.55
+          ],
+          [
+            "45722f",
+            3667.27,
+            3730.61
+          ],
+          [
+            "45722f",
+            3996.21,
+            4035.45
+          ]
+        ],
+        "clamped": 0,
+        "clips": 20,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1133.44,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1153.0
+    },
+    "proj-87a4213b248e": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 0.76,
+        "effect_density": 0.541,
+        "ending": 0.693,
+        "intensity": 0.509,
+        "pacing": 0.624,
+        "structure": 1.0,
+        "total": 0.731,
+        "variety": 1.0
+      },
+      "clips": 26,
+      "ending_type": "tension",
+      "fingerprint": [
+        [
+          "skill",
+          0.0,
+          54.433
+        ],
+        [
+          "surprise",
+          63.55,
+          37.5
+        ],
+        [
+          "tension",
+          208.567,
+          71.733
+        ],
+        [
+          "skill",
+          479.4,
+          58.85
+        ],
+        [
+          "boss",
+          565.7,
+          106.0
+        ],
+        [
+          "tension",
+          671.5,
+          44.633
+        ],
+        [
+          "outplay",
+          733.333,
+          85.633
+        ],
+        [
+          "surprise",
+          820.05,
+          33.0
+        ],
+        [
+          "surprise",
+          1771.55,
+          18.017
+        ],
+        [
+          "tension",
+          2050.533,
+          33.017
+        ],
+        [
+          "surprise",
+          2350.05,
+          22.25
+        ],
+        [
+          "defeat",
+          2423.733,
+          67.033
+        ],
+        [
+          "defeat",
+          2478.9,
+          44.55
+        ],
+        [
+          "chaos",
+          2550.767,
+          25.1
+        ],
+        [
+          "skill",
+          2713.6,
+          72.025
+        ],
+        [
+          "tension",
+          2847.2,
+          28.233
+        ],
+        [
+          "surprise",
+          3457.56,
+          38.107
+        ],
+        [
+          "surprise",
+          3520.467,
+          22.1
+        ],
+        [
+          "rare",
+          3555.067,
+          52.7
+        ],
+        [
+          "fail",
+          4047.35,
+          43.15
+        ],
+        [
+          "chaos",
+          78.26,
+          70.407
+        ],
+        [
+          "tension",
+          142.667,
+          32.383
+        ],
+        [
+          "surprise",
+          175.267,
+          26.283
+        ],
+        [
+          "fail",
+          202.667,
+          60.583
+        ],
+        [
+          "surprise",
+          259.3,
+          36.25
+        ],
+        [
+          "tension",
+          285.6,
+          34.867
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.7306,
+      "median_shot": 40.63,
+      "profile": "C",
+      "timeline": {
+        "boundaries": [
+          [
+            "c1a6a9",
+            0.0,
+            54.433
+          ],
+          [
+            "c1a6a9",
+            63.55,
+            101.05
+          ],
+          [
+            "c1a6a9",
+            208.567,
+            280.3
+          ],
+          [
+            "c1a6a9",
+            479.4,
+            538.25
+          ],
+          [
+            "c1a6a9",
+            565.7,
+            671.7
+          ],
+          [
+            "c1a6a9",
+            671.5,
+            716.133
+          ],
+          [
+            "c1a6a9",
+            733.333,
+            818.967
+          ],
+          [
+            "c1a6a9",
+            820.05,
+            853.05
+          ],
+          [
+            "c1a6a9",
+            1771.55,
+            1789.567
+          ],
+          [
+            "c1a6a9",
+            2050.533,
+            2083.55
+          ],
+          [
+            "c1a6a9",
+            2350.05,
+            2372.3
+          ],
+          [
+            "c1a6a9",
+            2423.733,
+            2490.767
+          ],
+          [
+            "c1a6a9",
+            2490.767,
+            2523.45
+          ],
+          [
+            "c1a6a9",
+            2550.767,
+            2575.867
+          ],
+          [
+            "c1a6a9",
+            2713.6,
+            2785.625
+          ],
+          [
+            "c1a6a9",
+            2847.2,
+            2875.433
+          ],
+          [
+            "c1a6a9",
+            3457.56,
+            3495.667
+          ],
+          [
+            "c1a6a9",
+            3520.467,
+            3542.567
+          ],
+          [
+            "c1a6a9",
+            3555.067,
+            3607.767
+          ],
+          [
+            "c1a6a9",
+            4047.35,
+            4090.5
+          ],
+          [
+            "140f8e",
+            78.26,
+            148.667
+          ],
+          [
+            "140f8e",
+            148.667,
+            175.05
+          ],
+          [
+            "140f8e",
+            175.267,
+            201.55
+          ],
+          [
+            "140f8e",
+            202.667,
+            263.25
+          ],
+          [
+            "140f8e",
+            263.25,
+            295.55
+          ],
+          [
+            "140f8e",
+            295.55,
+            320.467
+          ]
+        ],
+        "clamped": 0,
+        "clips": 26,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1187.07,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1218.8
+    },
+    "proj-bd2db7f630a7": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 0.962,
+        "effect_density": 0.463,
+        "ending": 0.868,
+        "intensity": 0.5,
+        "pacing": 0.644,
+        "structure": 1.0,
+        "total": 0.78,
+        "variety": 1.0
+      },
+      "clips": 27,
+      "ending_type": "clutch",
+      "fingerprint": [
+        [
+          "outplay",
+          32.333,
+          28.517
+        ],
+        [
+          "skill",
+          89.61,
+          67.39
+        ],
+        [
+          "surprise",
+          159.667,
+          41.633
+        ],
+        [
+          "surprise",
+          431.15,
+          32.15
+        ],
+        [
+          "skill",
+          672.42,
+          57.947
+        ],
+        [
+          "funny",
+          746.9,
+          38.45
+        ],
+        [
+          "surprise",
+          813.76,
+          35.04
+        ],
+        [
+          "surprise",
+          849.167,
+          41.133
+        ],
+        [
+          "skill",
+          899.0,
+          28.5
+        ],
+        [
+          "clutch",
+          1153.85,
+          51.21
+        ],
+        [
+          "clutch",
+          1205.06,
+          107.19
+        ],
+        [
+          "fail",
+          1500.933,
+          30.317
+        ],
+        [
+          "clutch",
+          1514.32,
+          35.38
+        ],
+        [
+          "surprise",
+          1693.867,
+          30.253
+        ],
+        [
+          "surprise",
+          1708.6,
+          40.133
+        ],
+        [
+          "tension",
+          1891.967,
+          65.583
+        ],
+        [
+          "surprise",
+          2071.3,
+          21.75
+        ],
+        [
+          "surprise",
+          2144.3,
+          29.06
+        ],
+        [
+          "tension",
+          2178.17,
+          75.13
+        ],
+        [
+          "tension",
+          2467.35,
+          105.7
+        ],
+        [
+          "chaos",
+          2564.73,
+          35.003
+        ],
+        [
+          "chaos",
+          2605.85,
+          50.483
+        ],
+        [
+          "rare",
+          3319.033,
+          54.967
+        ],
+        [
+          "fail",
+          3403.533,
+          44.217
+        ],
+        [
+          "skill",
+          3512.5,
+          45.0
+        ],
+        [
+          "skill",
+          3726.6,
+          28.9
+        ],
+        [
+          "clutch",
+          3985.767,
+          31.9
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.7804,
+      "median_shot": 40.13,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "c51668",
+            32.333,
+            60.85
+          ],
+          [
+            "c51668",
+            89.61,
+            157.0
+          ],
+          [
+            "c51668",
+            159.667,
+            201.3
+          ],
+          [
+            "c51668",
+            431.15,
+            463.3
+          ],
+          [
+            "c51668",
+            672.42,
+            730.367
+          ],
+          [
+            "c51668",
+            746.9,
+            785.35
+          ],
+          [
+            "c51668",
+            813.76,
+            848.8
+          ],
+          [
+            "c51668",
+            849.167,
+            890.3
+          ],
+          [
+            "c51668",
+            899.0,
+            927.5
+          ],
+          [
+            "c51668",
+            1153.85,
+            1205.06
+          ],
+          [
+            "c51668",
+            1205.06,
+            1312.25
+          ],
+          [
+            "c51668",
+            1500.933,
+            1531.25
+          ],
+          [
+            "c51668",
+            1531.25,
+            1549.7
+          ],
+          [
+            "c51668",
+            1693.867,
+            1724.12
+          ],
+          [
+            "c51668",
+            1724.12,
+            1748.733
+          ],
+          [
+            "c51668",
+            1891.967,
+            1957.55
+          ],
+          [
+            "c51668",
+            2071.3,
+            2093.05
+          ],
+          [
+            "c51668",
+            2144.3,
+            2173.36
+          ],
+          [
+            "c51668",
+            2178.17,
+            2253.3
+          ],
+          [
+            "c51668",
+            2467.35,
+            2573.05
+          ],
+          [
+            "c51668",
+            2573.05,
+            2599.733
+          ],
+          [
+            "c51668",
+            2605.85,
+            2656.333
+          ],
+          [
+            "c51668",
+            3319.033,
+            3374.0
+          ],
+          [
+            "c51668",
+            3403.533,
+            3447.75
+          ],
+          [
+            "c51668",
+            3512.5,
+            3557.5
+          ],
+          [
+            "c51668",
+            3726.6,
+            3755.5
+          ],
+          [
+            "c51668",
+            3985.767,
+            4017.667
+          ]
+        ],
+        "clamped": 0,
+        "clips": 27,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1212.17,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1252.9
+    },
+    "proj-ca4d0eac9d6d": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 0.941,
+        "effect_density": 0.202,
+        "ending": 0.433,
+        "intensity": 0.411,
+        "pacing": 0.607,
+        "structure": 1.0,
+        "total": 0.668,
+        "variety": 0.833
+      },
+      "clips": 18,
+      "ending_type": "surprise",
+      "fingerprint": [
+        [
+          "tension",
+          0.0,
+          98.05
+        ],
+        [
+          "fail",
+          103.1,
+          106.15
+        ],
+        [
+          "surprise",
+          854.3,
+          72.25
+        ],
+        [
+          "surprise",
+          928.8,
+          64.75
+        ],
+        [
+          "tension",
+          1029.48,
+          51.87
+        ],
+        [
+          "comeback",
+          1076.06,
+          59.44
+        ],
+        [
+          "comeback",
+          1125.5,
+          75.45
+        ],
+        [
+          "surprise",
+          1322.3,
+          47.75
+        ],
+        [
+          "fail",
+          1376.1,
+          23.4
+        ],
+        [
+          "fail",
+          1482.1,
+          58.767
+        ],
+        [
+          "surprise",
+          1627.3,
+          54.5
+        ],
+        [
+          "skill",
+          1682.75,
+          47.183
+        ],
+        [
+          "surprise",
+          1761.133,
+          79.417
+        ],
+        [
+          "surprise",
+          1838.14,
+          46.06
+        ],
+        [
+          "tension",
+          1921.1,
+          141.45
+        ],
+        [
+          "skill",
+          2057.46,
+          109.54
+        ],
+        [
+          "surprise",
+          2350.05,
+          15.75
+        ],
+        [
+          "surprise",
+          2425.8,
+          34.217
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.6677,
+      "median_shot": 59.1,
+      "profile": "B",
+      "timeline": {
+        "boundaries": [
+          [
+            "dfe2ce",
+            0.0,
+            98.05
+          ],
+          [
+            "dfe2ce",
+            103.1,
+            209.25
+          ],
+          [
+            "dfe2ce",
+            854.3,
+            926.55
+          ],
+          [
+            "dfe2ce",
+            928.8,
+            993.55
+          ],
+          [
+            "dfe2ce",
+            1029.48,
+            1081.35
+          ],
+          [
+            "dfe2ce",
+            1081.35,
+            1135.5
+          ],
+          [
+            "dfe2ce",
+            1135.5,
+            1200.95
+          ],
+          [
+            "dfe2ce",
+            1322.3,
+            1370.05
+          ],
+          [
+            "dfe2ce",
+            1376.1,
+            1399.5
+          ],
+          [
+            "dfe2ce",
+            1482.1,
+            1540.867
+          ],
+          [
+            "dfe2ce",
+            1627.3,
+            1681.8
+          ],
+          [
+            "dfe2ce",
+            1682.75,
+            1729.933
+          ],
+          [
+            "dfe2ce",
+            1761.133,
+            1840.55
+          ],
+          [
+            "dfe2ce",
+            1840.55,
+            1884.2
+          ],
+          [
+            "dfe2ce",
+            1921.1,
+            2062.55
+          ],
+          [
+            "dfe2ce",
+            2062.55,
+            2167.0
+          ],
+          [
+            "dfe2ce",
+            2350.05,
+            2365.8
+          ],
+          [
+            "dfe2ce",
+            2425.8,
+            2460.017
+          ]
+        ],
+        "clamped": 0,
+        "clips": 18,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1163.2,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1186.0
+    },
+    "proj-dc1cf6be95a3": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 0.667,
+        "effect_density": 0.085,
+        "ending": 0.36,
+        "intensity": 0.301,
+        "pacing": 0.453,
+        "structure": 1.0,
+        "total": 0.489,
+        "variety": 0.219
+      },
+      "clips": 19,
+      "ending_type": "surprise",
+      "fingerprint": [
+        [
+          "surprise",
+          0.0,
+          23.867
+        ],
+        [
+          "surprise",
+          200.8,
+          87.81
+        ],
+        [
+          "surprise",
+          371.49,
+          45.06
+        ],
+        [
+          "surprise",
+          470.55,
+          92.5
+        ],
+        [
+          "surprise",
+          745.3,
+          21.0
+        ],
+        [
+          "surprise",
+          849.167,
+          47.633
+        ],
+        [
+          "surprise",
+          899.8,
+          42.0
+        ],
+        [
+          "surprise",
+          971.05,
+          20.0
+        ],
+        [
+          "surprise",
+          1273.05,
+          56.5
+        ],
+        [
+          "surprise",
+          1892.18,
+          68.37
+        ],
+        [
+          "surprise",
+          2557.29,
+          41.277
+        ],
+        [
+          "tension",
+          2593.5,
+          65.95
+        ],
+        [
+          "tension",
+          2948.2,
+          133.14
+        ],
+        [
+          "surprise",
+          3667.27,
+          63.34
+        ],
+        [
+          "tension",
+          3826.53,
+          154.537
+        ],
+        [
+          "surprise",
+          3996.55,
+          38.9
+        ],
+        [
+          "surprise",
+          0.0,
+          78.04
+        ],
+        [
+          "surprise",
+          149.55,
+          52.0
+        ],
+        [
+          "surprise",
+          412.3,
+          38.5
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.4893,
+      "median_shot": 52.0,
+      "profile": "B",
+      "timeline": {
+        "boundaries": [
+          [
+            "497dc4",
+            0.0,
+            23.867
+          ],
+          [
+            "497dc4",
+            200.8,
+            288.61
+          ],
+          [
+            "497dc4",
+            371.49,
+            416.55
+          ],
+          [
+            "497dc4",
+            470.55,
+            563.05
+          ],
+          [
+            "497dc4",
+            745.3,
+            766.3
+          ],
+          [
+            "497dc4",
+            849.167,
+            896.8
+          ],
+          [
+            "497dc4",
+            899.8,
+            941.8
+          ],
+          [
+            "497dc4",
+            971.05,
+            991.05
+          ],
+          [
+            "497dc4",
+            1273.05,
+            1329.55
+          ],
+          [
+            "497dc4",
+            1892.18,
+            1960.55
+          ],
+          [
+            "497dc4",
+            2557.29,
+            2598.567
+          ],
+          [
+            "497dc4",
+            2598.567,
+            2659.45
+          ],
+          [
+            "497dc4",
+            2948.2,
+            3081.34
+          ],
+          [
+            "497dc4",
+            3667.27,
+            3730.61
+          ],
+          [
+            "497dc4",
+            3826.53,
+            3981.067
+          ],
+          [
+            "497dc4",
+            3996.55,
+            4035.45
+          ],
+          [
+            "4416a7",
+            0.0,
+            78.04
+          ],
+          [
+            "4416a7",
+            149.55,
+            201.55
+          ],
+          [
+            "4416a7",
+            412.3,
+            450.8
+          ]
+        ],
+        "clamped": 0,
+        "clips": 19,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 1165.36,
+        "transitions": [
+          "cut",
+          "dip_to_black",
+          "fade"
+        ]
+      },
+      "total_seconds": 1170.4
+    },
+    "proj-f48db83dea86": {
+      "axes": {
+        "audio_density": 0.5,
+        "coherence": 1.0,
+        "effect_density": 0.112,
+        "ending": 0.422,
+        "intensity": 0.392,
+        "pacing": 0.081,
+        "structure": 0.8,
+        "total": 0.484,
+        "variety": 0.259
+      },
+      "clips": 18,
+      "ending_type": "surprise",
+      "fingerprint": [
+        [
+          "funny",
+          0.0,
+          17.64
+        ],
+        [
+          "funny",
+          136.77,
+          32.83
+        ],
+        [
+          "surprise",
+          167.567,
+          24.477
+        ],
+        [
+          "funny",
+          261.57,
+          23.03
+        ],
+        [
+          "funny",
+          283.4,
+          22.68
+        ],
+        [
+          "surprise",
+          431.7,
+          21.7
+        ],
+        [
+          "surprise",
+          450.4,
+          29.05
+        ],
+        [
+          "surprise",
+          476.633,
+          23.917
+        ],
+        [
+          "surprise",
+          498.8,
+          21.7
+        ],
+        [
+          "funny",
+          514.3,
+          158.75
+        ],
+        [
+          "surprise",
+          667.867,
+          34.767
+        ],
+        [
+          "surprise",
+          701.267,
+          109.12
+        ],
+        [
+          "surprise",
+          839.593,
+          58.473
+        ],
+        [
+          "surprise",
+          890.267,
+          62.9
+        ],
+        [
+          "surprise",
+          952.733,
+          48.743
+        ],
+        [
+          "surprise",
+          1058.373,
+          53.153
+        ],
+        [
+          "surprise",
+          1103.933,
+          98.7
+        ],
+        [
+          "surprise",
+          1223.4,
+          48.417
+        ]
+      ],
+      "hook_strength": 0.0,
+      "hook_type": "-",
+      "judge_total": 0.4845,
+      "median_shot": 33.8,
+      "profile": "A",
+      "timeline": {
+        "boundaries": [
+          [
+            "f7cf21",
+            0.0,
+            17.64
+          ],
+          [
+            "f7cf21",
+            136.77,
+            169.6
+          ],
+          [
+            "f7cf21",
+            169.6,
+            192.043
+          ],
+          [
+            "f7cf21",
+            261.57,
+            284.6
+          ],
+          [
+            "f7cf21",
+            284.6,
+            306.08
+          ],
+          [
+            "f7cf21",
+            431.7,
+            453.4
+          ],
+          [
+            "f7cf21",
+            453.4,
+            479.45
+          ],
+          [
+            "f7cf21",
+            479.45,
+            500.55
+          ],
+          [
+            "f7cf21",
+            500.55,
+            520.5
+          ],
+          [
+            "f7cf21",
+            520.5,
+            673.05
+          ],
+          [
+            "f7cf21",
+            673.05,
+            702.633
+          ],
+          [
+            "f7cf21",
+            702.633,
+            810.387
+          ],
+          [
+            "f7cf21",
+            839.593,
+            898.067
+          ],
+          [
+            "f7cf21",
+            898.067,
+            953.167
+          ],
+          [
+            "f7cf21",
+            953.167,
+            1001.477
+          ],
+          [
+            "f7cf21",
+            1058.373,
+            1111.527
+          ],
+          [
+            "f7cf21",
+            1111.527,
+            1202.633
+          ],
+          [
+            "f7cf21",
+            1223.4,
+            1271.817
+          ]
+        ],
+        "clamped": 0,
+        "clips": 18,
+        "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
+          "body"
+        ],
+        "seconds": 850.67,
+        "transitions": [
+          "cut",
+          "fade"
+        ]
+      },
+      "total_seconds": 890.0
+    }
+  },
+  "target_seconds": 1200.0
+}

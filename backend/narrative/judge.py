@@ -42,6 +42,14 @@ AXIS_WEIGHTS: Final[dict[str, float]] = {
 #: A clip this far from its neighbour is a jump the viewer feels.
 NEIGHBOUR_GAP_SECONDS: Final[float] = 240.0
 
+#: How varied shot lengths are in an edit nobody has given an opinion about,
+#: as ``(longest - shortest) / mean``. The house value, and the constant this
+#: axis compared every style against until V2-P0.
+IDEAL_SHOT_SPREAD: Final[float] = 1.2
+
+#: How far from its ideal a spread may drift before the axis reads zero.
+SPREAD_TOLERANCE: Final[float] = 1.8
+
 #: What "enough" looks like on each density axis, per minute.
 IDEAL_EFFECTS_PER_MINUTE: Final[float] = 3.0
 IDEAL_SPEECH_SHARE: Final[float] = 0.35
@@ -91,7 +99,7 @@ def judge(
     axes = {
         "coherence": _coherence(moments, why),
         "structure": _structure(plan, moments, why),
-        "pacing": _pacing(moments, plan, config, why),
+        "pacing": _pacing(moments, plan, config, why, taste),
         "intensity": _intensity(moments, reader, why),
         "variety": _variety(moments, why),
         "ending": _ending(moments, reader, why),
@@ -133,15 +141,24 @@ def _structure(plan: Any, moments: Sequence[Any], why: list[str]) -> float:
     return value
 
 
-def _pacing(moments: Sequence[Any], plan: Any, config: Any, why: list[str]) -> float:
-    """Whether clip lengths vary, and stay inside the product's own band."""
+def _pacing(
+    moments: Sequence[Any], plan: Any, config: Any, why: list[str], style: Any = None
+) -> float:
+    """Whether clip lengths vary, and stay inside the product's own band.
+
+    V2-P0: what counts as varied enough is a taste, not a constant. A style
+    that cuts to a steadier rhythm on purpose was being marked down for doing
+    exactly what it says it does -- the same mistake `_effect_density` was
+    given `ideal_effects_per_minute` to stop making about minimal edits.
+    """
     lengths = [moment.context_duration for moment in moments]
     if not lengths:
         return 0.0
     mean = sum(lengths) / len(lengths)
     spread = (max(lengths) - min(lengths)) / max(mean, 1e-6)
+    ideal = float(getattr(style, "ideal_shot_spread", IDEAL_SHOT_SPREAD))
     # Some variation is pace; none is a metronome and too much is a jumble.
-    value = max(0.0, 1.0 - abs(spread - 1.2) / 1.8)
+    value = max(0.0, 1.0 - abs(spread - ideal) / SPREAD_TOLERANCE)
     why.append(
         f"pacing {value:.2f}: clips run {min(lengths):.0f}-{max(lengths):.0f}s "
         f"(mean {mean:.0f}s)"
@@ -271,4 +288,11 @@ def best(
     )
 
 
-__all__ = ["AXIS_WEIGHTS", "PlanScore", "best", "judge"]
+__all__ = [
+    "AXIS_WEIGHTS",
+    "IDEAL_SHOT_SPREAD",
+    "SPREAD_TOLERANCE",
+    "PlanScore",
+    "best",
+    "judge",
+]

@@ -28,8 +28,9 @@ from typing import Any
 
 from backend.core.logging import LogChannel, get_logger
 from backend.editorial import evidence as shots
+from backend.editorial import semantics as meaning
 from backend.editorial import situations as arcs
-from backend.evidence import Stores
+from backend.evidence import Span, Stores, project
 
 logger = get_logger("editorial.reading", LogChannel.PIPELINE)
 
@@ -40,6 +41,11 @@ class EditorialReading:
 
     #: ``moment id -> the shot it would make``.
     shots: dict[str, shots.EditorialEvidence] = field(default_factory=dict)
+    #: ``moment id -> what that shot is for``. Read here rather than by the
+    #: caller because the projections it needs are already fetched here, and
+    #: fetching them twice would be the per-moment round trip this module
+    #: exists to avoid.
+    semantics: dict[str, meaning.ShotSemantics] = field(default_factory=dict)
     #: Every situation read, in time order, across every recording.
     situations: tuple[arcs.Situation, ...] = ()
     #: Recordings whose lanes could not be read, so their shots carry no state.
@@ -53,9 +59,22 @@ class EditorialReading:
     def shot(self, moment: Any) -> shots.EditorialEvidence | None:
         return self.shots.get(str(getattr(moment, "id", "") or ""))
 
+    def semantics_of(self, moment: Any) -> meaning.ShotSemantics | None:
+        """What this shot is for, or None when it was never read.
+
+        Not named `meaning`: that is the module, and a method shadowing it
+        inside the class body is a puzzle for whoever reads this next.
+        """
+        return self.semantics.get(str(getattr(moment, "id", "") or ""))
+
     def summary(self) -> dict[str, Any]:
         return {
             "shots": len(self.shots),
+            "dead_shots": sum(
+                1
+                for found in self.semantics.values()
+                if found.purpose is meaning.ShotPurpose.DEAD
+            ),
             "situations": len(self.situations),
             "compound_situations": self.compound,
             "with_arc": sum(1 for s in self.situations if s.arc),
@@ -95,24 +114,63 @@ def read(
     situations.sort(key=lambda item: (item.media_id, item.start_seconds))
 
     read_shots: dict[str, shots.EditorialEvidence] = {}
+    read_meanings: dict[str, meaning.ShotSemantics] = {}
     for moment in moments:
         moment_id = str(getattr(moment, "id", "") or "")
         if not moment_id:
             continue
         situation = arcs.situation_of(situations, moment)
-        read_shots[moment_id] = shots.read(
+        evidence = shots.read(
             moment,
             stores=stores,
             reader=readers.get(str(getattr(moment, "media_id", ""))),
             phases=_phases(moment),
             situation_id=situation.id if situation else "",
         )
+        read_shots[moment_id] = evidence
+        read_meanings[moment_id] = meaning.read(
+            evidence,
+            inside=_inside(evidence, stores),
+            after=_after(evidence, stores),
+        )
 
     reading = EditorialReading(
-        shots=read_shots, situations=tuple(situations), unread=unread
+        shots=read_shots,
+        semantics=read_meanings,
+        situations=tuple(situations),
+        unread=unread,
     )
     logger.info("The footage was read editorially", extra=reading.summary())
     return reading
+
+
+def _inside(evidence: shots.EditorialEvidence, stores: Stores) -> Any:
+    """What was recorded inside the shot's own span."""
+    return project(
+        Span(
+            media_id=evidence.media_id,
+            start_seconds=evidence.source_start,
+            end_seconds=evidence.source_end,
+        ),
+        stores,
+    )
+
+
+def _after(evidence: shots.EditorialEvidence, stores: Stores) -> Any:
+    """What was recorded in the stretch following it.
+
+    The only way to see anticipation and reaction. Both are claims about what
+    happens *next*, and a reading confined to the shot's own span cannot make
+    either -- which is why the pipeline has never made them.
+    """
+    return project(
+        Span(
+            media_id=evidence.media_id,
+            start_seconds=evidence.source_end,
+            end_seconds=evidence.source_end + shots.CONTEXT_SECONDS,
+        ),
+        stores,
+    )
 
 
 def _gather(database: Any, media_ids: Sequence[str]) -> Stores:

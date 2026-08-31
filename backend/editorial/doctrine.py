@@ -60,6 +60,11 @@ class ResolvedEditingPolicy:
 
     #: Multipliers for the optimiser's objective. Neutral for the house style.
     selection: SelectionPolicy = NEUTRAL
+    #: What the style asks of the shots themselves -- run-up, cut points, and
+    #: whether editorial deadness is priced. Read by
+    #: `backend.editorial.strategy.resolve`, which is the only thing that may
+    #: turn it into changed footage.
+    shots: Any = None
     #: The Style Bible sections, passed through untouched. Each has exactly one
     #: consumer and none of them needs translating.
     pacing: Any = None
@@ -118,6 +123,7 @@ def resolve(
         version=style.version,
         digest=style.digest,
         selection=_selection(config, style.name),
+        shots=style.shots,
         pacing=style.pacing,
         audio=style.audio,
         judgement=style.judgement,
@@ -142,6 +148,7 @@ def for_project(config: Any, database: Any, project_id: str) -> ResolvedEditingP
         version=style.version,
         digest=style.digest,
         selection=_selection(config, style.name),
+        shots=style.shots,
         pacing=style.pacing,
         audio=style.audio,
         judgement=style.judgement,

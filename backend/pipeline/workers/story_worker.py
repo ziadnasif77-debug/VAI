@@ -30,6 +30,7 @@ from backend.database.repositories.transcript import TranscriptRepository
 from backend.director import build_blueprint
 from backend.director.models import Blueprint
 from backend.editorial import doctrine
+from backend.editorial import strategy as editorial_strategy
 from backend.interaction.models import EditingIntent, MessageRole
 from backend.interaction.service import InteractionService
 from backend.interaction.store import ConversationStore, IntentStore
@@ -204,8 +205,30 @@ class StoryWorker:
         editing = doctrine.resolve(
             context.config, intent.style, database=context.database
         )
+
+        # V2-P0: the brief and the style, resolved into how the shots
+        # themselves should be shaped -- how much run-up each keeps, where its
+        # edges land, and whether a stretch that earns nothing is penalised.
+        #
+        # `dead_time_policy` and `context_preservation` reach a video here for
+        # the first time. Both have been settable since the interaction layer
+        # was written, both are echoed back to whoever set them, and until this
+        # line neither had ever changed a frame.
+        #
+        # The house style with an unspoken brief resolves to a neutral
+        # strategy, and `apply` then returns this exact list -- the same
+        # object, not a copy -- so the frozen edit stays frozen by
+        # construction rather than by care.
+        strategy = editorial_strategy.resolve(editing, intent=intent)
+        shaped = editorial_strategy.apply(moments, strategy, editorial)
+        if shaped is not moments:
+            logger.info(
+                "The editing strategy reshaped the footage",
+                extra={"style": editing.name, "strategy": strategy.describe()[:200]},
+            )
+
         proposed = propose(
-            moments,
+            shaped,
             mode=mode,
             target_seconds=target,
             config=context.config.narrative,

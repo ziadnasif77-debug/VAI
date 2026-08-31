@@ -1884,6 +1884,16 @@ class StyleJudgementConfig(_Section):
 
     ideal_effects_per_minute: float = 3.0
     ideal_speech_share: float = 0.35
+    #: How varied this style wants its shot lengths, as
+    #: ``(longest - shortest) / mean``.
+    #:
+    #: The same problem `ideal_effects_per_minute` was added for, on a
+    #: different axis. The judge scored every style against one number, so a
+    #: style that deliberately cuts to a steadier rhythm was marked down for
+    #: succeeding -- measured at -0.10 on the pacing axis across the five
+    #: styles the moment they were given a shot doctrine. A fast edit is not a
+    #: worse edit for having fewer very long shots in it.
+    ideal_shot_spread: float = 1.2
 
 
 class StyleCritiqueConfig(_Section):
@@ -1916,6 +1926,38 @@ class StyleSelectionConfig(_Section):
     dead_time_penalty: float = 1.0
 
 
+class StyleShotsConfig(_Section):
+    """What a style asks of the shots themselves (V2-P0).
+
+    The layer the Style Bible was missing. Until now a style could say which
+    moments it preferred and how loudly to decorate them, and nothing at all
+    about *how a shot is cut* -- so five styles handed footage shorter than
+    the target produced one identical video, because selection was their only
+    lever and there was nothing left to select.
+
+    These reach the edit through `backend.editorial.strategy`, as bounded
+    values applied before the optimiser sees anything. All zero and false
+    means "cut the way this machine has always cut", which is what the house
+    style leaves them at.
+    """
+
+    #: Share of a shot's run-up the style is willing to lose. The shot is
+    #: never extended: the moment stage decided how much context exists.
+    trim_lead_in: float = 0.0
+    #: The same for the tail after the event.
+    trim_tail: float = 0.0
+    #: Move a cut onto a seam the footage already has -- a scene boundary the
+    #: analysis already found. A cut on a seam is invisible; a cut on a round
+    #: number is a cut.
+    snap_to_seams: bool = False
+    #: How far a cut may travel to reach one.
+    max_drift: float = 2.0
+    #: How hard to penalise a stretch that adds no context, anticipation,
+    #: progression, payoff or reaction. Zero -- the pipeline's behaviour since
+    #: the first migration -- until a style says otherwise.
+    dead_time_weight: float = 0.0
+
+
 class StyleEntry(_Section):
     """One named style, versioned.
 
@@ -1931,6 +1973,7 @@ class StyleEntry(_Section):
     version: int = Field(ge=1)
     description: str = ""
     selection: StyleSelectionConfig = Field(default_factory=StyleSelectionConfig)
+    shots: StyleShotsConfig = Field(default_factory=StyleShotsConfig)
     pacing: StylePacingConfig = Field(default_factory=StylePacingConfig)
     audio: StyleAudioConfig = Field(default_factory=StyleAudioConfig)
     judgement: StyleJudgementConfig = Field(default_factory=StyleJudgementConfig)
@@ -1998,7 +2041,7 @@ def _style_values(entry: StyleEntry) -> dict[str, float]:
     """The style's numbers, flattened to the keys ``limits`` names."""
     return {
         f"{section}.{field}": float(value)
-        for section in ("selection", "pacing", "audio", "judgement", "critique")
+        for section in ("selection", "shots", "pacing", "audio", "judgement", "critique")
         for field, value in getattr(entry, section).model_dump().items()
         if isinstance(value, (int, float)) and not isinstance(value, bool)
     }

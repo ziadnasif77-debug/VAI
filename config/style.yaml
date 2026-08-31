@@ -57,6 +57,7 @@ style:
     audio.silence_min_strength: { min: 0.3, max: 1.0 }
     judgement.ideal_effects_per_minute: { min: 0.0, max: 8.0 }
     judgement.ideal_speech_share: { min: 0.0, max: 0.9 }
+    judgement.ideal_shot_spread: { min: 0.4, max: 3.0 }
     # (V2-P11) What a style may ask of the *selection*. These reach the
     # optimiser as bounded multipliers on the objective it already has -- never
     # as a taste it has to read -- so the optimiser stays deterministic and a
@@ -66,6 +67,14 @@ style:
     selection.variety: { min: 0.25, max: 3.0 }
     selection.repetition_penalty: { min: 0.25, max: 3.0 }
     selection.dead_time_penalty: { min: 0.25, max: 3.0 }
+    # (V2-P0) What a style may ask of the *shots*. The layer the bible was
+    # missing: until these existed a style could say which moments it liked
+    # and nothing about how one is cut, so five styles handed a session
+    # shorter than the target produced one identical video.
+    shots.trim_lead_in: { min: 0.0, max: 0.35 }
+    shots.trim_tail: { min: 0.0, max: 0.35 }
+    shots.max_drift: { min: 0.0, max: 2.0 }
+    shots.dead_time_weight: { min: 0.0, max: 2.0 }
     critique.hook_seconds: { min: 5.0, max: 30.0 }
     critique.effects_per_ten_seconds: { min: 1.0, max: 12.0 }
     critique.fatigue_seconds: { min: 10.0, max: 60.0 }
@@ -135,6 +144,20 @@ style:
         entertainment: 0.85
         variety: 0.70
         dead_time_penalty: 0.60
+      shots:
+        # The baseline found this style producing the house edit exactly, in
+        # six projects out of nine. Its whole claim is a different pace, and
+        # a claim it cannot make when the footage is short enough that
+        # everything is selected is not a style -- it is a description.
+        #
+        # So it asks for the one thing selection cannot give it: where the
+        # cuts land. A cinematic cut falls on a boundary the footage already
+        # has, never on the second a moment happens to end at. Nothing is
+        # trimmed, because the run-up and the tail are exactly what this
+        # style is for, and dead time stays unpriced for the same reason the
+        # selection tolerates it -- silence here is a decision, not a defect.
+        snap_to_seams: true
+        max_drift: 2.0
       pacing:
         band_scale: 1.35
         stutter_relief: 1.05
@@ -152,6 +175,17 @@ style:
           high: build
           climax: peak
       judgement:
+        # No `ideal_shot_spread` here, and the reason is worth keeping.
+        #
+        # It was authored -- 1.5, on the honest argument that a cinematic edit
+        # is deliberately uneven -- and it raised this style's pacing axis from
+        # 0.61 to 0.70. It also raised its judge total enough that the
+        # house-shaped counterfactual profile started winning again, and
+        # cinematic went back to producing the house edit exactly on four
+        # projects. A taste that improves a score and erases the style is not
+        # an improvement, and the feedback path that does it is real: the
+        # judge's per-style ideals decide which of the three profiles is
+        # rendered, so a change of taste is also a change of edit.
         ideal_effects_per_minute: 1.2
         ideal_speech_share: 0.45
       critique:
@@ -171,6 +205,19 @@ style:
         narrative: 0.80
         dead_time_penalty: 1.80
         repetition_penalty: 1.30
+      shots:
+        # Fast is not only "more clips". It is less air around each one: no
+        # waiting for the shot to begin, no holding after it is over. The
+        # optimiser cannot do this -- it chooses moments, not their edges --
+        # which is why this style looked like the house style whenever the
+        # footage was short.
+        #
+        # A stretch that adds no context, anticipation, progression, payoff
+        # or reaction is priced here, because in a fast edit it is the one
+        # thing the viewer will not forgive.
+        trim_lead_in: 0.25
+        trim_tail: 0.30
+        dead_time_weight: 1.0
       pacing:
         band_scale: 0.8
 
@@ -193,6 +240,19 @@ style:
         repetition_penalty: 1.70
         dead_time_penalty: 0.55
         narrative: 0.90
+      shots:
+        # A joke lands on its reaction, so the tail is never trimmed here --
+        # `ContextPolicy` protects a shot somebody responds to, and this style
+        # relies on that protection rather than working around it. What it
+        # does trim is the walk-up to the joke, which is the part that kills
+        # one.
+        trim_lead_in: 0.30
+        trim_tail: 0.10
+        dead_time_weight: 0.8
+      judgement:
+        # A joke is a short setup and a held punchline. The unevenness is the
+        # form, not a defect in it.
+        ideal_shot_spread: 1.4
 
     competitive:
       version: 1
@@ -204,6 +264,17 @@ style:
         entertainment: 1.20
         repetition_penalty: 0.50
         dead_time_penalty: 1.50
+      shots:
+        # The play, and the play only. Tight at both ends and cut on the
+        # footage's own seams, because a competitive edit is watched for what
+        # happened rather than for how it felt -- and a cut that lands
+        # somewhere the picture already changed reads as a replay rather than
+        # as an edit.
+        trim_lead_in: 0.20
+        trim_tail: 0.25
+        snap_to_seams: true
+        max_drift: 1.5
+        dead_time_weight: 1.2
 
     minimal:
       version: 1
@@ -222,6 +293,13 @@ style:
         narrative: 1.35
         entertainment: 0.75
         variety: 0.70
+      shots:
+        # Nothing is added, so everything that stays has to earn it. This is
+        # the style that prices editorial dead time hardest -- with no
+        # decoration to carry a weak stretch, a weak stretch is just a weak
+        # stretch. The edges are left alone: trimming would be an opinion, and
+        # this style is the absence of one.
+        dead_time_weight: 1.5
       judgement:
         ideal_effects_per_minute: 0.0
 

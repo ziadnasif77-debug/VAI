@@ -34,6 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         StyleEntry,
         StyleJudgementConfig,
         StylePacingConfig,
+        StyleShotsConfig,
     )
 
 logger = get_logger("style.bible", LogChannel.PIPELINE)
@@ -54,6 +55,10 @@ class Style:
     #: no body, and the difference is recorded rather than smoothed over.
     name: str
     version: int
+    #: What this style asks of the shots themselves (V2-P0): how much run-up
+    #: each keeps, whether cuts snap to seams the footage already has, and
+    #: whether a stretch that earns nothing is priced.
+    shots: StyleShotsConfig
     pacing: StylePacingConfig
     audio: StyleAudioConfig
     judgement: StyleJudgementConfig
@@ -76,6 +81,7 @@ class Style:
             "version": self.version,
             "digest": self.digest,
             "tuned": list(self.tuned),
+            "shots": self.shots.model_dump(mode="json"),
             "pacing": self.pacing.model_dump(mode="json"),
             "audio": self.audio.model_dump(mode="json"),
             "judgement": self.judgement.model_dump(mode="json"),
@@ -127,6 +133,7 @@ def _style(
         asked=asked,
         name=name,
         version=entry.version,
+        shots=entry.shots,
         pacing=entry.pacing,
         audio=entry.audio,
         judgement=entry.judgement,
