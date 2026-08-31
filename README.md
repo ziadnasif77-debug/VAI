@@ -13,15 +13,27 @@ while preserving context, constructs a story, and renders it.
 3 hours of gameplay  →  Story / Best Moments  →  20 minutes  →  YouTube-ready MP4
 ```
 
-**Status:** the 15 foundation phases and the 2.0 plan are complete. A real
-recording goes in and a finished, QA'd video comes out, entirely through the
-browser. On top of the pipeline, 2.0 added perception dense enough to watch
-every nominated region (`unknown_event_ratio` 0.61→0.36 on one real recording,
-0.45→0.23 on another), a **Director** that proposes the shape of the edit, a
-**Critic** that reviews the assembled timeline before rendering, learned
-per-user preferences, and an overlay pass that renders only the frames that
-carry something — measured 1,284 s → 15.5 s on a real ten-minute edit. Every
-model answer is checked against evidence and every fallback is the
+**Status:** the 15 foundation phases, the 2.0 plan and the **V2 editorial arc
+(P0–P10)** are complete. A real recording goes in and a finished, QA'd video
+comes out, entirely through the browser, and the machine can now run a night on
+its own.
+
+2.0 added perception dense enough to watch every nominated region
+(`unknown_event_ratio` 0.61→0.36 on one real recording, 0.45→0.23 on another),
+a **Director** that proposes the shape of the edit, a **Critic** that reviews
+the assembled timeline before rendering, learned per-user preferences, and an
+overlay pass that renders only the frames that carry something — measured
+1,284 s → 15.5 s on a real ten-minute edit.
+
+V2 turned the editor from a system that applies rules into one that reads the
+session it was given: a semantic spine every stage shares, cut lengths that
+answer to the second they start on, emphasis that composes into gestures,
+sound that hears the session, three candidate edits judged against each other,
+a critic that watches the finished video, an explicit style with declared
+bounds, outcome data joined to the edit that produced it, and a tuning
+mechanism that is fenced, reversible and — deliberately — dormant.
+
+Every model answer is checked against evidence and every fallback is the
 deterministic pipeline that shipped first. Progress, measurements and what
 remains: [docs/PLAN.md](docs/PLAN.md).
 
@@ -68,6 +80,143 @@ is five star glyphs and no text. Without a profile, nothing changes: vision,
 OCR, audio and speech carry the analysis on their own.
 
 ---
+
+## What V2 added
+
+**It reads the session, not just the clips.** A semantic timeline samples nine
+lanes at 2 Hz — intensity, tension, motion, audio, events, speech, scene
+changes, novelty, dead zones — percentile-normalised *within the session*, so a
+quiet game still has a shape. It is a pipeline stage of its own, stored under a
+digest of its inputs' values, and every stage downstream reads the same spine.
+
+**A cut length is a decision with reasons, not a lookup.** Each shot's length is
+re-read at the second it starts on: the level's band, then sustained tension,
+then never cutting inside a spoken word, then landing on the beat, breaking a
+stutter, cutting on movement, the hook and ending roles, and a readability
+floor. Every shot carries the list of rules that set it, so "why is this shot
+four seconds" has an answer.
+
+**A moment says what it is doing, or says it does not know.** Setup,
+anticipation, escalation, payoff, reaction, dead — measured from the session's
+own lanes with a confidence anchored to the refusal threshold. When it cannot
+tell, it says `unknown` instead of guessing.
+
+**Effects compose into sentences.** An anchor at a real timestamp with members
+at signed offsets and declared dependencies. A composition is admitted whole or
+not at all — the emphasis engine will not ship half a gesture — under a cluster
+budget and a no-repeat rule.
+
+**Sound hears the session.** A music bed per section, ducking under the game's
+own loud moments, speech read from the transcript rather than from opt-in
+captions, and silence used as a tool that QA is told about in advance.
+
+**It argues with itself before rendering.** Three candidate edits are built from
+the same moments under different profiles and scored by a deterministic judge on
+eight axes. The winner is rendered; all three are kept in the job result, with
+the reasoning.
+
+**It watches the video it made.** After QA, frames of the *finished render* are
+described by the vision model and measured against the programme lanes —
+repetition, tails, a weak hook, effect piles, fatigue. It may correct the edit
+once, under three locks: one cycle, no reordering (there is no verb for it), and
+no degradation (a corrected edit that scores lower is restored from a snapshot
+of the clips **and** the effects).
+
+**The style has a body.** `config/style.yaml` holds taste and only taste, in the
+same namespace the effects library already used, versioned, with every tunable's
+legal range declared once. Every edit is stamped with the resolved body that
+made it, so "which videos were cut this way" survives a later edit of the file.
+
+**Outcomes are joined to the edit that produced them.** Retention curves and
+per-video totals stored against the project, with a projector that places a dip
+on the shot that was on screen for it. This is **outcome correlation**, not
+retention prediction — see below.
+
+**Chronology is constitutional.** No engine may reorder events; a stronger
+moment never precedes what happened before it. The single exception is the
+cold-open hook at the start, and the rule is checked on the built timeline
+rather than assumed from the inputs.
+
+---
+
+## What it does not claim
+
+This project is deliberately careful about the difference between a mechanism
+and a claim.
+
+**It does not learn from your audience — yet.** The plumbing exists: the
+analytics scope, the fetcher, the tables, the join to the style that cut each
+video. What does not exist is data. On the machine this was built for: four
+published videos, **zero measured**, and an authorisation that predates the
+analytics scope. Every surface says so rather than showing zeros.
+
+**It does not predict retention.** A retention curve is a measurement of one
+video that has already been watched. Nothing here treats it as a forecast for
+the next one.
+
+**Controlled tuning is built and dormant.** It may move one style value inside
+its declared range, by at most a tenth of that range, on at least fifteen
+measured videos with five on each side of the comparison, with a required reason
+and evidence, reversible by marking a row — and the switch is off. A proposal is
+a comparison written down, not a significance test, not a model, and not a
+licence. `python scripts/tuning.py status` prints the real state, which today is
+`0 of 15`.
+
+**No configuration key describes a capability the code does not have.**
+`scripts/config_coverage.py` runs as a test: every YAML leaf must have a
+consumer outside the schema. It found 51 orphans on its first run — settings
+that read as enabled and were never read by anything — and the branch either
+wired them or deleted them.
+
+---
+
+## The pipeline
+
+Twenty-two stages. Each is a job row with a result, so the job history is the
+history of what the machine decided and why.
+
+```
+analysis   import  probe  proxy  audio  frames  transcript  audio_events
+           scenes  vision  ocr  game_events  semantic  moments
+
+edit       story  edl  critique  render  qa  critic2
+
+delivery   export  publish  shorts        (never automatic without being asked)
+```
+
+`semantic` is V2's spine and `critic2` is the stage that watches the finished
+render. The three delivery stages are the only manual ones: §51 means gameplay
+footage never leaves the machine unasked, and a delivery job that exists in the
+queue was asked for — by the Export screen's button or by the owner's own
+standing policy.
+
+## Running a night on its own
+
+The daily policy (`config/daily.yaml`) produces one long video and up to two
+Reels a day, production at 02:00 Europe/Oslo, publication scheduled on YouTube
+itself so nothing goes public early.
+
+The scheduler that fires it lives **inside `scripts/serve.py`**, beside the job
+worker that runs the stages. Neither exists outside that process, so an
+autonomous night reduces to one requirement: that process has to be running at
+02:00.
+
+```bash
+python scripts/autostart.py install    # a scheduled task: at log on, and 01:45 nightly
+python scripts/autostart.py status
+python scripts/autostart.py remove
+```
+
+It wakes the machine for the nightly trigger, restarts after a failure, and
+passes `--keep-existing` so a healthy instance is left alone. Two limits it
+states rather than hides: it runs only while the user is logged on, because
+analysis needs the GPU and Ollama and both belong to an interactive session; and
+registering a task is a change to the machine, so the script asks Windows and
+reports what Windows said.
+
+`python scripts/daily_cycle.py` drives one heartbeat by hand. It queues; it does
+not execute — the worker does that, which is why the answer to "make it run
+itself" is the application and not this script.
 
 ## Requirements
 
@@ -159,13 +308,21 @@ source.
 | `models.yaml` | AI providers, GPU budget, hardware profiles, fallbacks |
 | `moments.yaml` | event correlation, scoring weights, dead time, repetition |
 | `narrative.yaml` | story structure, hook, pacing, duration optimizer |
+| `editorial.yaml` | the semantic lanes and the pacing bands — the mechanism |
+| `style.yaml` | **the Style Bible**: taste, versioned, with declared bounds, and the controlled-tuning switch |
 | `effects.yaml` | the effects library, budgets, per-style profiles |
+| `compositions.yaml` | the emphasis grammar: anchors, roles, offsets, dependencies |
 | `rendering.yaml` | encoders, proxy, thumbnails, Remotion overlay pass |
 | `audio.yaml` | mixing, ducking, music |
 | `captions.yaml` | caption timing, layout, appearance |
 | `qa.yaml` | technical and content checks |
+| `critique.yaml` | the pre-render Critic |
 | `interaction.yaml` | editing presets and the chat layer |
 | `publishing.yaml` | delivery targets |
+| `daily.yaml` | the daily production and publishing policy |
+
+Every leaf in every one of these files has a consumer, and a test enforces it:
+`python scripts/config_coverage.py`.
 
 Any value can be overridden by environment variable:
 
@@ -174,6 +331,22 @@ VAI__APPLICATION__API__PORT=9000
 VAI__ANALYSIS__CHUNK_SECONDS=300
 VAI__MODELS__VISION__MODEL=llava:13b
 ```
+
+## Tools
+
+| | |
+| --- | --- |
+| `scripts/serve.py` | everything: interface, API, job worker, daily scheduler |
+| `scripts/autostart.py` | register the scheduled task that starts it on its own |
+| `scripts/daily_cycle.py` | drive one daily heartbeat by hand |
+| `scripts/doctor.py` | what is missing, and what the pipeline will fall back to |
+| `scripts/db_init.py` | create the database |
+| `scripts/config_coverage.py` | every YAML leaf, and whether any code reads it |
+| `scripts/fetch_outcomes.py` | read what the audience did with a published video |
+| `scripts/tuning.py` | look at controlled tuning, and undo it |
+| `scripts/profile_report.py` | mine a recording for a game profile's regions |
+| `scripts/dashboard.py` | the day's production report |
+| `scripts/package.py` | build the distributable zip |
 
 ## Documentation
 
@@ -186,16 +359,27 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | layers, contracts, dependency direction |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | every choice the spec left open, and why |
 | [docs/PROFILES.md](docs/PROFILES.md) | writing a game profile — anatomy, the measured method, pitfalls |
+| [docs/STYLE.md](docs/STYLE.md) | the Style Bible — what belongs in it, what stays in code, and why |
+| [docs/ANALYTICS.md](docs/ANALYTICS.md) | outcome data — what it needs, what it stores, what it refuses to guess |
+| [docs/TUNING.md](docs/TUNING.md) | controlled tuning — the six guards, and how to turn it on |
 | `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
 | [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
 
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 1977 tests (~38 min)
+.venv/bin/python -m pytest              # 2477 tests (~42 min)
+.venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
 ```
+
+**Run the whole suite, not only `tests/unit`.** The integration suite was left
+unrun between V2-P0 and V2-P8 and was red in four places by the time anyone
+looked: a hook split into pieces failed the chronology check on every edit built
+with one, a stage with no worker stranded a queued Reel behind it, and a
+module-scoped fixture kept a media-vault restriction that made all twenty-one
+render tests error at setup. None of them could fail the unit belt.
 
 Test artefacts stay inside the repository: `pyproject.toml` pins
 `--basetemp=.pytest-tmp`, so transcoded proxies and frame dumps never land in
