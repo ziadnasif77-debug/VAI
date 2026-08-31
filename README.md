@@ -197,14 +197,22 @@ rather than assumed from the inputs.
 ```bash
 # the same session, four editorial decisions
 "high energy"   → gaming_fast   shorter shots, tight run-ups, dead time expensive
-"cinematic"     → cinematic     cuts land on the footage's own seams, silence kept
+"cinematic"     → cinematic     the longest shots of any style, 13.7s median
 "funny"         → funny         the walk-up trimmed, the reaction never
 "competitive"   → competitive   tight at both ends, cut on seams, dead time costly
 "minimal"       → minimal       no decoration, and the hardest price on dead time
 ```
 
-The difference is in **selection, context and cut points**, which is the part
-that makes it an edit rather than a filter. The same doctrine then reaches pacing, audio,
+The difference is in **selection, context, cut points and pace**, which is the
+part that makes it an edit rather than a filter. Measured at the point shots
+are actually cut, the median shot runs from 5.6 s under `gaming_fast` to 13.7 s
+under `cinematic` — a 2.4× range on the same footage.
+
+That number took three phases to see. The harness that measures style
+differentiation stopped at the *plan*, and a style's most direct say over pace
+is the pacing doctrine, which the EDL stage consumes after it. So `cinematic`
+was reported as the weakest style for two phases running, on a measurement
+taken one stage before the layer that style lives in. The same doctrine then reaches pacing, audio,
 the counterfactual judge and the post-render critic — a `cinematic` edit is not
 called fatigued at forty seconds of one level, and a `minimal` edit is not
 marked down for having no effects.
@@ -534,6 +542,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/BASELINE.md](docs/BASELINE.md) | the edit this system makes, measured — and the regression contract |
 | [docs/P0_RESULTS.md](docs/P0_RESULTS.md) | before → after → delta for the editing upgrade, regression included |
 | [docs/P1_RESULTS.md](docs/P1_RESULTS.md) | reading the joins between shots, and the metric that was measuring the wrong thing |
+| [docs/P1_8_CLASSIFIER_AUDIT.md](docs/P1_8_CLASSIFIER_AUDIT.md) | why half of every moment is labelled `surprise`, and what that costs |
 | [docs/TUNING.md](docs/TUNING.md) | controlled tuning — the six guards, and how to turn it on |
 | `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
 | [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
@@ -541,7 +550,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 2626 tests (~42 min)
+.venv/bin/python -m pytest              # 2631 tests (~43 min)
 .venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .

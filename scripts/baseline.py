@@ -200,6 +200,7 @@ def _measure(database, config, project_id: str, target: float) -> dict:
         numbers["reshaped"] = shaped is not moments
         numbers["cut_quality"] = _cut_quality(plan, reading)
         numbers["sequence"] = editorial_sequence.read(plan.moments, reading).as_dict()
+        numbers["paced"] = _paced(plan, config, policy, database, durations)
         numbers["selection"] = {
             "entertainment": policy.selection.entertainment,
             "narrative": policy.selection.narrative,
@@ -421,6 +422,78 @@ def _projects(database, only: str | None) -> list[tuple[str, str, int]]:
 #: counts as landing *on* it. Half a second: a cut within half a second of a
 #: scene change reads as that scene change, and one further away reads as a cut.
 SEAM_TOLERANCE: float = 0.5
+
+
+def _paced(plan, config, style, database, durations) -> dict:
+    """What the EDL stage's pacing engine would make of these shots.
+
+    The harness stops at the timeline, and until now that hid the layer where
+    a style has the most direct say over rhythm: `backend.editorial.pacing_engine`
+    re-reads every shot's length at the second it starts on, and it is style-
+    aware -- `band_scale`, `stutter_relief`, `stillness_relief` and
+    `on_the_beat_seconds` are all taste. Every rhythm number this harness
+    reported before was therefore measured *before the thing that sets rhythm*.
+
+    Deterministic and file-free, like everything else here: the engine reads
+    the semantic lanes and the event onsets, both of which are stored or
+    rebuilt from stored rows.
+    """
+    from backend.editorial import pacing_engine
+    from backend.semantic.timeline import load_timeline
+
+    if not config.editorial.pacing.dynamic or plan.is_empty:
+        return {"measured": False}
+
+    readers: dict = {}
+    for media_id, length in (durations or {}).items():
+        try:
+            readers[media_id] = load_timeline(
+                database, media_id, duration_seconds=float(length), config=config
+            )
+        except Exception:
+            continue
+    if not readers:
+        return {"measured": False}
+
+    lengths: list[float] = []
+    rules: dict[str, int] = {}
+    previous = 0.0
+    for moment in plan.moments:
+        pacing_context = pacing_engine.context_at(
+            moment.context_start,
+            readers.get(moment.media_id),
+            role=str(moment.metadata.get("role", "body")),
+            previous_length=previous,
+            events=(),
+        )
+        if pacing_context is None:
+            continue
+        shot = pacing_engine.shot_length(pacing_context, config=config, style=style)
+        # The engine returns a *cap*, and the EDL stage applies it as one --
+        # `dynamic_cap` caps a clip rather than setting it. Measuring the raw
+        # cap would report a rhythm no viewer sees on any clip the plan
+        # already made shorter than it.
+        lengths.append(min(float(moment.context_duration), float(shot.seconds)))
+        for rule in shot.rules:
+            key = rule.split(" ")[0][:24]
+            rules[key] = rules.get(key, 0) + 1
+        previous = lengths[-1]
+
+    if len(lengths) < 2:
+        return {"measured": False}
+    changed = sum(
+        1
+        for a, b in zip(lengths, lengths[1:])
+        if abs(b / max(a, 1e-6) - 1.0) >= 0.20
+    )
+    return {
+        "measured": True,
+        "shots": len(lengths),
+        "median": round(statistics.median(lengths), 2),
+        "spread": round(statistics.pstdev(lengths), 2),
+        "rhythm": round(changed / (len(lengths) - 1), 4),
+        "rules": dict(sorted(rules.items(), key=lambda kv: -kv[1])[:6]),
+    }
 
 
 def _bookended(plan, strategy, reading):

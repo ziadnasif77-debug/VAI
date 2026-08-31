@@ -120,7 +120,12 @@ worth keeping:
 The pacing regression therefore stands, unfixed and explained. Tuning the
 constant until it goes away would be fitting the metric.
 
-## cinematic is still the weakest
+## cinematic is still the weakest — at the plan, which was the wrong place to look
+
+> **Superseded by V2-P1.5.** Measured at the pacing stage, `cinematic` has the
+> longest shots of any style here (13.7 s median against the house's 10.9 s).
+> What follows was true of the plan and false of the video, and the last
+> paragraph of it turned out to be the whole answer.
 
 0.019 → 0.035. It differs from the house edit on 5 projects of 17, mostly by a
 clip or two. Its only shot-layer lever is snapping to seams, which does nothing

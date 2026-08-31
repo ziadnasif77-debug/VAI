@@ -186,6 +186,164 @@ have no semantic lanes". `load_timeline` says *"stored when they are current,
 built when not"* — every project gets lanes and only two have them **cached**.
 Both statements are corrected.
 
+## P1.5 — rhythm and contrast
+
+The layer that was asked for turned out to already exist. What was missing was
+the ability to see it.
+
+### Measured first, and it said no
+
+**Rhythm and contrast barely vary by style** at the plan: a spread of 0.017 and
+0.031 across six styles. **Flat runs are rare** — a longest run of unchanging
+shot lengths with a median of 2 and a maximum of 5, so there was little
+metronome to break.
+
+**Same-type runs are long** — a median of 4, reaching 12 — against a configured
+limit of `max_consecutive_same_type: 2`, and `repair_sequence` runs and emits
+21 variety notes and still cannot fix them. That looked like the defect, and it
+is not one:
+
+| project | pool | dominant type |
+|---|---|---|
+| `proj-dc1cf6be95a3` | 45 surprise, 4 tension | **92 %** |
+| `proj-86edde704be0` | 40 surprise, 7 tension | 85 % |
+| `proj-f48db83dea86` | 13 surprise, 5 funny | 72 % |
+
+No selection can break a run of eleven when forty-five of forty-nine moments
+carry one label. `repair_sequence` giving up is the correct behaviour, and the
+run is a fact about the footage.
+
+Across the whole machine, `surprise` is **224 of 435 moments — 52 % of
+everything ever detected**, and the dominant type's share has a median of 57 %.
+Every contrast mechanism in the pipeline reads that field: the judge's variety
+axis, `pacing.order`, `repair_sequence`, and this reading's own repetition.
+
+**Reading contrast by purpose instead was tried and refuted.** Longest run by
+moment type: median 3, mean 4.1. By shot purpose: median 4, mean 4.1. No
+better. The hypothesis died before any code was written for it.
+
+### The harness was measuring before the thing that sets rhythm
+
+`backend.editorial.pacing_engine` re-reads every shot's length at the second it
+starts on, and it is style-aware — `band_scale`, `stutter_relief`,
+`stillness_relief`, `on_the_beat_seconds`. It runs at the **EDL** stage, after
+the point this harness stopped. So every rhythm number reported in P0 and P1
+was taken before the layer that decides rhythm.
+
+Extending the harness through it, measuring the length that actually renders
+(`min(planned, cap)`, which is how the EDL applies it):
+
+| style | median rendered shot | spread | rhythm |
+|---|---:|---:|---:|
+| gaming_fast | **5.63 s** | 3.81 | **0.784** |
+| funny | 6.57 s | 4.60 | 0.785 |
+| competitive | 9.25 s | 4.12 | 0.641 |
+| minimal | 10.03 s | 4.07 | 0.619 |
+| best_moments | 10.85 s | 4.01 | 0.589 |
+| **cinematic** | **13.74 s** | 5.62 | 0.628 |
+
+| | at the plan | after pacing |
+|---|---:|---:|
+| rhythm spread across styles | 0.017 | **0.195** |
+| median shot, shortest to longest | — | 5.63 s to 13.74 s (**2.4×**) |
+
+### The conclusion this overturns
+
+P0 and P1 both reported **`cinematic` as the weakest style**, at a character
+distance of 0.019 rising to 0.035, and said so in three documents and to the
+owner more than once. At the layer where shots are actually cut it has the
+**longest shots of any style here** — 13.7 s against the house's 10.9 s — which
+is exactly what its doctrine asks for and exactly what its description claims.
+
+The style was never weak. The harness stopped one stage short of where that
+style lives, and a conclusion drawn from a harness that stops before the
+deciding layer is a conclusion about the harness. `docs/BASELINE.md` and
+`docs/P0_RESULTS.md` carry the correction where the wrong claim was made.
+
+**So P1.5 adds no policy.** Rhythm already differentiates by 2.4× on shot
+length, contrast is bounded by a moment classifier that calls half of
+everything `surprise`, and a rhythm policy layered on top of a working engine
+would be a second opinion about a question already answered. What it adds is
+the measurement, so the next claim about pace is checkable.
+
+## P1.6 — visual continuity
+
+`SequenceReading.continuity` claimed to answer "do adjacent shots belong to
+each other" and answered a narrower question: same recording, gap under sixty
+seconds. That is continuity **in time**. What a viewer experiences at a cut is
+whether anything on screen survives it, and nothing measured that.
+
+The vision stage records 32 activity labels — `driving`, `combat`, `inventory`,
+`menu`, `exploration`, `low_health` and the rest — and 94 % of selected shots
+carry them. So the reading exists to be made.
+
+### The two are not the same question
+
+| | share of cuts |
+|---|---:|
+| continuous in time **and** in look | 61 % |
+| continuous in time, a jump in look | 5 % |
+| **continuous in look, a jump in time** | **32 %** |
+| neither | 2 % |
+
+They agree on **64 %**. The large cell is the same activity minutes apart —
+smooth to watch, and a break by the temporal reading. Collapsing the two would
+lose exactly that, so `visual_continuity` sits beside `continuity` rather than
+replacing it, with `looked_at` alongside because a share over three cuts and a
+share over three hundred are not the same claim.
+
+An unobserved side reads as `None`, never as a jump: the vision stage runs only
+on nominated regions, and reporting "nobody looked" as "nothing survived" would
+invent visual jumps out of sparse coverage.
+
+### And then it says there is nothing to fix
+
+| style | visual continuity |
+|---|---:|
+| minimal | 0.966 |
+| gaming_fast | 0.962 |
+| competitive | 0.958 |
+| funny | 0.958 |
+| cinematic | 0.952 |
+| best_moments | 0.949 |
+
+**0.95 to 0.97, a spread of 0.017.** Across all 17 projects only 15 cuts of 237
+share no activity at all, and each of those is a one-off — `combat → driving`,
+`exploration → combat`. Visual continuity is neither broken nor a lever a style
+could pull.
+
+### The number that looked like the biggest opportunity
+
+`transition_quality` — the share of cuts landing on a boundary the footage
+already has — is 0.047 for the house style, and P1 called it "the largest
+single number left on the table". Measured properly it is largely unreachable:
+
+| | |
+|---|---|
+| scene boundaries | one every 15.0 s on average, median 9.1 s |
+| distance from a cut to the nearest one | **median 7.2 s** |
+| cuts within the 0.5 s tolerance | 16 % |
+| cuts within the 2.0 s maximum drift | **25 %** |
+
+A cut is placed where the editing wants it, and the nearest scene change is a
+median of seven seconds away. `CutPolicy` can reach a quarter of them; the rest
+would need a drift bound so wide that snapping would stop improving a cut and
+start choosing different footage, which is the optimiser's job and the reason
+the bound exists.
+
+So the low number is the scene detector's density against the freedom the
+optimiser needs, not a defect in the cut policy. The two styles that snap do
+measurably better within that ceiling — `competitive` 0.099 and `gaming_fast`
+0.090 against the house's 0.047 — which is the policy working to its limit.
+
+### Two phases, two negative findings
+
+P1.5 and P1.6 both add a measurement and decline to add a policy, and that is
+worth stating rather than dressing up. Rhythm already differentiates 2.4× at a
+layer the harness could not see. Visual continuity is at 95 % and uniform.
+Transition quality is capped by scene density. The remaining headroom in this
+part of the system is small, and knowing that is what the measuring was for.
+
 ## Not built
 
 **P1.4 reaction, P1.5 rhythm and contrast, P1.6 visual continuity** are

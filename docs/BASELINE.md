@@ -70,9 +70,17 @@ repetition tolerance and structure:
 | minimal | 0.068 | 0.275 | 5 of 9 |
 | **cinematic** | **0.035** | 0.193 | **6 of 9** |
 
-`cinematic` is the weakest: it produces the house edit in two projects out of
-three, and where it differs it differs by two clips. A style whose whole claim
-is a different pace is not currently making one.
+`cinematic` looks the weakest here: it produces the house edit in two projects
+out of three, and where it differs it differs by two clips.
+
+> **That reading was wrong, and V2-P1.5 measured why.** Everything in this
+> table stops at the plan, and a style's most direct say over pace is the
+> `pacing` doctrine, which the EDL stage's engine consumes *after* it. Measured
+> at the point shots are actually cut, `cinematic` has the **longest** shots of
+> all six styles -- a median of 13.7 s against the house's 10.9 s -- and rhythm
+> varies across styles by 0.195 rather than the 0.017 seen here. A conclusion
+> drawn from a harness that stops before the deciding layer is a conclusion
+> about the harness. See [P1_RESULTS.md](P1_RESULTS.md#p15--rhythm-and-contrast).
 
 ### `dead_time_score` is zero on every moment ever stored, and must be
 
