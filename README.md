@@ -14,7 +14,7 @@ while preserving context, constructs a story, and renders it.
 ```
 
 **Status:** the 15 foundation phases, the 2.0 plan and the **V2 editorial arc
-(P0–P10)** are complete. A real recording goes in and a finished, QA'd video
+(P0–P11)** are complete. A real recording goes in and a finished, QA'd video
 comes out, entirely through the browser, and the machine can now run a night on
 its own.
 
@@ -26,7 +26,8 @@ overlay pass that renders only the frames that carry something — measured
 1,284 s → 15.5 s on a real ten-minute edit.
 
 V2 turned the editor from a system that applies rules into one that reads the
-session it was given: a semantic spine every stage shares, cut lengths that
+session it was given, and then into one that **decides differently depending on
+the style asked for**: a semantic spine every stage shares, cut lengths that
 answer to the second they start on, emphasis that composes into gestures,
 sound that hears the session, three candidate edits judged against each other,
 a critic that watches the finished video, an explicit style with declared
@@ -132,12 +133,60 @@ per-video totals stored against the project, with a projector that places a dip
 on the shot that was on screen for it. This is **outcome correlation**, not
 retention prediction — see below.
 
+**A moment is read as a shot.** What the session was doing before it, during
+it and after it; which seams the footage already offers as cut points and which
+of them fall inside speech; whether the tension it carried let go; whether
+somebody starts speaking afterwards. Derived from stores the analysis stages
+already filled — there is no evidence table, because the analysis tables *are*
+the evidence.
+
+**Related events are read as one situation.** `combat → low_health → healing →
+combat → victory` is five episodes to the correlator and one editorial
+situation to an editor: an attack that went wrong, a recovery, a win. Grouped
+by the relations the correlator already found, never by proximity — that merge
+was measured across 255 events on three recordings and deliberately refused,
+because time alone cannot tell "this fight is still going" from "something else
+happened nearby".
+
+**The style decides what gets selected, not just what gets decorated.** Ask for
+`gaming_fast` and you get twelve different moments than the house edit;
+`cinematic`, `funny` and `minimal` each differ by ten, and no two of them cut
+alike — measured before a single effect is placed. A style reaches the
+optimiser as five bounded multipliers on the objective it already has, so the
+optimiser's own code is untouched and still deterministic.
+
 **Chronology is constitutional.** No engine may reorder events; a stronger
 moment never precedes what happened before it. The single exception is the
 cold-open hook at the start, and the rule is checked on the built timeline
 rather than assumed from the inputs.
 
 ---
+
+## Four styles, one recording
+
+```bash
+# the same session, four editorial decisions
+"high energy"   → gaming_fast   shorter shots, dead time expensive, spectacle first
+"cinematic"     → cinematic     longer shots, narrative first, silence tolerated
+"funny"         → funny         variety high, repetition costly, the pause kept
+"minimal"       → minimal       no decoration, and no editorial opinion either
+```
+
+The difference is in **selection and structure**, which is the part that makes
+it an edit rather than a filter. The same doctrine then reaches pacing, audio,
+the counterfactual judge and the post-render critic — a `cinematic` edit is not
+called fatigued at forty seconds of one level, and a `minimal` edit is not
+marked down for having no effects.
+
+Two promises hold it together, and both are tested:
+
+- **The house style is exactly unchanged.** A style that asks for nothing
+  returns the caller's own configuration object — by identity, not by equality
+  — so `best_moments` selects precisely what it selected before styles could
+  reach the selection at all. Not nearly precisely.
+- **A doctrine cannot exceed its declared range.** Every multiplier is fenced
+  in `config/style.yaml`, composing two legal policies cannot produce an
+  illegal one, and the bound is checked again when the value is read.
 
 ## What it does not claim
 
@@ -161,6 +210,14 @@ and evidence, reversible by marking a row — and the switch is off. A proposal 
 a comparison written down, not a significance test, not a model, and not a
 licence. `python scripts/tuning.py status` prints the real state, which today is
 `0 of 15`.
+
+**A style changes decisions, not appearances — and only where it is allowed
+to.** The optimiser is the most delicate code here and it is deterministic,
+which is why any plan it produces can be argued with. So no style ever enters
+it: a doctrine is translated into bounded multipliers in one place
+(`backend/editorial/doctrine.py`), and the optimiser receives what it always
+received. A taste that could reach inside it would be a taste that could break
+it.
 
 **No configuration key describes a capability the code does not have.**
 `scripts/config_coverage.py` runs as a test: every YAML leaf must have a
@@ -309,7 +366,7 @@ source.
 | `moments.yaml` | event correlation, scoring weights, dead time, repetition |
 | `narrative.yaml` | story structure, hook, pacing, duration optimizer |
 | `editorial.yaml` | the semantic lanes and the pacing bands — the mechanism |
-| `style.yaml` | **the Style Bible**: taste, versioned, with declared bounds, and the controlled-tuning switch |
+| `style.yaml` | **the Style Bible**: taste, versioned, with declared bounds — the selection doctrines, pacing, audio, judgement and critique of each style, and the controlled-tuning switch |
 | `effects.yaml` | the effects library, budgets, per-style profiles |
 | `compositions.yaml` | the emphasis grammar: anchors, roles, offsets, dependencies |
 | `rendering.yaml` | encoders, proxy, thumbnails, Remotion overlay pass |
@@ -368,7 +425,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 2477 tests (~42 min)
+.venv/bin/python -m pytest              # 2536 tests (~42 min)
 .venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .
