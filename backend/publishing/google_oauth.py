@@ -47,7 +47,16 @@ TOKEN_URL: Final[str] = "https://oauth2.googleapis.com/token"
 #: The full YouTube scope, not merely ``youtube.upload``: setting a thumbnail
 #: and adding to a playlist need it, and asking a person to re-authorise a
 #: second time for a thumbnail is worse than asking for the right thing once.
-SCOPE: Final[str] = "https://www.googleapis.com/auth/youtube"
+UPLOAD_SCOPE: Final[str] = "https://www.googleapis.com/auth/youtube"
+
+#: Read-only access to the channel's own analytics (V2-P9). Separate constant
+#: because a grant made before this phase does not carry it: the token store
+#: keeps what Google actually granted, so the system can say which of the two
+#: it holds instead of failing at the first report with a bare 403.
+ANALYTICS_SCOPE: Final[str] = "https://www.googleapis.com/auth/yt-analytics.readonly"
+
+#: What a new authorisation asks for.
+SCOPE: Final[str] = f"{UPLOAD_SCOPE} {ANALYTICS_SCOPE}"
 
 _GRANT_DEVICE: Final[str] = "urn:ietf:params:oauth:grant-type:device_code"
 _HTTP_TIMEOUT_SECONDS: Final[int] = 30
@@ -311,6 +320,20 @@ class TokenProvider:
     def is_authorised(self) -> bool:
         token = self._store.load()
         return bool(token and token.get("refresh_token"))
+
+    def granted_scopes(self) -> frozenset[str]:
+        """What Google actually granted, which is not what was asked for.
+
+        A refresh token keeps the scopes it was issued with. Widening
+        :data:`SCOPE` in the code does not widen a grant already on disk, and
+        the honest thing is to be able to say so rather than to discover it as
+        a 403 in the middle of a report.
+        """
+        token = self._store.load() or {}
+        return frozenset(str(token.get("scope") or "").split())
+
+    def may_read_analytics(self) -> bool:
+        return ANALYTICS_SCOPE in self.granted_scopes()
 
     def access_token(self) -> str:
         token = self._store.load()
