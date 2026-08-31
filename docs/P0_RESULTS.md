@@ -79,6 +79,11 @@ attacking later and is not what P0 set out to move.
 
 ## The regression, named rather than smoothed
 
+> **Fixed in V2-P1**, by replacing the axis's definition rather than its
+> constant. The pacing axis now sits at 0.82, above where it started. What
+> follows is the state as P0 left it, and the reasoning that led to the
+> redefinition — see [P1_RESULTS.md](P1_RESULTS.md).
+
 **The judge's pacing axis fell on the three styles that trim shots:**
 gaming_fast 0.642 → 0.399, funny 0.611 → 0.492, competitive 0.580 → 0.473.
 cinematic (+0.005) and minimal (+0.017) rose. The house is unchanged.
@@ -166,6 +171,19 @@ relations between shots are a different reading and the numbers above are what
 the single-shot layer alone is worth.
 
 **Hook and ending as independent editorial decisions**, built on the existing
-`choose_hook`, are likewise not here. Hook strength is 0.0000 before and after
-because `HookSelection.moment` is empty in every plan this harness builds —
-worth understanding before anything is changed about it.
+`choose_hook`, are likewise not here — and the baseline turned up the reason
+that has to be settled first.
+
+Hook strength is 0.0000 in all 102 edits, before and after, and every one gives
+the same reason: *"the edit was asked to run in time order"*. `choose_hook` is
+not weak here, it is **switched off**. `EditingIntent.chronological` defaults
+to true because the owner asked for time order three separate times, and a
+chronological edit takes no teaser from minute 20. The single exception the
+constitution allows — a leading run of cold-open hook clips — is therefore
+never exercised on this machine.
+
+So "make the hook an editorial decision" is not a scoring problem. It is the
+question of whether an edit that runs in time order may open on something other
+than its first second, and that is the owner's call before it is anybody's
+code. V2-P1 answers it as `backend/editorial/bookends.py`: choosing where the
+video *starts* moves no event, so it needs no exception to any rule.

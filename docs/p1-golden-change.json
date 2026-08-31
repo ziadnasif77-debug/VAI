@@ -1,0 +1,94 @@
+{
+  "proj-67d1d971b600": {
+    "new_arbitrary": [
+      3,
+      18
+    ],
+    "new_clips": 19,
+    "new_pacing": 0.8333,
+    "new_purposeful": 0.8125,
+    "new_total": 0.8086,
+    "new_winner": "A",
+    "old_arbitrary": [
+      3,
+      17
+    ],
+    "old_clips": 18,
+    "old_pacing_new_metric": 0.8235,
+    "old_pacing_old_metric": 0.456,
+    "old_purposeful": 0.8125,
+    "old_total_new_metric": 0.807,
+    "old_total_old_metric": 0.7518,
+    "old_winner": "C",
+    "why": "pacing 0.83: 3 of 18 cuts change the shot length without changing what the shot is doing (clips run 19-158s)"
+  },
+  "proj-86edde704be0": {
+    "new_arbitrary": [
+      5,
+      14
+    ],
+    "new_clips": 15,
+    "new_pacing": 0.6429,
+    "new_purposeful": 0.5455,
+    "new_total": 0.5324,
+    "new_winner": "C",
+    "old_arbitrary": [
+      10,
+      19
+    ],
+    "old_clips": 20,
+    "old_pacing_new_metric": 0.4737,
+    "old_pacing_old_metric": 0.592,
+    "old_purposeful": 0.4444,
+    "old_total_new_metric": 0.5075,
+    "old_total_old_metric": 0.5252,
+    "old_winner": "A",
+    "why": "pacing 0.64: 5 of 14 cuts change the shot length without changing what the shot is doing (clips run 21-182s)"
+  },
+  "proj-bd2db7f630a7": {
+    "new_arbitrary": [
+      3,
+      23
+    ],
+    "new_clips": 24,
+    "new_pacing": 0.8696,
+    "new_purposeful": 0.8235,
+    "new_total": 0.8091,
+    "new_winner": "C",
+    "old_arbitrary": [
+      5,
+      26
+    ],
+    "old_clips": 27,
+    "old_pacing_new_metric": 0.7707,
+    "old_pacing_old_metric": 0.644,
+    "old_purposeful": 0.7222,
+    "old_total_new_metric": 0.7994,
+    "old_total_old_metric": 0.7804,
+    "old_winner": "A",
+    "why": "pacing 0.87: 3 of 23 cuts change the shot length without changing what the shot is doing (clips run 28-120s)"
+  },
+  "proj-ca4d0eac9d6d": {
+    "new_arbitrary": [
+      1,
+      17
+    ],
+    "new_clips": 18,
+    "new_pacing": 0.8856,
+    "new_purposeful": 0.9167,
+    "new_total": 0.7308,
+    "new_winner": "A",
+    "old_arbitrary": [
+      2,
+      17
+    ],
+    "old_clips": 18,
+    "old_pacing_new_metric": 0.8268,
+    "old_pacing_old_metric": 0.607,
+    "old_purposeful": 0.8182,
+    "old_total_new_metric": 0.7007,
+    "old_total_old_metric": 0.6677,
+    "old_winner": "B",
+    "why": "pacing 0.89: 1 of 17 cuts change the shot length without changing what the shot is doing; 4 shots in a row never change length (clips run 16-181s)"
+  }
+}

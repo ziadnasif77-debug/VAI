@@ -49,6 +49,8 @@ from typing import Any, Final
 from backend.core.logging import LogChannel, get_logger
 from backend.editorial.policy import NEUTRAL as NEUTRAL_SELECTION
 from backend.editorial.policy import SelectionPolicy
+from backend.editorial.bookends import NEUTRAL as NEUTRAL_BOOKENDS
+from backend.editorial.bookends import BookendPolicy
 from backend.editorial.semantics import ShotPurpose, ShotSemantics
 
 logger = get_logger("editorial.strategy", LogChannel.PIPELINE)
@@ -264,6 +266,10 @@ class EditingStrategy:
     context: ContextPolicy = NEUTRAL_CONTEXT
     cut: CutPolicy = NEUTRAL_CUT
     dead_time: DeadTimePolicy = NEUTRAL_DEAD_TIME
+    #: Where the video begins and ends (V2-P1). The one editorial decision a
+    #: chronological edit can still make about its own shape, because choosing
+    #: a boundary is not reordering.
+    bookends: BookendPolicy = NEUTRAL_BOOKENDS
 
     @property
     def is_neutral(self) -> bool:
@@ -279,6 +285,7 @@ class EditingStrategy:
             and self.context.is_neutral
             and self.cut.is_neutral
             and self.dead_time.is_neutral
+            and self.bookends.is_neutral
         )
 
     def describe(self) -> str:
@@ -291,6 +298,7 @@ class EditingStrategy:
                 self.context.describe(),
                 self.cut.describe(),
                 self.dead_time.describe(),
+                self.bookends.describe(),
             )
         )
 
@@ -307,6 +315,10 @@ class EditingStrategy:
             "dead_time": {
                 "enabled": self.dead_time.enabled,
                 "weight": self.dead_time.weight,
+            },
+            "bookends": {
+                "opening": self.bookends.trim_weak_opening,
+                "ending": self.bookends.trim_weak_ending,
             },
         }
 
@@ -380,8 +392,10 @@ def resolve(
     )
 
     cut = NEUTRAL_CUT
+    ends = NEUTRAL_BOOKENDS
     if style_context is not None:
         context, cut, dead_time = _from_style(style_context, context, cut, dead_time)
+        ends = _bookends(style_context)
 
     return EditingStrategy(
         intent=EditorialIntent(
@@ -394,6 +408,7 @@ def resolve(
         context=context,
         cut=cut,
         dead_time=dead_time,
+        bookends=ends,
     )
 
 
@@ -421,6 +436,15 @@ def _from_style(
         if weight > 0.0:
             dead_time = DeadTimePolicy(enabled=True, weight=weight)
     return context, cut, dead_time
+
+
+def _bookends(doctrine: Any) -> BookendPolicy:
+    """What the style says about where its videos start and stop."""
+    opening = bool(getattr(doctrine, "trim_weak_opening", False))
+    ending = bool(getattr(doctrine, "trim_weak_ending", False))
+    if not (opening or ending):
+        return NEUTRAL_BOOKENDS
+    return BookendPolicy(trim_weak_opening=opening, trim_weak_ending=ending)
 
 
 def _named(intent: Any, field: str, fallback: str) -> str:
@@ -497,6 +521,7 @@ __all__ = [
     "NEUTRAL_CONTEXT",
     "NEUTRAL_CUT",
     "NEUTRAL_DEAD_TIME",
+    "BookendPolicy",
     "ContextPolicy",
     "CutPolicy",
     "DeadTimePolicy",

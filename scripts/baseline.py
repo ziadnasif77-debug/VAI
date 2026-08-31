@@ -51,7 +51,9 @@ from backend.core.models.enums import VideoMode
 from backend.database.connection import Database
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
+from backend.editorial import bookends as editorial_bookends
 from backend.editorial import reading as editorial_reading
+from backend.editorial import sequence as editorial_sequence
 from backend.editorial import strategy as editorial_strategy
 from backend.editorial.doctrine import resolve
 from backend.narrative import judge as judging
@@ -169,8 +171,12 @@ def _measure(database, config, project_id: str, target: float) -> dict:
                 media_durations=durations,
                 selection=policy.selection,
             )
+            proposed = [
+                (profile, _bookended(plan, strategy, reading))
+                for profile, plan in proposed
+            ]
             scored = [
-                (profile, plan, judging.judge(plan, reader=None, config=config, style=policy))
+                (profile, plan, judging.judge(plan, reader=None, config=config, style=policy, editorial=reading))
                 for profile, plan in proposed
             ]
             winner = judging.best(scored)
@@ -193,6 +199,7 @@ def _measure(database, config, project_id: str, target: float) -> dict:
         numbers["strategy"] = strategy.as_dict()
         numbers["reshaped"] = shaped is not moments
         numbers["cut_quality"] = _cut_quality(plan, reading)
+        numbers["sequence"] = editorial_sequence.read(plan.moments, reading).as_dict()
         numbers["selection"] = {
             "entertainment": policy.selection.entertainment,
             "narrative": policy.selection.narrative,
@@ -414,6 +421,14 @@ def _projects(database, only: str | None) -> list[tuple[str, str, int]]:
 #: counts as landing *on* it. Half a second: a cut within half a second of a
 #: scene change reads as that scene change, and one further away reads as a cut.
 SEAM_TOLERANCE: float = 0.5
+
+
+def _bookended(plan, strategy, reading):
+    """Where this candidate begins and ends -- the story stage's own call."""
+    if strategy.bookends.is_neutral or plan.is_empty:
+        return plan
+    decided = editorial_bookends.read(plan.moments, strategy.bookends, reading)
+    return editorial_bookends.apply_to_plan(plan, decided)
 
 
 def _cut_quality(plan, reading) -> dict:

@@ -114,7 +114,7 @@ def _edits(config, database) -> dict[str, dict[str, dict]]:
                 selection=policy.selection,
             )
             scored = [
-                (profile, plan, judging.judge(plan, reader=None, config=config, style=policy))
+                (profile, plan, judging.judge(plan, reader=None, config=config, style=policy, editorial=reading))
                 for profile, plan in proposed
             ]
             winner = judging.best(scored)

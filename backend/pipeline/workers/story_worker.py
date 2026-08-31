@@ -30,6 +30,7 @@ from backend.database.repositories.transcript import TranscriptRepository
 from backend.director import build_blueprint
 from backend.director.models import Blueprint
 from backend.editorial import doctrine
+from backend.editorial import sequence as sequencing
 from backend.editorial import strategy as editorial_strategy
 from backend.interaction.models import EditingIntent, MessageRole
 from backend.interaction.service import InteractionService
@@ -104,7 +105,7 @@ class StoryWorker:
         }
 
         context.report(0.4, f"Selecting clips for a {target / 60:.0f}-minute {mode.value} edit")
-        plan, verdicts = self._chosen(
+        plan, verdicts, editorial = self._chosen(
             context,
             moments,
             mode=mode,
@@ -145,6 +146,12 @@ class StoryWorker:
             "considered": verdicts,
             # §80 (V2 P1): the session's natural form beside the plan.
             "session_shape": _session_shape(context, plan),
+            # V2-P1: how the shots sit together -- rhythm, contrast,
+            # continuity, repetition and where the cuts land. Every other
+            # number in this result is about one shot or about the whole; this
+            # is the only one about the *joins*, which is what a viewer
+            # actually experiences at a cut.
+            "sequence": sequencing.read(plan.moments, editorial).as_dict(),
         }
 
     def _chosen(
@@ -173,6 +180,11 @@ class StoryWorker:
 
         With counterfactuals switched off this is the edit the stage has
         always made, by the same call it always used.
+
+        Returns the plan, the verdicts on every candidate, and the editorial
+        reading -- the third because the caller needs it to describe the
+        finished plan and rebuilding it there would fetch six stores a second
+        time for data that has not changed.
         """
         from backend.narrative import judge as judging
         from backend.narrative.plans import propose
@@ -196,6 +208,7 @@ class StoryWorker:
                     director=director,
                 ),
                 [],
+                editorial,
             )
 
         # V2-P11: the style reaches the selection here, as a bounded policy the
@@ -252,12 +265,23 @@ class StoryWorker:
         # them. The stamp answers the opposite question -- what cut the video
         # that is already on disk -- and belongs to the stages after RENDER.
         style = editing
+        # V2-P1: where each candidate begins and ends, decided before it is
+        # judged rather than after it is chosen -- a plan is scored as the
+        # video it would be, not as the selection it came from.
+        proposed = [
+            (profile, self._bookended(plan, strategy, editorial))
+            for profile, plan in proposed
+        ]
         scored = [
             (
                 profile,
                 plan,
                 judging.judge(
-                    plan, reader=reader, config=context.config, style=style
+                    plan,
+                    reader=reader,
+                    config=context.config,
+                    style=style,
+                    editorial=editorial,
                 ),
             )
             for profile, plan in proposed
@@ -284,7 +308,27 @@ class StoryWorker:
                 },
             },
         )
-        return winner[1], verdicts
+        return winner[1], verdicts, editorial
+
+    @staticmethod
+    def _bookended(plan, strategy, reading):
+        """The plan between its bookends, or the plan untouched.
+
+        Returns the caller's own plan when the style asks for nothing, which
+        is the house style and every brief that says nothing -- so this line
+        changed no edit until a style opted in.
+        """
+        if strategy.bookends.is_neutral or plan.is_empty:
+            return plan
+        from backend.editorial import bookends as ends
+
+        decided = ends.read(plan.moments, strategy.bookends, reading)
+        if decided.moved:
+            logger.info(
+                "The edit's bookends moved",
+                extra={"clips": len(plan.moments), **decided.as_dict()},
+            )
+        return ends.apply_to_plan(plan, decided)
 
     def _reading(self, context: WorkerContext, moments, durations):
         """The editorial reading, or nothing when it cannot be made.

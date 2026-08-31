@@ -57,7 +57,6 @@ style:
     audio.silence_min_strength: { min: 0.3, max: 1.0 }
     judgement.ideal_effects_per_minute: { min: 0.0, max: 8.0 }
     judgement.ideal_speech_share: { min: 0.0, max: 0.9 }
-    judgement.ideal_shot_spread: { min: 0.4, max: 3.0 }
     # (V2-P11) What a style may ask of the *selection*. These reach the
     # optimiser as bounded multipliers on the objective it already has -- never
     # as a taste it has to read -- so the optimiser stays deterministic and a
@@ -175,17 +174,6 @@ style:
           high: build
           climax: peak
       judgement:
-        # No `ideal_shot_spread` here, and the reason is worth keeping.
-        #
-        # It was authored -- 1.5, on the honest argument that a cinematic edit
-        # is deliberately uneven -- and it raised this style's pacing axis from
-        # 0.61 to 0.70. It also raised its judge total enough that the
-        # house-shaped counterfactual profile started winning again, and
-        # cinematic went back to producing the house edit exactly on four
-        # projects. A taste that improves a score and erases the style is not
-        # an improvement, and the feedback path that does it is real: the
-        # judge's per-style ideals decide which of the three profiles is
-        # rendered, so a change of taste is also a change of edit.
         ideal_effects_per_minute: 1.2
         ideal_speech_share: 0.45
       critique:
@@ -218,6 +206,12 @@ style:
         trim_lead_in: 0.25
         trim_tail: 0.30
         dead_time_weight: 1.0
+        # A fast edit cannot afford a slow start, and it is the one editorial
+        # opening decision a chronological edit can still make: the cold-open
+        # hook is a flash-forward and the constitution forbids it, but moving
+        # where the video *begins* reorders nothing.
+        trim_weak_opening: true
+        trim_weak_ending: true
       pacing:
         band_scale: 0.8
 
@@ -249,10 +243,10 @@ style:
         trim_lead_in: 0.30
         trim_tail: 0.10
         dead_time_weight: 0.8
-      judgement:
-        # A joke is a short setup and a held punchline. The unevenness is the
-        # form, not a defect in it.
-        ideal_shot_spread: 1.4
+        # Opening on a weak beat is how a funny video stops being one. The
+        # ending is left alone: a joke's last laugh is often its quietest
+        # shot, and `_ending` protects a reaction but not a wry one.
+        trim_weak_opening: true
 
     competitive:
       version: 1
@@ -275,6 +269,10 @@ style:
         snap_to_seams: true
         max_drift: 1.5
         dead_time_weight: 1.2
+        # Open on the play and stop when it is decided. Nobody watching for
+        # the result wants the walk to the lobby at either end.
+        trim_weak_opening: true
+        trim_weak_ending: true
 
     minimal:
       version: 1
@@ -300,6 +298,10 @@ style:
         # stretch. The edges are left alone: trimming would be an opinion, and
         # this style is the absence of one.
         dead_time_weight: 1.5
+        # One exception to that, and it is §16 rather than a taste: a video
+        # should end on something. Trailing off is not minimalism, it is
+        # running out of footage with the camera still on.
+        trim_weak_ending: true
       judgement:
         ideal_effects_per_minute: 0.0
 

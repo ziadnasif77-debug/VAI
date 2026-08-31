@@ -42,13 +42,14 @@ AXIS_WEIGHTS: Final[dict[str, float]] = {
 #: A clip this far from its neighbour is a jump the viewer feels.
 NEIGHBOUR_GAP_SECONDS: Final[float] = 240.0
 
-#: How varied shot lengths are in an edit nobody has given an opinion about,
-#: as ``(longest - shortest) / mean``. The house value, and the constant this
-#: axis compared every style against until V2-P0.
-IDEAL_SHOT_SPREAD: Final[float] = 1.2
-
-#: How far from its ideal a spread may drift before the axis reads zero.
-SPREAD_TOLERANCE: Final[float] = 1.8
+#: How many shots of unchanging length in a row stop being a rhythm.
+#:
+#: Four. Three shots at one length is a pattern a viewer reads as deliberate;
+#: the fourth is when it starts reading as nothing having been decided. This
+#: is the *other* way shot length fails to be a decision, and the axis needs
+#: both -- a definition that only punished arbitrary variation would score a
+#: perfect metronome at 1.00.
+METRONOME_RUN: Final[int] = 4
 
 #: What "enough" looks like on each density axis, per minute.
 IDEAL_EFFECTS_PER_MINUTE: Final[float] = 3.0
@@ -86,9 +87,23 @@ class PlanScore:
 
 
 def judge(
-    plan: Any, *, reader: SemanticReader | None, config: Any, style: Any = None
+    plan: Any,
+    *,
+    reader: SemanticReader | None,
+    config: Any,
+    style: Any = None,
+    editorial: Any = None,
 ) -> PlanScore:
-    """Score one plan on eight axes, with a sentence for each (§80)."""
+    """Score one plan on eight axes, with a sentence for each (§80).
+
+    `editorial` is the reading `backend.editorial.reading` already made for
+    this project. Without it the sequence axis falls back to moment type
+    alone, and measured on this machine that is not a small loss: reading
+    blind, the pacing axis saw 11 to 13 arbitrary cuts on plans where the
+    reading saw 2 to 5, because two shots logged as the same type are very
+    often a payoff followed by a reaction. A judge working from the weaker
+    signal ranks plans by it.
+    """
     moments = list(plan.moments)
     if not moments:
         return PlanScore(why=("the plan is empty",))
@@ -99,7 +114,7 @@ def judge(
     axes = {
         "coherence": _coherence(moments, why),
         "structure": _structure(plan, moments, why),
-        "pacing": _pacing(moments, plan, config, why, taste),
+        "pacing": _pacing(moments, plan, config, why, taste, editorial),
         "intensity": _intensity(moments, reader, why),
         "variety": _variety(moments, why),
         "ending": _ending(moments, reader, why),
@@ -142,26 +157,73 @@ def _structure(plan: Any, moments: Sequence[Any], why: list[str]) -> float:
 
 
 def _pacing(
-    moments: Sequence[Any], plan: Any, config: Any, why: list[str], style: Any = None
+    moments: Sequence[Any],
+    plan: Any,
+    config: Any,
+    why: list[str],
+    style: Any = None,
+    editorial: Any = None,
 ) -> float:
-    """Whether clip lengths vary, and stay inside the product's own band.
+    """Whether the shot lengths are doing work.
 
-    V2-P0: what counts as varied enough is a taste, not a constant. A style
-    that cuts to a steadier rhythm on purpose was being marked down for doing
-    exactly what it says it does -- the same mistake `_effect_density` was
-    given `ideal_effects_per_minute` to stop making about minimal edits.
+    **This axis was measuring the wrong thing, and V2-P0's numbers proved it.**
+
+    It used to score ``(longest - shortest) / mean`` against an ideal of 1.2 --
+    an authored constant no edit this system makes has ever approached, the
+    house style's own spread being 1.888. So every edit was marked down for
+    being what every edit is, and when styles were finally given a say in how
+    shots are cut, the three that trim were marked down *further* for
+    succeeding: shortening shots lowers the mean, which inflates a spread
+    measured against it, even though absolute variance fell four seconds.
+
+    Retuning the constant would have moved the number without fixing anything.
+    The real defect is not unevenness, because unevenness is what a cinematic
+    edit is made of. It is unevenness that **tracks nothing**: a cut from a
+    held shot to a brief one is editing when the brief shot is doing something
+    different, and noise when the next shot is more of the same at another
+    length.
+
+    So the axis now counts the two ways shot length can fail to be a decision,
+    and neither of them is "uneven":
+
+    * **arbitrary variation** -- the length changes and nothing else does, so
+      the change is not tracking the material;
+    * **a metronome** -- a long run of shots that never change length at all,
+      which is the same absence of a decision expressed the other way.
+
+    Between those, a deliberately steady edit and a deliberately uneven one
+    both score well, which is the point. There is no ideal spread left in the
+    axis, only two named defects.
     """
+    from backend.editorial import sequence as sequencing
+
     lengths = [moment.context_duration for moment in moments]
     if not lengths:
         return 0.0
-    mean = sum(lengths) / len(lengths)
-    spread = (max(lengths) - min(lengths)) / max(mean, 1e-6)
-    ideal = float(getattr(style, "ideal_shot_spread", IDEAL_SHOT_SPREAD))
-    # Some variation is pace; none is a metronome and too much is a jumble.
-    value = max(0.0, 1.0 - abs(spread - ideal) / SPREAD_TOLERANCE)
+
+    reading = sequencing.read(moments, editorial)
+    if reading.is_empty:
+        # One shot has no seams and therefore no pacing to be wrong about.
+        why.append("pacing 1.00: a single shot has no rhythm to judge")
+        return 1.0
+
+    arbitrary = sum(1 for seam in reading.seams if seam.arbitrary)
+    value = 1.0 - arbitrary / len(reading.seams)
+
+    metronome = max(0, reading.longest_flat_run - METRONOME_RUN + 1)
+    if metronome:
+        value -= metronome / len(moments)
+    value = max(0.0, value)
+
     why.append(
-        f"pacing {value:.2f}: clips run {min(lengths):.0f}-{max(lengths):.0f}s "
-        f"(mean {mean:.0f}s)"
+        f"pacing {value:.2f}: {arbitrary} of {len(reading.seams)} cuts change "
+        f"the shot length without changing what the shot is doing"
+        + (
+            f"; {reading.longest_flat_run} shots in a row never change length"
+            if metronome
+            else ""
+        )
+        + f" (clips run {min(lengths):.0f}-{max(lengths):.0f}s)"
     )
     return value
 
@@ -288,11 +350,4 @@ def best(
     )
 
 
-__all__ = [
-    "AXIS_WEIGHTS",
-    "IDEAL_SHOT_SPREAD",
-    "SPREAD_TOLERANCE",
-    "PlanScore",
-    "best",
-    "judge",
-]
+__all__ = ["AXIS_WEIGHTS", "METRONOME_RUN", "PlanScore", "best", "judge"]

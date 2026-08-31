@@ -1,5 +1,5 @@
 {
-  "note": "The house edit, frozen. Regenerate with scripts/baseline.py --freeze only when a change to the house style is intended and reviewed.",
+  "note": "The house edit as it stood BEFORE V2-P1, kept for comparison and never regenerated. The live contract is house_edit.json; this file exists so the difference the P1 judge correction made can be shown rather than asserted. Nothing reads it as a contract.",
   "projects": {
     "proj-13cfabc9c3a5": {
       "axes": {
@@ -8,9 +8,9 @@
         "effect_density": 0.266,
         "ending": 0.776,
         "intensity": 0.437,
-        "pacing": 0.75,
+        "pacing": 0.79,
         "structure": 1.0,
-        "total": 0.722,
+        "total": 0.728,
         "variety": 0.63
       },
       "clips": 9,
@@ -64,7 +64,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.722,
+      "judge_total": 0.728,
       "median_shot": 43.49,
       "profile": "A",
       "timeline": {
@@ -143,9 +143,9 @@
         "effect_density": 0.059,
         "ending": 0.735,
         "intensity": 0.316,
-        "pacing": 0.8,
+        "pacing": 0.928,
         "structure": 0.8,
-        "total": 0.609,
+        "total": 0.628,
         "variety": 0.222
       },
       "clips": 6,
@@ -184,7 +184,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.6093,
+      "judge_total": 0.6285,
       "median_shot": 54.03,
       "profile": "A",
       "timeline": {
@@ -245,9 +245,9 @@
         "effect_density": 0.311,
         "ending": 0.461,
         "intensity": 0.393,
-        "pacing": 0.75,
+        "pacing": 0.59,
         "structure": 0.6,
-        "total": 0.569,
+        "total": 0.545,
         "variety": 0.233
       },
       "clips": 5,
@@ -281,7 +281,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.5693,
+      "judge_total": 0.5453,
       "median_shot": 89.81,
       "profile": "A",
       "timeline": {
@@ -336,9 +336,9 @@
         "effect_density": 0.059,
         "ending": 0.735,
         "intensity": 0.316,
-        "pacing": 0.8,
+        "pacing": 0.928,
         "structure": 0.8,
-        "total": 0.609,
+        "total": 0.628,
         "variety": 0.222
       },
       "clips": 6,
@@ -377,7 +377,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.6093,
+      "judge_total": 0.6285,
       "median_shot": 54.03,
       "profile": "A",
       "timeline": {
@@ -438,9 +438,9 @@
         "effect_density": 0.439,
         "ending": 0.746,
         "intensity": 0.481,
-        "pacing": 1.0,
+        "pacing": 0.931,
         "structure": 0.6,
-        "total": 0.668,
+        "total": 0.657,
         "variety": 0.278
       },
       "clips": 3,
@@ -464,7 +464,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.6678,
+      "judge_total": 0.6575,
       "median_shot": 68.99,
       "profile": "A",
       "timeline": {
@@ -508,9 +508,9 @@
         "effect_density": 0.419,
         "ending": 0.766,
         "intensity": 0.454,
-        "pacing": 0.833,
+        "pacing": 0.735,
         "structure": 1.0,
-        "total": 0.742,
+        "total": 0.728,
         "variety": 0.667
       },
       "clips": 19,
@@ -614,7 +614,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.7424,
+      "judge_total": 0.7276,
       "median_shot": 73.57,
       "profile": "A",
       "timeline": {
@@ -754,9 +754,9 @@
         "effect_density": 0.953,
         "ending": 0.696,
         "intensity": 0.492,
-        "pacing": 0.917,
+        "pacing": 0.0,
         "structure": 1.0,
-        "total": 0.843,
+        "total": 0.706,
         "variety": 1.0
       },
       "clips": 13,
@@ -830,7 +830,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.8433,
+      "judge_total": 0.7058,
       "median_shot": 35.7,
       "profile": "A",
       "timeline": {
@@ -933,9 +933,9 @@
         "effect_density": 0.328,
         "ending": 0.811,
         "intensity": 0.348,
-        "pacing": 0.917,
+        "pacing": 0.774,
         "structure": 1.0,
-        "total": 0.685,
+        "total": 0.664,
         "variety": 0.667
       },
       "clips": 25,
@@ -1069,7 +1069,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.6851,
+      "judge_total": 0.6637,
       "median_shot": 47.75,
       "profile": "C",
       "timeline": {
@@ -1245,9 +1245,9 @@
         "effect_density": 0.398,
         "ending": 0.891,
         "intensity": 0.459,
-        "pacing": 0.75,
+        "pacing": 0.499,
         "structure": 1.0,
-        "total": 0.791,
+        "total": 0.753,
         "variety": 0.971
       },
       "clips": 17,
@@ -1341,7 +1341,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.7911,
+      "judge_total": 0.7535,
       "median_shot": 54.8,
       "profile": "C",
       "timeline": {
@@ -1466,15 +1466,15 @@
       "axes": {
         "audio_density": 0.5,
         "coherence": 1.0,
-        "effect_density": 0.447,
+        "effect_density": 0.433,
         "ending": 0.878,
-        "intensity": 0.454,
-        "pacing": 0.833,
+        "intensity": 0.46,
+        "pacing": 0.456,
         "structure": 1.0,
-        "total": 0.809,
+        "total": 0.752,
         "variety": 1.0
       },
-      "clips": 19,
+      "clips": 18,
       "ending_type": "defeat",
       "fingerprint": [
         [
@@ -1524,13 +1524,18 @@
         ],
         [
           "surprise",
+          920.567,
+          23.667
+        ],
+        [
+          "surprise",
           971.5,
           37.8
         ],
         [
           "surprise",
-          1098.367,
-          29.433
+          1006.467,
+          38.1
         ],
         [
           "tension",
@@ -1554,16 +1559,6 @@
         ],
         [
           "surprise",
-          1532.05,
-          19.75
-        ],
-        [
-          "tension",
-          1651.933,
-          21.117
-        ],
-        [
-          "surprise",
           1683.8,
           50.267
         ],
@@ -1575,9 +1570,9 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.8086,
-      "median_shot": 49.9,
-      "profile": "A",
+      "judge_total": 0.7518,
+      "median_shot": 50.08,
+      "profile": "C",
       "timeline": {
         "boundaries": [
           [
@@ -1627,17 +1622,22 @@
           ],
           [
             "1e900c",
+            920.567,
+            944.233
+          ],
+          [
+            "1e900c",
             971.5,
             1009.3
           ],
           [
             "1e900c",
-            1098.367,
-            1127.8
+            1009.3,
+            1044.567
           ],
           [
             "1e900c",
-            1127.8,
+            1122.967,
             1243.55
           ],
           [
@@ -1657,16 +1657,6 @@
           ],
           [
             "1e900c",
-            1532.05,
-            1551.8
-          ],
-          [
-            "1e900c",
-            1651.933,
-            1673.05
-          ],
-          [
-            "1e900c",
             1683.8,
             1734.067
           ],
@@ -1677,9 +1667,8 @@
           ]
         ],
         "clamped": 0,
-        "clips": 19,
+        "clips": 18,
         "roles": [
-          "body",
           "body",
           "body",
           "body",
@@ -1699,13 +1688,14 @@
           "body",
           "body"
         ],
-        "seconds": 1144.03,
+        "seconds": 1137.5,
         "transitions": [
           "cut",
+          "dip_to_black",
           "fade"
         ]
       },
-      "total_seconds": 1162.7
+      "total_seconds": 1154.2
     },
     "proj-6d5b6e27703c": {
       "axes": {
@@ -1714,9 +1704,9 @@
         "effect_density": 0.875,
         "ending": 0.705,
         "intensity": 0.508,
-        "pacing": 0.826,
+        "pacing": 0.63,
         "structure": 1.0,
-        "total": 0.827,
+        "total": 0.798,
         "variety": 1.0
       },
       "clips": 12,
@@ -1785,7 +1775,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.827,
+      "judge_total": 0.7976,
       "median_shot": 50.14,
       "profile": "A",
       "timeline": {
@@ -1878,16 +1868,16 @@
     "proj-86edde704be0": {
       "axes": {
         "audio_density": 0.5,
-        "coherence": 0.643,
-        "effect_density": 0.101,
+        "coherence": 0.684,
+        "effect_density": 0.104,
         "ending": 0.428,
-        "intensity": 0.337,
-        "pacing": 0.643,
+        "intensity": 0.31,
+        "pacing": 0.592,
         "structure": 1.0,
-        "total": 0.532,
-        "variety": 0.256
+        "total": 0.525,
+        "variety": 0.233
       },
-      "clips": 15,
+      "clips": 20,
       "ending_type": "surprise",
       "fingerprint": [
         [
@@ -1897,13 +1887,13 @@
         ],
         [
           "surprise",
-          19.667,
-          181.633
+          200.8,
+          87.71
         ],
         [
           "surprise",
-          200.8,
-          87.71
+          371.87,
+          44.73
         ],
         [
           "surprise",
@@ -1912,8 +1902,18 @@
         ],
         [
           "surprise",
+          574.55,
+          30.5
+        ],
+        [
+          "surprise",
           745.3,
           21.0
+        ],
+        [
+          "surprise",
+          849.167,
+          47.633
         ],
         [
           "surprise",
@@ -1922,8 +1922,18 @@
         ],
         [
           "surprise",
+          970.1,
+          20.95
+        ],
+        [
+          "surprise",
           1273.05,
           56.5
+        ],
+        [
+          "surprise",
+          1688.34,
+          34.56
         ],
         [
           "surprise",
@@ -1931,14 +1941,14 @@
           68.37
         ],
         [
-          "surprise",
-          2192.02,
-          135.447
-        ],
-        [
           "tension",
           2314.533,
           110.767
+        ],
+        [
+          "surprise",
+          2557.467,
+          41.1
         ],
         [
           "tension",
@@ -1962,15 +1972,20 @@
         ],
         [
           "surprise",
+          3667.27,
+          63.34
+        ],
+        [
+          "surprise",
           3996.21,
           39.24
         ]
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.5324,
-      "median_shot": 68.37,
-      "profile": "C",
+      "judge_total": 0.5252,
+      "median_shot": 46.18,
+      "profile": "A",
       "timeline": {
         "boundaries": [
           [
@@ -1980,13 +1995,13 @@
           ],
           [
             "45722f",
-            23.867,
-            201.3
+            200.8,
+            288.51
           ],
           [
             "45722f",
-            201.3,
-            288.51
+            371.87,
+            416.6
           ],
           [
             "45722f",
@@ -1995,8 +2010,18 @@
           ],
           [
             "45722f",
+            574.55,
+            605.05
+          ],
+          [
+            "45722f",
             745.3,
             766.3
+          ],
+          [
+            "45722f",
+            849.167,
+            896.8
           ],
           [
             "45722f",
@@ -2005,8 +2030,18 @@
           ],
           [
             "45722f",
+            970.1,
+            991.05
+          ],
+          [
+            "45722f",
             1273.05,
             1329.55
+          ],
+          [
+            "45722f",
+            1688.34,
+            1722.9
           ],
           [
             "45722f",
@@ -2015,13 +2050,13 @@
           ],
           [
             "45722f",
-            2192.02,
-            2327.467
+            2314.533,
+            2425.3
           ],
           [
             "45722f",
-            2327.467,
-            2425.3
+            2557.467,
+            2598.567
           ],
           [
             "45722f",
@@ -2045,13 +2080,23 @@
           ],
           [
             "45722f",
+            3667.27,
+            3730.61
+          ],
+          [
+            "45722f",
             3996.21,
             4035.45
           ]
         ],
         "clamped": 0,
-        "clips": 15,
+        "clips": 20,
         "roles": [
+          "body",
+          "body",
+          "body",
+          "body",
+          "body",
           "body",
           "body",
           "body",
@@ -2068,14 +2113,14 @@
           "body",
           "body"
         ],
-        "seconds": 1150.07,
+        "seconds": 1133.44,
         "transitions": [
           "cut",
           "dip_to_black",
           "fade"
         ]
       },
-      "total_seconds": 1187.3
+      "total_seconds": 1153.0
     },
     "proj-87a4213b248e": {
       "axes": {
@@ -2084,9 +2129,9 @@
         "effect_density": 0.541,
         "ending": 0.693,
         "intensity": 0.509,
-        "pacing": 0.96,
+        "pacing": 0.624,
         "structure": 1.0,
-        "total": 0.781,
+        "total": 0.731,
         "variety": 1.0
       },
       "clips": 26,
@@ -2225,7 +2270,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.781,
+      "judge_total": 0.7306,
       "median_shot": 40.63,
       "profile": "C",
       "timeline": {
@@ -2403,16 +2448,16 @@
     "proj-bd2db7f630a7": {
       "axes": {
         "audio_density": 0.5,
-        "coherence": 0.87,
-        "effect_density": 0.579,
+        "coherence": 0.962,
+        "effect_density": 0.463,
         "ending": 0.868,
-        "intensity": 0.511,
-        "pacing": 0.87,
+        "intensity": 0.5,
+        "pacing": 0.644,
         "structure": 1.0,
-        "total": 0.809,
+        "total": 0.78,
         "variety": 1.0
       },
-      "clips": 24,
+      "clips": 27,
       "ending_type": "clutch",
       "fingerprint": [
         [
@@ -2451,6 +2496,11 @@
           35.04
         ],
         [
+          "surprise",
+          849.167,
+          41.133
+        ],
+        [
           "skill",
           899.0,
           28.5
@@ -2459,6 +2509,11 @@
           "clutch",
           1153.85,
           51.21
+        ],
+        [
+          "clutch",
+          1205.06,
+          107.19
         ],
         [
           "fail",
@@ -2487,6 +2542,11 @@
         ],
         [
           "surprise",
+          2071.3,
+          21.75
+        ],
+        [
+          "surprise",
           2144.3,
           29.06
         ],
@@ -2512,11 +2572,6 @@
         ],
         [
           "rare",
-          2681.367,
-          120.433
-        ],
-        [
-          "rare",
           3319.033,
           54.967
         ],
@@ -2531,6 +2586,11 @@
           45.0
         ],
         [
+          "skill",
+          3726.6,
+          28.9
+        ],
+        [
           "clutch",
           3985.767,
           31.9
@@ -2538,9 +2598,9 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.8091,
-      "median_shot": 40.88,
-      "profile": "C",
+      "judge_total": 0.7804,
+      "median_shot": 40.13,
+      "profile": "A",
       "timeline": {
         "boundaries": [
           [
@@ -2580,6 +2640,11 @@
           ],
           [
             "c51668",
+            849.167,
+            890.3
+          ],
+          [
+            "c51668",
             899.0,
             927.5
           ],
@@ -2587,6 +2652,11 @@
             "c51668",
             1153.85,
             1205.06
+          ],
+          [
+            "c51668",
+            1205.06,
+            1312.25
           ],
           [
             "c51668",
@@ -2615,6 +2685,11 @@
           ],
           [
             "c51668",
+            2071.3,
+            2093.05
+          ],
+          [
+            "c51668",
             2144.3,
             2173.36
           ],
@@ -2640,11 +2715,6 @@
           ],
           [
             "c51668",
-            2681.367,
-            2801.8
-          ],
-          [
-            "c51668",
             3319.033,
             3374.0
           ],
@@ -2660,13 +2730,21 @@
           ],
           [
             "c51668",
+            3726.6,
+            3755.5
+          ],
+          [
+            "c51668",
             3985.767,
             4017.667
           ]
         ],
         "clamped": 0,
-        "clips": 24,
+        "clips": 27,
         "roles": [
+          "body",
+          "body",
+          "body",
           "body",
           "body",
           "body",
@@ -2692,26 +2770,26 @@
           "body",
           "body"
         ],
-        "seconds": 1133.63,
+        "seconds": 1212.17,
         "transitions": [
           "cut",
           "dip_to_black",
           "fade"
         ]
       },
-      "total_seconds": 1174.4
+      "total_seconds": 1252.9
     },
     "proj-ca4d0eac9d6d": {
       "axes": {
         "audio_density": 0.5,
         "coherence": 0.941,
-        "effect_density": 0.199,
+        "effect_density": 0.202,
         "ending": 0.433,
-        "intensity": 0.416,
-        "pacing": 0.886,
+        "intensity": 0.411,
+        "pacing": 0.607,
         "structure": 1.0,
-        "total": 0.731,
-        "variety": 1.0
+        "total": 0.668,
+        "variety": 0.833
       },
       "clips": 18,
       "ending_type": "surprise",
@@ -2722,9 +2800,9 @@
           98.05
         ],
         [
-          "outplay",
-          322.833,
-          180.633
+          "fail",
+          103.1,
+          106.15
         ],
         [
           "surprise",
@@ -2778,8 +2856,8 @@
         ],
         [
           "surprise",
-          1729.067,
-          23.9
+          1761.133,
+          79.417
         ],
         [
           "surprise",
@@ -2809,9 +2887,9 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.7308,
-      "median_shot": 56.63,
-      "profile": "A",
+      "judge_total": 0.6677,
+      "median_shot": 59.1,
+      "profile": "B",
       "timeline": {
         "boundaries": [
           [
@@ -2821,8 +2899,8 @@
           ],
           [
             "dfe2ce",
-            322.833,
-            503.467
+            103.1,
+            209.25
           ],
           [
             "dfe2ce",
@@ -2876,12 +2954,12 @@
           ],
           [
             "dfe2ce",
-            1729.933,
-            1752.967
+            1761.133,
+            1840.55
           ],
           [
             "dfe2ce",
-            1838.14,
+            1840.55,
             1884.2
           ],
           [
@@ -2927,14 +3005,14 @@
           "body",
           "body"
         ],
-        "seconds": 1183.71,
+        "seconds": 1163.2,
         "transitions": [
           "cut",
           "dip_to_black",
           "fade"
         ]
       },
-      "total_seconds": 1205.0
+      "total_seconds": 1186.0
     },
     "proj-dc1cf6be95a3": {
       "axes": {
@@ -2943,9 +3021,9 @@
         "effect_density": 0.085,
         "ending": 0.36,
         "intensity": 0.301,
-        "pacing": 0.889,
+        "pacing": 0.453,
         "structure": 1.0,
-        "total": 0.555,
+        "total": 0.489,
         "variety": 0.219
       },
       "clips": 19,
@@ -3049,7 +3127,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.5547,
+      "judge_total": 0.4893,
       "median_shot": 52.0,
       "profile": "B",
       "timeline": {
@@ -3189,9 +3267,9 @@
         "effect_density": 0.112,
         "ending": 0.422,
         "intensity": 0.392,
-        "pacing": 0.533,
+        "pacing": 0.081,
         "structure": 0.8,
-        "total": 0.552,
+        "total": 0.484,
         "variety": 0.259
       },
       "clips": 18,
@@ -3290,7 +3368,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.5522,
+      "judge_total": 0.4845,
       "median_shot": 33.8,
       "profile": "A",
       "timeline": {

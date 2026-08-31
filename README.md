@@ -170,6 +170,21 @@ stretch is one that adds no context, no anticipation, no progression, no payoff
 and no reaction. Each is read from a different store, deadness is what is left
 after the strongest claim, and no style sees it until it asks.
 
+**It reads the joins, not only the shots.** Every other reading is about one
+shot. This one is about what happens *between* two — rhythm, contrast,
+continuity, repetition, and whether the cut lands on a boundary the footage
+already has. It is what lets the judge tell a held payoff followed by a brief
+reaction from two shots of one kind at two different lengths, which is the
+difference between editing and noise.
+
+**Where the video starts is an editorial decision.** The cold-open hook moves
+the strongest moment to the front, which is a flash-forward, so a chronological
+edit refuses it — and every edit here is chronological, because the owner asked
+for time order three times. What is left is choosing where to *begin*: moving
+the first index reorders nothing. It opens on a stronger shot when there is one
+worth reaching, never on an outcome, and never past the setup that explains what
+it would open on.
+
 **Chronology is constitutional.** No engine may reorder events; a stronger
 moment never precedes what happened before it. The single exception is the
 cold-open hook at the start, and the rule is checked on the built timeline
@@ -259,19 +274,36 @@ the editing pipeline had ever read either one. You could write "احذف الأ�
 الميتة", be told the policy was now aggressive, and receive byte-identical
 footage. Both are wired now; the coverage tool still cannot see their kind.
 
-**One judge axis got worse, and it is still worse.** Giving styles a say in how
-shots are cut moved the pacing axis down on the three that trim — the axis
-divides shot spread by the mean, so shortening shots reads as unevenness even
-though absolute variance fell four seconds. Its ideal of 1.2 is also a number
-no edit this system makes has ever approached; the house's own spread is 1.888.
-Three attempts to give styles their own ideal were reverted, one of them
-instructive: raising `cinematic`'s improved its pacing score *and* its judge
-total, until the house-shaped counterfactual profile started winning again and
+**A metric that measured the wrong thing, and what it cost to notice.** Giving
+styles a say in how shots are cut moved the judge's pacing axis *down* on the
+three that trim — 0.61 to 0.52 — because the axis scored `(longest − shortest)
+/ mean` against an ideal of 1.2, and shortening shots lowers the mean it
+divides by. The ideal was also a number no edit this system has ever made comes
+near; the house style's own spread is 1.888.
+
+Three attempts to fix it by giving each style its own ideal were reverted. The
+instructive one: raising `cinematic`'s improved its pacing score *and* its judge
+total, until the house-shaped counterfactual plan started winning again and
 `cinematic` went back to producing the house edit exactly. The judge's per-style
-taste decides which of three profiles is rendered, so a change of taste is a
-change of edit. The regression stands, in
-[docs/P0_RESULTS.md](docs/P0_RESULTS.md), because tuning the constant until the
-number went away would have been fitting the metric.
+taste decides which of three plans is rendered, so a change of taste is a change
+of edit — and a number that improves a score while erasing the style is not an
+improvement.
+
+So the definition was replaced rather than the constant. The axis now holds no
+ideal at all, and names the two ways a shot length fails to be a decision:
+**arbitrary variation**, where the length changes and nothing else does, and a
+**metronome**, four or more shots that never change length. Between them a
+deliberately steady edit and a deliberately uneven one both score well, which is
+the difference between *uneven because badly edited* and *uneven because
+cinematic*. The axis sits at 0.82, above where it started, and six tests protect
+the definition rather than the numbers — including one asserting the old
+constant no longer exists.
+
+Correcting it changed which plan wins on 4 of 17 projects, all of them toward
+fewer arbitrary cuts. That is the golden baseline moving, deliberately, once:
+[docs/BASELINE.md](docs/BASELINE.md#the-golden-baseline-changed-once-and-this-is-why)
+records why, and `tests/golden/house_edit.pre-p1.json` keeps the old one so the
+difference can be shown rather than asserted.
 
 ---
 
@@ -489,6 +521,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/ANALYTICS.md](docs/ANALYTICS.md) | outcome data — what it needs, what it stores, what it refuses to guess |
 | [docs/BASELINE.md](docs/BASELINE.md) | the edit this system makes, measured — and the regression contract |
 | [docs/P0_RESULTS.md](docs/P0_RESULTS.md) | before → after → delta for the editing upgrade, regression included |
+| [docs/P1_RESULTS.md](docs/P1_RESULTS.md) | reading the joins between shots, and the metric that was measuring the wrong thing |
 | [docs/TUNING.md](docs/TUNING.md) | controlled tuning — the six guards, and how to turn it on |
 | `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
 | [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
@@ -496,7 +529,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 2585 tests (~44 min)
+.venv/bin/python -m pytest              # 2615 tests (~43 min)
 .venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .

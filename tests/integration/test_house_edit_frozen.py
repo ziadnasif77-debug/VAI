@@ -112,9 +112,11 @@ def _edit(config, database, project_id: str, target: float):
     # `apply` hands back this exact list, so the contract measures that the
     # short circuit really is one rather than trusting that it is.
     strategy = editorial_strategy.resolve(policy)
-    shaped = editorial_strategy.apply(
-        moments, strategy, _reading(config, database, project_id, moments, durations)
-    )
+    # Bound rather than passed inline: V2-P1 gives the judge the same reading,
+    # and building it twice would be two reads of six stores for data that
+    # cannot have changed between them.
+    reading = _reading(config, database, project_id, moments, durations)
+    shaped = editorial_strategy.apply(moments, strategy, reading)
     assert shaped is moments, (
         f"{project_id}: the house strategy reshaped the footage. It is supposed "
         f"to be neutral, and a neutral strategy returns the caller's own list."
@@ -130,7 +132,7 @@ def _edit(config, database, project_id: str, target: float):
         selection=policy.selection,
     )
     scored = [
-        (profile, plan, judging.judge(plan, reader=None, config=config, style=policy))
+        (profile, plan, judging.judge(plan, reader=None, config=config, style=policy, editorial=reading))
         for profile, plan in proposed
     ]
     winner = judging.best(scored)

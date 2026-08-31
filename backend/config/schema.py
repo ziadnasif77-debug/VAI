@@ -1884,16 +1884,6 @@ class StyleJudgementConfig(_Section):
 
     ideal_effects_per_minute: float = 3.0
     ideal_speech_share: float = 0.35
-    #: How varied this style wants its shot lengths, as
-    #: ``(longest - shortest) / mean``.
-    #:
-    #: The same problem `ideal_effects_per_minute` was added for, on a
-    #: different axis. The judge scored every style against one number, so a
-    #: style that deliberately cuts to a steadier rhythm was marked down for
-    #: succeeding -- measured at -0.10 on the pacing axis across the five
-    #: styles the moment they were given a shot doctrine. A fast edit is not a
-    #: worse edit for having fewer very long shots in it.
-    ideal_shot_spread: float = 1.2
 
 
 class StyleCritiqueConfig(_Section):
@@ -1956,6 +1946,17 @@ class StyleShotsConfig(_Section):
     #: progression, payoff or reaction. Zero -- the pipeline's behaviour since
     #: the first migration -- until a style says otherwise.
     dead_time_weight: float = 0.0
+
+    #: Start the video past a weak lead-in (V2-P1).
+    #:
+    #: Not the cold-open hook, which is a flash-forward and which chronology
+    #: forbids -- this only moves where the edit begins, and a prefix that is
+    #: dropped was never going to be reordered. It is the only opening decision
+    #: available to a chronological edit, and every edit here is one.
+    trim_weak_opening: bool = False
+    #: Stop before a run of trailing shots weaker than what preceded them, so
+    #: the video ends rather than trails off.
+    trim_weak_ending: bool = False
 
 
 class StyleEntry(_Section):

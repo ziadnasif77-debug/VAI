@@ -149,13 +149,79 @@ constitution has exactly one exception, the leading run of cold-open hook
 clips, and it stays that way. A replay is a bounded, declared re-use of a span
 already shown, not a licence to reorder.
 
-## What P0 has to prove
+## The golden baseline changed once, and this is why
 
-Not "the code is more sophisticated." These, in numbers, against this file:
+**V2-P1, 4 of 17 projects.** Not a cosmetic change, not a drifting
+number, and not a test made green: the pacing metric's **definition** was
+wrong, correcting it changed which of the three counterfactual plans the judge
+prefers, and the plan the judge prefers is the plan that gets rendered.
 
-1. The frozen house edit is **byte-identical** — or the change is deliberate,
-   reviewed, and named in the commit message.
-2. `cinematic` stops producing the house edit in 6 of 9 projects.
-3. The eight starved projects stop producing one identical video across five
-   styles.
-4. No judge axis regresses on any project under any style.
+The old axis scored `(longest - shortest) / mean` against an ideal of 1.2 -- a
+constant no edit this system has ever made comes near, the house style's own
+spread being 1.888. It marked every edit down for being what every edit is, and
+marked the styles that trim shots down *further* for succeeding, because
+shortening shots lowers the mean the spread is divided by.
+
+The corrected axis holds no ideal at all. It names the two ways a shot length
+fails to be a decision:
+
+* **arbitrary variation** -- the length changes and nothing else does;
+* **a metronome** -- four or more shots in a row that never change length.
+
+Between those, a deliberately steady edit and a deliberately uneven one both
+score well, which is the distinction between *uneven because badly edited* and
+*uneven because cinematic* that this correction exists to make.
+
+A second correction went with it: **the judge was reading the sequence blind.**
+It ran the seam analysis without the editorial reading, so two shots logged as
+one moment type read as identical even when they were a payoff and the reaction
+to it. Measured here, judging blind saw 11-13 arbitrary cuts on plans the
+reading scored at 2-5, and the judge ranks plans by what it sees.
+
+### What moved, project by project
+
+| project | winning profile | clips | pacing (new metric) | arbitrary cuts | purposeful rhythm |
+|---|---|---|---|---|---|
+| `proj-67d1d971b60` | C to A | 18 to 19 | 0.824 to 0.833 | 3/17 to 3/18 | 0.812 to 0.812 |
+| `proj-86edde704be` | A to C | 20 to 15 | 0.474 to 0.643 | 10/19 to 5/14 | 0.444 to 0.545 |
+| `proj-bd2db7f630a` | A to C | 27 to 24 | 0.771 to 0.870 | 5/26 to 3/23 | 0.722 to 0.824 |
+| `proj-ca4d0eac9d6` | B to A | 18 to 18 | 0.827 to 0.886 | 2/17 to 1/17 | 0.818 to 0.917 |
+
+Each has a lower share of arbitrary cuts, higher purposeful rhythm, or both.
+The full record is [p1-golden-change.json](p1-golden-change.json), written by
+the same code that produced this table.
+
+> An earlier report of this change said **five** projects moved and all five
+> improved. That was measured with the judge still blind while the checking
+> script had the reading -- an inconsistent comparison, and one of the five
+> (`proj-dc1cf6be95a3`) had *more* arbitrary cuts under its new winner. Once
+> the judge was given the same reading the checker had, that project stopped
+> changing at all and four remain. The table above is the corrected figure.
+
+### The pre-P1 baseline is kept
+
+`tests/golden/house_edit.pre-p1.json` holds the house edit exactly as it stood
+before any of this. Nothing reads it as a contract and nothing regenerates it;
+it exists so the difference can be shown rather than asserted. The live
+contract remains `house_edit.json`.
+
+## What P0 had to prove, and what it did
+
+Not "the code is more sophisticated." These four, in numbers. The results are
+in [P0_RESULTS.md](P0_RESULTS.md); the verdict on each is here.
+
+1. **The frozen house edit is byte-identical.** Met, on all 17 projects, by
+   construction rather than by care — a neutral strategy returns the caller's
+   own list and the contract asserts `shaped is moments`.
+2. **`cinematic` stops producing the house edit in 6 of 9 projects.** Partly
+   met: 6 of 9 became 5 of 17, and its character distance moved 0.019 to 0.035,
+   the smallest gain of the five. Its real lever is the pacing doctrine,
+   consumed after the point this harness measures.
+3. **The eight starved projects stop producing one identical video.** Met: 40
+   of 40 identical became 8 of 40.
+4. **No judge axis regresses on any project under any style.** *Not met in P0*,
+   and fixed in P1 by correcting the axis rather than the numbers — see the
+   section above. In P0 the pacing axis fell on the three styles that trim
+   shots (gaming_fast 0.642 → 0.399, funny 0.611 → 0.492, competitive 0.580 →
+   0.473), because the axis divided spread by the mean and shortening shots
+   lowers the mean. P1's redefinition brings all five back above 0.81.
