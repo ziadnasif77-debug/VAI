@@ -74,7 +74,11 @@ class EdlWorker:
         # V2-P8: which taste is cutting. Resolved once here and recorded, so
         # the renderer, QA and the post-render critic judge the video by the
         # style that made it rather than by whatever the brief says later.
-        style = style_bible.resolve(context.config, self._asked_style(context))
+        style = style_bible.resolve(
+            context.config,
+            self._asked_style(context),
+            database=context.database,
+        )
 
         guard = context.config.narrative.screen_guard
         if guard.enabled:

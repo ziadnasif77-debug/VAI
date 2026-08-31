@@ -216,7 +216,9 @@ class StoryWorker:
         # exists, so the taste that judges these plans is the one about to cut
         # them. The stamp answers the opposite question -- what cut the video
         # that is already on disk -- and belongs to the stages after RENDER.
-        style = style_bible.resolve(context.config, intent.style)
+        style = style_bible.resolve(
+            context.config, intent.style, database=context.database
+        )
         scored = [
             (
                 profile,

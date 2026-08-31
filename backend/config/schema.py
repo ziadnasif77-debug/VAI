@@ -1915,6 +1915,29 @@ class StyleEntry(_Section):
     critique: StyleCritiqueConfig = Field(default_factory=StyleCritiqueConfig)
 
 
+class StyleTuningConfig(_Section):
+    """What controlled tuning is allowed to do (V2-P10).
+
+    Every field here narrows a permission. The mechanism may change a style
+    value without a person asking, which is the most dangerous thing in this
+    project, and these are the reasons it almost never will.
+    """
+
+    #: Off. Enabling it is a deliberate act; even enabled, the thresholds
+    #: below have to be met before anything can be proposed.
+    enabled: bool = False
+    #: A proposal may not exist below this much evidence.
+    minimum_videos: int = Field(default=15, ge=1)
+    #: And each side of a comparison needs its own sample.
+    minimum_per_arm: int = Field(default=5, ge=2)
+    #: The largest single move, as a fraction of the key's declared range.
+    max_step_fraction: float = Field(default=0.10, gt=0.0, le=0.5)
+    #: How many further measured videos before the same key may move again.
+    cooldown_videos: int = Field(default=5, ge=0)
+    #: The outcome metric a proposal compares.
+    metric: str = "averageViewPercentage"
+
+
 class StyleConfig(_Section):
     """The Style Bible: taste, versioned, fenced.
 
@@ -1926,6 +1949,7 @@ class StyleConfig(_Section):
 
     default: str = "signature"
     limits: dict[str, StyleLimit] = Field(default_factory=dict)
+    tuning: StyleTuningConfig = Field(default_factory=StyleTuningConfig)
     bible: dict[str, StyleEntry] = Field(default_factory=dict)
 
     @model_validator(mode="after")

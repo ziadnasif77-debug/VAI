@@ -61,6 +61,9 @@ class Style:
     #: Content hash of the resolved values. Two edits with the same digest were
     #: cut by the same taste, whatever the file was called at the time.
     digest: str
+    #: Keys P10's controlled tuning moved away from what the file says. Empty
+    #: is the normal state and the only state so far.
+    tuned: tuple[str, ...] = ()
 
     def shelf_for(self, level: str, fallback: str) -> str:
         """The music bed this style puts under a level."""
@@ -72,6 +75,7 @@ class Style:
             "name": self.name,
             "version": self.version,
             "digest": self.digest,
+            "tuned": list(self.tuned),
             "pacing": self.pacing.model_dump(mode="json"),
             "audio": self.audio.model_dump(mode="json"),
             "judgement": self.judgement.model_dump(mode="json"),
@@ -79,13 +83,21 @@ class Style:
         }
 
 
-def resolve(config: AppConfig, asked: str | None = None) -> Style:
+def resolve(
+    config: AppConfig, asked: str | None = None, *, database: Any = None
+) -> Style:
     """The style a name resolves to, and never an exception for a typo.
 
     A name with no entry falls back to the bible's default and says so in the
     log and in the returned :attr:`Style.name`. Refusing to build the video
     over a misspelled style would be a worse failure than cutting it in the
     house style and recording that this is what happened.
+
+    ``database`` brings P10's controlled tuning into the answer: any adjustment
+    in force is added to the file's value and clamped to the same bounds the
+    file declares. Without it the file is the whole truth, which is what every
+    caller got before that phase and what every caller still gets today -- the
+    ledger is empty and the switch is off.
     """
     bible = config.style.bible
     wanted = (asked or "").strip()
@@ -104,10 +116,13 @@ def resolve(config: AppConfig, asked: str | None = None) -> Style:
             f"The style bible has no entry for {name!r} and no default; "
             f"config/style.yaml lists {sorted(bible)}."
         )
-    return _style(asked=wanted or name, name=name, entry=entry)
+    entry, applied = _tuned(config, name, entry, database)
+    return _style(asked=wanted or name, name=name, entry=entry, tuned=applied)
 
 
-def _style(*, asked: str, name: str, entry: StyleEntry) -> Style:
+def _style(
+    *, asked: str, name: str, entry: StyleEntry, tuned: tuple[str, ...] = ()
+) -> Style:
     return Style(
         asked=asked,
         name=name,
@@ -117,7 +132,64 @@ def _style(*, asked: str, name: str, entry: StyleEntry) -> Style:
         judgement=entry.judgement,
         critique=entry.critique,
         digest=digest_of(name, entry),
+        tuned=tuned,
     )
+
+
+def _tuned(
+    config: AppConfig, name: str, entry: StyleEntry, database: Any
+) -> tuple[StyleEntry, tuple[str, ...]]:
+    """The entry with P10's adjustments folded in, and which keys moved.
+
+    Folded into the entry rather than applied at each use, so the digest
+    already reflects them: two videos cut with different tuning must not carry
+    the same fingerprint, or the record P9 keeps would say they were the same
+    edit made twice.
+
+    A failure to read the ledger returns the file untouched. Tuning is an
+    improvement to a system that works without it, and a database that will not
+    answer is not a reason to stop making videos.
+    """
+    if database is None:
+        return entry, ()
+    try:
+        from backend.tuning.deltas import TuningLedger
+
+        offsets = TuningLedger(database, config).offsets(name)
+    except Exception:
+        logger.exception("The tuning ledger could not be read; the file stands")
+        return entry, ()
+    if not offsets:
+        return entry, ()
+
+    sections: dict[str, dict[str, float]] = {}
+    moved: list[str] = []
+    for key, delta in offsets.items():
+        section, _, field_name = key.partition(".")
+        current = getattr(entry, section, None)
+        if current is None or not hasattr(current, field_name):
+            logger.warning(
+                "A tuning delta names a value this style does not have",
+                extra={"style": name, "key": key},
+            )
+            continue
+        limit = config.style.limits.get(key)
+        value = float(getattr(current, field_name)) + float(delta)
+        if limit is not None:
+            # The same fence the ledger checked at write time, checked again at
+            # read time: the file may have been edited since, and a delta that
+            # was legal against the old base need not be legal against the new.
+            value = min(float(limit.max), max(float(limit.min), value))
+        sections.setdefault(section, {})[field_name] = value
+        moved.append(key)
+
+    if not sections:
+        return entry, ()
+    update = {
+        section: getattr(entry, section).model_copy(update=fields)
+        for section, fields in sections.items()
+    }
+    return entry.model_copy(update=update), tuple(sorted(moved))
 
 
 def digest_of(name: str, entry: StyleEntry) -> str:
@@ -195,7 +267,9 @@ def for_project(database: Any, config: AppConfig, project_id: str) -> Style:
             name=row["style"],
             entry=config.style.bible[row["style"]],
         )
-    return resolve(config, _asked_by(database, config, project_id))
+    return resolve(
+        config, _asked_by(database, config, project_id), database=database
+    )
 
 
 def _asked_by(database: Any, config: AppConfig, project_id: str) -> str | None:

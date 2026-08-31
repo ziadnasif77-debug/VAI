@@ -62,6 +62,40 @@ style:
     critique.fatigue_seconds: { min: 10.0, max: 60.0 }
     critique.repeat_run: { min: 2, max: 6 }
 
+  # Controlled tuning (V2-P10). The only mechanism in this project permitted
+  # to change a decision without a person asking, and every number here exists
+  # to make that permission small.
+  #
+  # Off. Enabling it is a deliberate act, and even enabled it refuses to
+  # propose anything until the evidence below exists -- which today it does
+  # not: this channel has zero measured videos.
+  tuning:
+    enabled: false
+
+    # A proposal may not exist below this much evidence. Fifteen is not a
+    # statistical threshold and does not pretend to be one; it is the point
+    # where the owner and this system agreed a comparison is worth looking at.
+    minimum_videos: 15
+
+    # And each side of a comparison needs its own sample. Two arms of one
+    # video each is not a comparison, it is two anecdotes.
+    minimum_per_arm: 5
+
+    # One adjustment may move a value by at most this fraction of its declared
+    # range. A tenth of the range means no single decision can swing the
+    # channel, and ten of them in a row still cannot leave the fence.
+    max_step_fraction: 0.10
+
+    # A key that was moved stays put until this many further videos have been
+    # measured with the new value. Without it the mechanism would chase its
+    # own last change.
+    cooldown_videos: 5
+
+    # The one number a proposal compares. The share of the video a viewer
+    # actually watched is the least gameable single measure of an edit --
+    # views measure the thumbnail, likes measure the audience's mood.
+    metric: averageViewPercentage
+
   # One entry per style the effects library knows, because a name that
   # decorates and cannot cut is the half-a-style this phase exists to finish.
   #
