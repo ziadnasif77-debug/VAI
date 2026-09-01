@@ -551,6 +551,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/P1_RESULTS.md](docs/P1_RESULTS.md) | reading the joins between shots, and the metric that was measuring the wrong thing |
 | [docs/P1_8_CLASSIFIER_AUDIT.md](docs/P1_8_CLASSIFIER_AUDIT.md) | why half of every moment is labelled `surprise`, and what that costs |
 | [docs/P2_2_EVENT_BOUNDARIES.md](docs/P2_2_EVENT_BOUNDARIES.md) | the evidence that was being dropped, and locating the thing a moment is about |
+| [docs/P2_4_SOUND_AUDIT.md](docs/P2_4_SOUND_AUDIT.md) | the sound hierarchy, measured off the rendered envelope rather than the constants |
 | [docs/P2_1_REPLAY_ANALYSIS.md](docs/P2_1_REPLAY_ANALYSIS.md) | replay, analysed and deferred: two candidates in 254 clips |
 | [docs/TUNING.md](docs/TUNING.md) | controlled tuning — the six guards, and how to turn it on |
 | `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
