@@ -151,6 +151,8 @@ class ShortsWorker:
             cut.replace(out_path)
             return None
 
+        from backend.style import bible as style_bible
+
         segments = TranscriptRepository(context.database).list_for_media(plan.media_id)
         timeline = vertical.short_timeline(plan, context.project_id)
         captions = caption_builder.build_captions(
@@ -163,7 +165,9 @@ class ShortsWorker:
         composition = build_composition(
             timeline,
             captions=captions,
-            caption_config=context.config.captions,
+            caption_config=style_bible.captions_for(
+                context.database, context.config, context.project_id
+            ),
             width=config.width,
             height=config.height,
             fps=context.config.remotion.overlay_fps or 30,

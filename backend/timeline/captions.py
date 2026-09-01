@@ -27,7 +27,7 @@ draws.
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from ai.providers.base import TranscriptSegment
@@ -71,7 +71,6 @@ class Caption:
     clip_id: str | None = None
     #: Word timings, already in timeline coordinates, for word highlighting.
     words: tuple[tuple[str, float, float], ...] = ()
-    style: dict[str, Any] = field(default_factory=dict)
 
     @property
     def duration(self) -> float:
@@ -90,7 +89,6 @@ class Caption:
                 {"word": word, "start": round(start, 3), "end": round(end, 3)}
                 for word, start, end in self.words
             ],
-            "style": self.style,
         }
 
 
@@ -132,7 +130,6 @@ def build_captions(
             language=caption.language,
             clip_id=caption.clip_id,
             words=caption.words,
-            style=caption.style,
         )
         for index, caption in enumerate(captions)
     ]
@@ -332,7 +329,6 @@ def _resolve_collisions(captions: Sequence[Caption], config: CaptionsConfig) -> 
                 language=caption.language,
                 clip_id=caption.clip_id,
                 words=caption.words,
-                style=caption.style,
             )
         )
     return resolved

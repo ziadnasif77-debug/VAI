@@ -1879,6 +1879,66 @@ class StyleAudioConfig(_Section):
     shelves: dict[str, str] = Field(default_factory=dict)
 
 
+class StyleCaptionsConfig(_Section):
+    """How this style's captions look (V2-P2.5).
+
+    Every field is ``None`` by default, and ``None`` means *this style has no
+    opinion* rather than *this style wants the default*. The difference is the
+    whole design: :meth:`applied_to` returns the caller's own configuration
+    object, by identity, when nothing here is set -- so a style with no
+    ``captions`` block cannot produce captions that merely happen to match the
+    house's. They are the house's.
+
+    Only settings a renderer actually draws with are here. ``captions.emphasis``
+    is deliberately absent: it is passed to the renderer and declared in its
+    schema, and no component reads it, so a style declaring it would be
+    declaring nothing.
+    """
+
+    #: Fade and rise on entry (``Caption.tsx``). False cuts the caption on.
+    animated: bool | None = None
+    #: Light the word currently being spoken.
+    word_highlighting: bool | None = None
+    #: Fraction of frame height, so the same value reads the same at 720p and 4K.
+    font_size_ratio: float | None = Field(default=None, gt=0, lt=0.5)
+    #: The colour of the lit word.
+    highlight_color: str | None = None
+
+    def applied_to(self, config: CaptionsConfig) -> CaptionsConfig:
+        """This style's captions, or ``config`` itself when it has no opinion.
+
+        Returning the caller's own object -- not a copy that compares equal --
+        is what makes "the house style renders exactly what it rendered before"
+        a consequence of the code rather than a promise about it.
+        """
+        if not any(
+            value is not None
+            for value in (
+                self.animated,
+                self.word_highlighting,
+                self.font_size_ratio,
+                self.highlight_color,
+            )
+        ):
+            return config
+
+        changes: dict[str, Any] = {}
+        if self.animated is not None:
+            changes["style"] = "animated" if self.animated else "standard"
+        if self.word_highlighting is not None:
+            changes["word_highlighting"] = self.word_highlighting
+
+        appearance: dict[str, Any] = {}
+        if self.font_size_ratio is not None:
+            appearance["font_size_ratio"] = self.font_size_ratio
+        if self.highlight_color is not None:
+            appearance["highlight_color"] = self.highlight_color
+        if appearance:
+            changes["appearance"] = config.appearance.model_copy(update=appearance)
+
+        return config.model_copy(update=changes)
+
+
 class StyleJudgementConfig(_Section):
     """What the counterfactual judge considers a good edit of this kind."""
 
@@ -1992,6 +2052,7 @@ class StyleEntry(_Section):
     shots: StyleShotsConfig = Field(default_factory=StyleShotsConfig)
     pacing: StylePacingConfig = Field(default_factory=StylePacingConfig)
     audio: StyleAudioConfig = Field(default_factory=StyleAudioConfig)
+    captions: StyleCaptionsConfig = Field(default_factory=StyleCaptionsConfig)
     judgement: StyleJudgementConfig = Field(default_factory=StyleJudgementConfig)
     critique: StyleCritiqueConfig = Field(default_factory=StyleCritiqueConfig)
 

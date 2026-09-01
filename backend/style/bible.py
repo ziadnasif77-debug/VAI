@@ -30,6 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from backend.config.schema import (
         AppConfig,
         StyleAudioConfig,
+        StyleCaptionsConfig,
         StyleCritiqueConfig,
         StyleEntry,
         StyleJudgementConfig,
@@ -61,6 +62,10 @@ class Style:
     shots: StyleShotsConfig
     pacing: StylePacingConfig
     audio: StyleAudioConfig
+    #: How this style's captions look (V2-P2.5). Deliberately absent from
+    #: :func:`digest_of`: the digest answers "was this cut by the same
+    #: taste", and a caption colour does not change the cut.
+    captions: StyleCaptionsConfig
     judgement: StyleJudgementConfig
     critique: StyleCritiqueConfig
     #: Content hash of the resolved values. Two edits with the same digest were
@@ -84,6 +89,7 @@ class Style:
             "shots": self.shots.model_dump(mode="json"),
             "pacing": self.pacing.model_dump(mode="json"),
             "audio": self.audio.model_dump(mode="json"),
+            "captions": self.captions.model_dump(mode="json"),
             "judgement": self.judgement.model_dump(mode="json"),
             "critique": self.critique.model_dump(mode="json"),
         }
@@ -136,6 +142,7 @@ def _style(
         shots=entry.shots,
         pacing=entry.pacing,
         audio=entry.audio,
+        captions=entry.captions,
         judgement=entry.judgement,
         critique=entry.critique,
         digest=digest_of(name, entry),
@@ -219,6 +226,26 @@ def digest_of(name: str, entry: StyleEntry) -> str:
     ).hexdigest()
 
 
+def captions_for(database: Any, config: AppConfig, project_id: str) -> Any:
+    """§71's caption settings, as this project's style asks for them (V2-P2.5).
+
+    A style with no ``captions`` block receives ``config.captions`` *itself* --
+    the same object, not a copy that compares equal -- so a style that has not
+    declared a caption taste renders exactly what it rendered before this
+    existed, as a consequence of the code rather than a promise about it.
+
+    A style that will not resolve falls back to the same object, for the same
+    reason the audio plan falls back to one bed: a caption colour is not worth
+    failing a render over.
+    """
+    try:
+        style = for_project(database, config, project_id)
+    except Exception:
+        logger.exception("No style for captions; §71's configuration stands")
+        return config.captions
+    return style.captions.applied_to(config.captions)
+
+
 # -- what made this edit ----------------------------------------------------
 
 
@@ -291,4 +318,12 @@ def _asked_by(database: Any, config: AppConfig, project_id: str) -> str | None:
     return getattr(intent, "style", None)
 
 
-__all__ = ["UNSET", "Style", "digest_of", "for_project", "resolve", "stamp"]
+__all__ = [
+    "UNSET",
+    "Style",
+    "captions_for",
+    "digest_of",
+    "for_project",
+    "resolve",
+    "stamp",
+]

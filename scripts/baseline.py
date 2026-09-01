@@ -627,6 +627,27 @@ def _diff(before: dict, after: dict) -> None:
         "judge_total",
     )
     print("\n=== against the saved baseline ===")
+    # A shape check, because the alternative is a lie that reads like a
+    # regression. `--freeze` writes the *house* edit flat -- one entry per
+    # project, with no style level -- while this function expects a full run
+    # keyed by style. Handed the frozen file, every `old_styles.get(style)`
+    # misses, every metric prints a change from nothing, and all seventeen
+    # projects report "[selection changed]" when nothing has changed at all.
+    # That happened, and the output was convincing for a minute.
+    sample = next(iter((before.get("projects") or {}).values()), None)
+    if isinstance(sample, dict) and "axes" in sample and "profile" in sample:
+        print(
+            "  this is a frozen house edit, not a baseline: it holds one "
+            "entry per project rather than one per style, so there is "
+            "nothing here to diff style by style."
+        )
+        print(
+            "  the house edit is checked by tests/integration/"
+            "test_house_edit_frozen.py; for a style diff, compare against a "
+            "file written by a plain `python scripts/baseline.py` run."
+        )
+        return
+
     moved = 0
     for project_id, styles in after["projects"].items():
         old_styles = (before.get("projects") or {}).get(project_id)

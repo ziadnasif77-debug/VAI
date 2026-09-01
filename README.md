@@ -226,6 +226,12 @@ Two promises hold it together, and both are tested:
 - **A doctrine cannot exceed its declared range.** Every multiplier is fenced
   in `config/style.yaml`, composing two legal policies cannot produce an
   illegal one, and the bound is checked again when the value is read.
+- **And the same promise now covers the captions.** `funny` lands its punchline
+  a sixth larger and lights it in its own colour; `competitive` turns off the
+  fade, the rise and the travelling highlight, because that motion sits over
+  the play and arrives exactly when something is happening. The other four
+  styles receive §71's configuration object *itself*, so they cannot drift
+  from the house rather than merely happening to match it.
 - **A cut never lands inside a spoken word — and now it can see them.** The
   evidence projection filtered records by whether their *start* fell inside the
   window, which for a transcript segment running from 1951s to 2070s means an
@@ -279,8 +285,11 @@ a comparison written down, not a significance test, not a model, and not a
 licence. `python scripts/tuning.py status` prints the real state, which today is
 `0 of 15`.
 
-**A style changes decisions, not appearances — and only where it is allowed
-to.** The optimiser is the most delicate code here and it is deterministic,
+**A style changes decisions before it changes appearances — and reaches the
+optimiser never.** It has picked a decoration profile since V1, and since
+V2-P2.5 it also says how the captions look; what it may never do is reach
+inside the thing that chooses the shots.
+The optimiser is the most delicate code here and it is deterministic,
 which is why any plan it produces can be argued with. So no style ever enters
 it: a doctrine is translated into bounded multipliers in one place
 (`backend/editorial/doctrine.py`), and the optimiser receives what it always
@@ -300,6 +309,18 @@ echoed back in the confirmation, stored, and learned as preferences. Nothing in
 the editing pipeline had ever read either one. You could write "احذف الأجزاء
 الميتة", be told the policy was now aggressive, and receive byte-identical
 footage. Both are wired now; the coverage tool still cannot see their kind.
+
+`captions.style` was a third of that kind, found by auditing the caption layer
+rather than by any tool. Not a YAML leaf either -- a dataclass field and a
+database column, written on all 312 captions this system has produced, stored,
+read back, and dropped before the renderer, which never had a key for it. It
+held the empty object every single time, and could not have held anything else.
+It is deleted rather than wired: per-style caption appearance is a taste, and
+tastes belong in `config/style.yaml` with the other tastes, not on a column
+every caption carries and none fills. Its neighbour `captions.emphasis`
+survives the same audit unfixed and recorded -- it reaches the renderer's own
+schema and no component reads it, and deciding what caption emphasis should
+*look* like is a design question rather than a wiring one.
 
 **A metric that measured the wrong thing, and what it cost to notice.** Giving
 styles a say in how shots are cut moved the judge's pacing axis *down* on the

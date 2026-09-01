@@ -54,7 +54,7 @@ _INDEX_PARKING_OFFSET = 1_000_000
 
 _CAPTION_COLUMNS = (
     "id, project_id, clip_id, caption_index, timeline_start, timeline_end, text, "
-    "language, words, style"
+    "language, words"
 )
 
 
@@ -454,14 +454,13 @@ class TimelineRepository:
                     "text": row["text"],
                     "language": row["language"],
                     "words": dumps(row["words"]),
-                    "style": dumps(row["style"]),
                 }
             )
         if rows:
             self._db.executemany(
                 f"INSERT INTO captions ({_CAPTION_COLUMNS}) VALUES ("
                 ":id, :project_id, :clip_id, :caption_index, :timeline_start, "
-                ":timeline_end, :text, :language, :words, :style)",
+                ":timeline_end, :text, :language, :words)",
                 rows,
             )
 
@@ -591,7 +590,6 @@ def _caption(row: sqlite3.Row) -> Caption:
         words=tuple(
             (item["word"], float(item["start"]), float(item["end"])) for item in words
         ),
-        style=loads(row["style"]) or {},
     )
 
 

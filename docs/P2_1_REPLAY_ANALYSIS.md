@@ -45,10 +45,24 @@ And the reason the two columns barely intersect:
 
 > resolving clips' **core span: median 39.5 s**, min 8.0 s, max 164.4 s
 
-The core span is the event itself, not the context around it. A "victory" on
-this machine is a thirty-nine-second event. There is no located instant of
-resolution inside it to replay — replaying its last two seconds would be
-choosing an arbitrary point, and replaying all of it is not a replay.
+**Corrected, 2026-09-02.** That number is a *moment* span, not an event span,
+and the sentence that followed it here — "a victory on this machine is a
+thirty-nine-second event" — was wrong. Measured off `game_events` directly:
+
+| unit | n | median | max |
+|---|---:|---:|---:|
+| all events | 1,141 | **12.0 s** | 280.8 s |
+| resolving events | 173 | **12.5 s** | 91.2 s |
+| moments | 430 | **33.3 s** | 280.8 s |
+
+The coarse unit is the moment, not the event. The events were always about
+twelve seconds long; what had no located instant inside it was the moment
+wrapped around them, which is precisely what `EditorialEventSpan` was built to
+answer in V2-P2.2 — and it now locates a resolution in 36 of 435.
+
+The conclusion of this section survives the correction and the reason changes:
+replay candidates are scarce because a *clip* spans a moment rather than an
+event, not because events are long.
 
 `PAYOFF` is zero for a related reason: it needs either a tension-lane drop or a
 resolving event, and V2-P0 measured only 3 payoffs across 293 shots.
@@ -142,8 +156,12 @@ real: a shared defect boundary is loosened today for a benefit that arrives
 later, and the audit currently blocked on missing footage is the one that
 would tell us whether event boundaries improve.
 
-**(b) Fix what makes candidates scarce first.** Resolving events have a median
-span of 39.5 s. Narrowing them — the same class of problem as the coarse
+**(b) Fix what makes candidates scarce first.** ~~Resolving events have a
+median span of 39.5 s.~~ **Superseded by the correction above:** resolving
+events are a median of 12.5 s and were never the coarse unit. What this option
+was reaching for is the moment-to-event gap, and V2-P2.2 has since built it —
+`EditorialEventSpan` locates a resolution inside a moment in 36 of 435 cases,
+which is what took replay candidates from 0 to 5. Narrowing them — the same class of problem as the coarse
 transcript segments — would create candidates for replay *and* improve
 `PAYOFF`, the pacing axis's `differs`, and the situations reader. It is not
 Replay, and it is closer to the blocked P1.8 than to P2.

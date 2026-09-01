@@ -281,6 +281,20 @@ style:
         # comic beat is rarely the session's loudest moment.
         silence_before_payoff: 1.6
         silence_min_strength: 0.40
+      captions:
+        # The lit word is where a punchline lands, so it lands bigger. 0.056
+        # against the house's 0.048 -- a sixth larger, which reads as
+        # deliberate at 1080p and still clears the safe area at two lines.
+        font_size_ratio: 0.056
+        # And lit in something other than the house gold. The highlight is not
+        # decoration here; it is the beat the joke resolves on, and a colour
+        # that says "this word" rather than "there are words" is the whole
+        # difference between a subtitle and a punchline.
+        highlight_color: "#FF4FA3"
+        # `animated` and `word_highlighting` are deliberately unset. The house
+        # already fades a caption in and lights the spoken word, and this style
+        # wants both -- so it says nothing and receives the house's own
+        # configuration rather than a copy that happens to agree with it.
       judgement:
         # Comedy is talked over. The house expects speech across 0.35 of an
         # edit and marks a talkier one down; here the talking is the joke.
@@ -340,6 +354,23 @@ style:
         # edit telling the viewer what to feel about a scoreline.
         silence_before_payoff: 0.30
         silence_min_strength: 0.75
+      captions:
+        # **Clarity over decoration**, in the layer drawn on top of the play.
+        #
+        # The house fades every caption in over three frames and rises it a
+        # sixth of its own height on entry. That motion sits directly over the
+        # thing this audience is watching, and it moves at exactly the moment
+        # something is happening -- because a caption arrives when somebody
+        # speaks, and somebody speaks when the play is worth talking about.
+        animated: false
+        # And the lit word travels across the line as it is spoken. On a clutch
+        # that is a second moving object over the one that matters. The line is
+        # still there to be read; it simply stops performing.
+        #
+        # This is the same argument as `ideal_effects_per_minute: 1.5` below
+        # and `effects_per_ten_seconds: 2.0` under critique, applied to the one
+        # overlay that was exempt from it.
+        word_highlighting: false
       judgement:
         # **Clarity over decoration**, as a number the judge reads. The house
         # expects three nameable beats a minute and marks an edit down for

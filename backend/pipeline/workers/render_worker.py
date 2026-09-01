@@ -414,7 +414,7 @@ class RenderWorker:
             timeline,
             captions=captions,
             effects=effects,
-            caption_config=context.config.captions,
+            caption_config=self._caption_config(context),
             width=target.width,
             height=target.height,
             fps=overlay_fps,
@@ -570,6 +570,24 @@ class RenderWorker:
                 spans.append((start + offset, end + offset))
         spans.sort()
         return spans
+
+    def _caption_config(self, context: WorkerContext):
+        """§71's caption settings, as this project's style asks for them (V2-P2.5).
+
+        A style with no ``captions`` block receives ``context.config.captions``
+        *itself* -- the same object, not a copy that compares equal -- so the
+        house renders exactly what it rendered before this existed, as a
+        consequence of the code rather than as a promise about it.
+
+        A style that will not resolve falls back to the same object, for the
+        same reason the audio plan falls back to one bed: a caption colour is
+        not worth failing a render over.
+        """
+        from backend.style import bible as style_bible
+
+        return style_bible.captions_for(
+            context.database, context.config, context.project_id
+        )
 
     def _audio_plan(self, context: WorkerContext, timeline, spoken, duration_seconds):
         """What the soundtrack should do, or an empty plan (§95)."""
