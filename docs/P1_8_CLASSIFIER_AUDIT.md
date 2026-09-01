@@ -1,5 +1,51 @@
 # P1.8 — the moment classifier, audited
 
+> ## BLOCKED — 2026-09-01
+>
+> **The footage needed to validate this is gone.** Eight of the fifteen source
+> recordings this database references no longer exist on disk, including
+> `2026-05-08 22-24-23.mkv`, which is the source of *both*
+> surprise-dominated projects (`proj-dc1cf6be95a3` at 92 % and
+> `proj-86edde704be0` at 85 %).
+>
+> **What survives cannot substitute**, and the reason is the finding itself:
+>
+> | footage | surprise share |
+> |---|---:|
+> | still on disk — Eval GTA 40-50 | 1/13 = **8 %** |
+> | still on disk — phase15-eval | 1/12 = **8 %** |
+> | still on disk — Ferdig 05-22 | 0/3 = **0 %** |
+> | **deleted** — Ziad | 45/49 = **92 %** |
+> | **deleted** — زياد | 40/47 = **85 %** |
+> | **deleted** — تجريب 4 | 27/65 = 42 % |
+>
+> Every recording still present is one the detector handles well. Annotating
+> any of it would produce ground truth that confirms what is already known and
+> is silent on the category under audit -- the same sampling bias §4 names in
+> the three existing windows, repeated deliberately.
+>
+> **Impact of staying blocked.** The measurements in this document stand: the
+> cause is proven in code, the distribution is measured, and the downstream
+> cost is quantified. What cannot be established is whether the 224 unnamed
+> moments are footage worth keeping. So the architectural change §6 proposes
+> is **not made**, and nothing in the hook, the optimiser or selection is
+> touched. A third of finished runtime remains footage the system cannot name,
+> and six edits of seventeen still open on it.
+>
+> **What is still required, when footage allows.** Two ten-minute windows on a
+> recording where `surprise` dominates, annotated by a person through
+> `scripts/annotate.py`'s fixed-interval sweep, using the existing vocabulary
+> only -- `event`, `highlight`, `boring`, `game_state`. Then §7's acceptance
+> criteria become measurable and §6's change can be justified or discarded.
+> Roughly twenty minutes of annotation. No new schema, no new taxonomy, and no
+> labels derived from the pipeline's own output.
+>
+> A fresh 88-minute recording exists (`2026-08-30 21-43-21.mkv`) and is
+> deliberately **not** being analysed for this: an expensive inference run to
+> manufacture a sample is not the same thing as having the sample, and the
+> owner declined it.
+
+
 No code was changed to produce this. It is the analysis the owner asked for
 before any redesign, and its central finding is that there is nothing to
 redesign yet: **`surprise` is not a classification.**
