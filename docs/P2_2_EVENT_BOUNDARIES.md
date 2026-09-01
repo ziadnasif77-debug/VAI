@@ -202,6 +202,54 @@ a cut on their breath.
 Ten cases remain genuinely blocked. That is real continuous speech, and no
 amount of reading the data differently will move it.
 
+## Part 5 — the boundaries reach a cut, through the right policy
+
+Part 3 found the editorial span had one consumer and that connecting it to
+`CutPolicy` changed nothing. Part 4 removed the speech blockage. This connects
+it, through `ContextPolicy` rather than `CutPolicy`, and the distinction is the
+whole point.
+
+`ContextPolicy.trim_at_resolution` ends a shot shortly after the thing it is
+about was decided. It is here and not in `CutPolicy` because that was measured:
+wiring it there produced **zero change**, since moving an out-point to just
+after a resolution is a 54.7-second move against a `max_drift` of 1.5 seconds.
+The guard was right to refuse. Snapping a cut to a nearby seam and ending a
+shot on its point are different acts, and the second is a tail trim — fenced
+by `MAX_TRIM_FRACTION`, inside which the same 54.7 seconds is 30 % of its shot.
+
+Four refusals, each written into the code with its reason:
+
+- **a shot somebody responded to keeps its tail** — the response is what the
+  shot is for, and this is the same protection the ordinary trim honours;
+- **the aftermath wins over the resolution** where the span located one,
+  because a reaction the reading placed is a fact about this shot;
+- **the cut lands on a seam the footage already has**, never mid-word;
+- **the whole move is fenced at `MAX_TRIM_FRACTION`**, which is what makes it
+  a taste rather than a re-edit.
+
+Only `gaming_fast` and `competitive` ask for it.
+
+| | before | after |
+|---|---:|---:|
+| **house edit** | — | **0 videos, 0 axis records** |
+| **the three styles that did not opt in** | — | **no change on any metric** |
+| median shot, the two that did | 35.62 s | 35.28 s |
+| edit length, the two that did | 745.2 s | **736.2 s** |
+| cut-point quality, the two that did | 0.114 | 0.116 |
+
+**16 shots of 435 end earlier**, by a median of 5.4 seconds and at most 20.4 —
+105 seconds in total of footage that ran past the thing its shot was selected
+for. The second row is the evidence that the gating works: `cinematic`,
+`funny` and `minimal` moved on nothing at all.
+
+### A test that was wrong, and a fence that was not
+
+The first version of `test_a_shot_ends_shortly_after_its_resolution` expected a
+trim to 130.0 on a shot running 100.0 → 160.0, and got 139.0. 139.0 is exactly
+the `MAX_TRIM_FRACTION` floor: trimming to 130 would have removed half the
+shot. **The test was corrected and the fence was not**, and the reason sits in
+the test so the next reader does not repeat the argument.
+
 ## What this says about Replay
 
 Five candidates, up from zero. That is a real rise and it is not enough to

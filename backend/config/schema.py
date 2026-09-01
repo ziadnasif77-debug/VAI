@@ -1958,6 +1958,14 @@ class StyleShotsConfig(_Section):
     #: the video ends rather than trails off.
     trim_weak_ending: bool = False
 
+    #: End a shot shortly after the thing it is about was decided (V2-P2.3).
+    #:
+    #: Reads the editorial event span's located resolution -- a real event
+    #: with a timestamp of its own, never the moment's label. Fenced by
+    #: `MAX_TRIM_FRACTION`, refused on a shot somebody responded to, and
+    #: landed on a seam the footage already has.
+    trim_at_resolution: bool = False
+
     #: Hold a shot somebody responded to until the response lands (V2-P1.4).
     #:
     #: The one setting here that *lengthens* a shot. Measured before it

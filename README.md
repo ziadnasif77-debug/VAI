@@ -233,6 +233,13 @@ Two promises hold it together, and both are tested:
   talking for two minutes. Fixed, the speech lane and the transcript went from
   disagreeing 104 times to zero, and the rule against cutting mid-sentence
   gained 1,677 spans it had been blind to.
+- **A shot can end once the thing it is about is decided.** Inside a moment
+  running three minutes, the victory it is named for occupies eleven seconds
+  at 43 % of the way in — and the shot used to run 110 seconds past it. The
+  event boundaries locate the resolution from the event's own timestamp, never
+  from the label, and a style may ask for the tail to end there: on a seam the
+  footage already has, never through a reaction, and never past 35 % of the
+  shot.
 - **The house edit is frozen, project by project.** `tests/golden/house_edit.json`
   holds the exact edit this machine made for all 17 of its projects — selection
   and order, the winning profile, the hook, the ending, the timeline's clip
@@ -552,7 +559,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 2664 tests (~44 min)
+.venv/bin/python -m pytest              # 2671 tests (~42 min)
 .venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .

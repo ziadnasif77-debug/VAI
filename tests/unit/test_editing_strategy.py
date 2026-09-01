@@ -31,6 +31,7 @@ from backend.editorial.policy import SelectionPolicy
 from backend.editorial.semantics import EditorialValue, ShotPurpose, ShotSemantics
 from backend.editorial.strategy import (
     MAX_SEAM_DRIFT,
+    MAX_TRIM_FRACTION,
     ReactionPolicy,
     MAX_TRIM_FRACTION,
     NEUTRAL,
@@ -70,10 +71,38 @@ class _Cuts:
         usable = [point for point in self.out_of if point >= default]
         return min(usable) if usable else default
 
+    def safe(self, at: float) -> bool:
+        return True
+
+
+@dataclass
+class _Boundary:
+    seconds: float
+    confidence: float = 0.9
+    source: str = "events"
+    reason: str = "a victory ends here"
+
+
+@dataclass
+class _Span:
+    """What `EditorialEventSpan` looks like to the strategy layer."""
+
+    _resolution: float | None
+    _aftermath: float | None
+
+    @property
+    def resolution(self):
+        return _Boundary(self._resolution) if self._resolution is not None else None
+
+    @property
+    def aftermath(self):
+        return _Boundary(self._aftermath) if self._aftermath is not None else None
+
 
 @dataclass
 class _Shot:
     cuts: _Cuts
+    span: object = None
 
 
 class _Reading:
@@ -85,14 +114,17 @@ class _Reading:
         dead: float = 0.0,
         cuts: _Cuts | None = None,
         response: float = 0.0,
+        resolution: float | None = None,
+        aftermath: float | None = None,
     ):
+        self._span = _Span(resolution, aftermath) if resolution is not None else None
         self._semantics = ShotSemantics(
             moment_id="mom-1",
             purpose=purpose,
             value=EditorialValue(context=1.0 - dead),
             response_seconds=response,
         )
-        self._shot = _Shot(cuts=cuts) if cuts else None
+        self._shot = _Shot(cuts=cuts or _Cuts(into=(), out_of=()), span=self._span)
 
     def semantics_of(self, moment):
         return self._semantics
@@ -363,4 +395,92 @@ class TestHoldingAShotForItsResponse:
             _Reading(ShotPurpose.REACTION, response=0.0),
             {"media-1": 10_000.0},
         )
+        assert after[0] is before
+
+
+class TestEndingAShotOnceItIsDecided:
+    """The one place the editorial event span reaches a cut.
+
+    It is `ContextPolicy`'s and not `CutPolicy`'s, and the reason was measured
+    rather than argued. Wiring it into `CutPolicy` produced no change at all,
+    because moving an out-point to just after a resolution is a 54.7-second
+    move against a `max_drift` of 1.5 — and that guard is right. Snapping to a
+    nearby seam and ending a shot on its point are different acts; the second
+    is a tail trim, fenced here by `MAX_TRIM_FRACTION`, inside which the same
+    54.7 seconds is 30 % of its shot.
+    """
+
+    @staticmethod
+    def _asked():
+        return EditingStrategy(context=ContextPolicy(trim_at_resolution=True))
+
+    def test_it_is_off_by_default(self) -> None:
+        assert ContextPolicy().is_neutral
+        assert not ContextPolicy().trim_at_resolution
+
+    def test_a_shot_ends_shortly_after_its_resolution(self) -> None:
+        """145.0 rather than something earlier, because the fence below is
+        real: a 60-second shot may not lose more than 21 of them."""
+        before = _moment(start=100.0, end=160.0)
+        after = apply(
+            [before],
+            self._asked(),
+            _Reading(ShotPurpose.ACTION, resolution=145.0),
+            {"media-1": 10_000.0},
+        )[0]
+
+        assert after.context_end == 145.0
+        assert after.context_start == before.context_start, "the front is untouched"
+
+    def test_the_aftermath_wins_over_the_resolution(self) -> None:
+        """A reaction the reading located is a fact about this shot, and
+        ending on the resolution would cut it off."""
+        after = apply(
+            [_moment(start=100.0, end=160.0)],
+            self._asked(),
+            _Reading(ShotPurpose.ACTION, resolution=142.0, aftermath=150.0),
+            {"media-1": 10_000.0},
+        )[0]
+
+        assert after.context_end == 150.0
+
+    def test_it_never_trims_more_than_the_fence(self) -> None:
+        before = _moment(start=100.0, end=160.0)
+        after = apply(
+            [before],
+            self._asked(),
+            _Reading(ShotPurpose.ACTION, resolution=105.0),
+            {"media-1": 10_000.0},
+        )[0]
+
+        assert after.context_end >= 160.0 - 60.0 * MAX_TRIM_FRACTION
+
+    def test_a_shot_somebody_responded_to_keeps_its_tail(self) -> None:
+        before = _moment(start=100.0, end=160.0)
+        after = apply(
+            [before],
+            self._asked(),
+            _Reading(ShotPurpose.REACTION, resolution=145.0),
+            {"media-1": 10_000.0},
+        )
+
+        assert after[0] is before
+
+    def test_a_shot_with_no_located_resolution_is_left_alone(self) -> None:
+        before = _moment(start=100.0, end=160.0)
+        after = apply(
+            [before], self._asked(), _Reading(ShotPurpose.ACTION), {"media-1": 10_000.0}
+        )
+
+        assert after[0] is before
+
+    def test_a_resolution_outside_the_shot_is_ignored(self) -> None:
+        before = _moment(start=100.0, end=160.0)
+        after = apply(
+            [before],
+            self._asked(),
+            _Reading(ShotPurpose.ACTION, resolution=400.0),
+            {"media-1": 10_000.0},
+        )
+
         assert after[0] is before

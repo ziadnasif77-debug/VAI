@@ -212,6 +212,9 @@ style:
         # where the video *begins* reorders nothing.
         trim_weak_opening: true
         trim_weak_ending: true
+        # The other end, for the same reason: a fast edit that keeps rolling
+        # after the thing has happened is not a fast edit.
+        trim_at_resolution: true
       pacing:
         band_scale: 0.8
 
@@ -315,6 +318,12 @@ style:
         # the result wants the walk to the lobby at either end.
         trim_weak_opening: true
         trim_weak_ending: true
+        # And "decided" is now a measured instant rather than a figure of
+        # speech: the shot ends shortly after the resolution the editorial
+        # span located, on a seam the footage already has. Measured before
+        # this line, shots here ran a median of 26 seconds past their own
+        # resolution.
+        trim_at_resolution: true
         # The call after the play is part of the play.
         hold_for_response: true
       pacing:

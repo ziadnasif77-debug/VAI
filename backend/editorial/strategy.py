@@ -93,12 +93,35 @@ class ContextPolicy:
     #: short is the defect this whole layer is easiest to cause.
     protect_reaction: bool = True
 
+    #: End a shot shortly after the thing it is about was decided (V2-P2.3).
+    #:
+    #: The one place the editorial event span reaches a cut. Measured before
+    #: this existed: a shot containing a victory ran a median of 26 seconds
+    #: past its own resolution, and on one moment 110 seconds of nothing after
+    #: the thing it was selected for.
+    #:
+    #: It is here rather than in `CutPolicy` because that is what it is.
+    #: Snapping a cut to a seam a second away and ending a shot on its point
+    #: are different acts, and `max_drift` -- 1.5 to 2.0 seconds -- correctly
+    #: refused the second. Trimming a tail is this policy's job and is fenced
+    #: by `MAX_TRIM_FRACTION`, inside which the same 54.7-second move is 30 %
+    #: of its shot.
+    trim_at_resolution: bool = False
+
     @property
     def is_neutral(self) -> bool:
-        return self.trim_lead_in == 0.0 and self.trim_tail == 0.0
+        return (
+            self.trim_lead_in == 0.0
+            and self.trim_tail == 0.0
+            and not self.trim_at_resolution
+        )
 
     def bounds_for(
-        self, semantics: ShotSemantics | None, start: float, end: float
+        self,
+        semantics: ShotSemantics | None,
+        start: float,
+        end: float,
+        evidence: Any = None,
     ) -> tuple[float, float]:
         """Where this shot should begin and end, given what it is for.
 
@@ -115,17 +138,68 @@ class ContextPolicy:
             else min(self.trim_lead_in, MAX_TRIM_FRACTION)
         back = 0.0 if (self.protect_reaction and purpose is ShotPurpose.REACTION) \
             else min(self.trim_tail, MAX_TRIM_FRACTION)
-        if front == 0.0 and back == 0.0:
+        trimmed_start = start + span * front
+        trimmed_end = end - span * back
+        settled = self._after_resolution(semantics, evidence, start, end, span)
+        if settled is not None:
+            trimmed_end = min(trimmed_end, settled)
+        if (trimmed_start, trimmed_end) == (start, end):
             return start, end
-        return start + span * front, end - span * back
+        return trimmed_start, trimmed_end
+
+    def _after_resolution(
+        self,
+        semantics: ShotSemantics | None,
+        evidence: Any,
+        start: float,
+        end: float,
+        span: float,
+    ) -> float | None:
+        """Where this shot could end, once what it is about has been decided.
+
+        Four refusals, each for its own reason:
+
+        * a shot somebody responded to keeps its tail, exactly as it does for
+          the ordinary trim -- the response is what the shot is for;
+        * the **aftermath** wins over the resolution when the span found one,
+          because a reaction the reading located is a fact about this shot;
+        * the cut must land where the footage allows it, so it moves to the
+          nearest safe seam at or after the point rather than mid-word;
+        * and the whole move is fenced by `MAX_TRIM_FRACTION`, which is what
+          makes this a taste rather than a re-edit.
+        """
+        if not self.trim_at_resolution or evidence is None:
+            return None
+        if self.protect_reaction and semantics is not None:
+            if semantics.purpose is ShotPurpose.REACTION:
+                return None
+        located = getattr(getattr(evidence, "span", None), "resolution", None)
+        if located is None:
+            return None
+
+        aftermath = getattr(getattr(evidence, "span", None), "aftermath", None)
+        point = float(aftermath.seconds if aftermath is not None else located.seconds)
+        if not start < point < end:
+            return None
+
+        cuts = getattr(evidence, "cuts", None)
+        if cuts is not None:
+            landed = float(cuts.best_out(point))
+            if point <= landed < end and cuts.safe(landed):
+                point = landed
+        floor = end - span * MAX_TRIM_FRACTION
+        return max(point, floor)
 
     def describe(self) -> str:
         if self.is_neutral:
             return "keeps every shot as it was expanded"
-        return (
+        parts = [
             f"trims {self.trim_lead_in:.0%} off the run-up and "
             f"{self.trim_tail:.0%} off the tail"
-        )
+        ]
+        if self.trim_at_resolution:
+            parts.append("and ends a shot once it is decided")
+        return " ".join(parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -503,8 +577,11 @@ def _from_style(
     if context.is_neutral:
         front = _number(doctrine, "trim_lead_in", 0.0)
         back = _number(doctrine, "trim_tail", 0.0)
-        if (front, back) != (0.0, 0.0):
-            context = ContextPolicy(trim_lead_in=front, trim_tail=back)
+        settle = bool(getattr(doctrine, "trim_at_resolution", False))
+        if (front, back) != (0.0, 0.0) or settle:
+            context = ContextPolicy(
+                trim_lead_in=front, trim_tail=back, trim_at_resolution=settle
+            )
     if cut.is_neutral and bool(getattr(doctrine, "snap_to_seams", False)):
         cut = CutPolicy(
             snap_to_seams=True,
@@ -603,7 +680,7 @@ def _shape(
     start = float(moment.context_start)
     end = float(moment.context_end)
 
-    start, end = strategy.context.bounds_for(semantics, start, end)
+    start, end = strategy.context.bounds_for(semantics, start, end, evidence)
     located = getattr(getattr(evidence, "span", None), "resolution", None)
     start, end = strategy.cut.resolve(
         getattr(evidence, "cuts", None) if evidence is not None else None,
