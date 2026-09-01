@@ -425,9 +425,26 @@ def _payoff(evidence: EditorialEvidence, inside: Any, after: Any) -> float:
     naming, whatever the lanes say -- and that is a claim about this shot
     rather than about the silence after it.
     """
+    # V2-P2.2: strongest evidence first, which is the event and its own
+    # timestamp. The editorial span locates a resolution when one is really
+    # there -- a resolving event with a span of its own, or the tension lane
+    # letting go at a nameable second -- and carries the confidence of
+    # whatever established it.
+    #
+    # This used to sit *below* the lane check, and the ordering was the bug.
+    # `resolves` is true for any tension decrease at all, so a fall of 0.016
+    # returned a payoff of 0.032 and a located victory at confidence 0.89 was
+    # never reached. A weak signal preempting a strong one is not a fallback
+    # chain, it is a first-match-wins list in the wrong order.
+    span = getattr(evidence, "span", None)
+    located = getattr(span, "resolution", None) if span is not None else None
+    if located is not None:
+        return round(min(1.0, max(0.0, float(located.confidence))), 4)
+
     if evidence.resolves:
         drop = evidence.during.tension - evidence.after.tension
         return round(min(1.0, max(0.0, drop) * 2.0), 4)
+
     outcomes = sum(1 for name in _inside_names(inside, evidence) if name in RESOLVING)
     if not outcomes:
         return 0.0

@@ -1,0 +1,167 @@
+# V2-P2.2 — event boundaries, and whether anything uses them
+
+Two pieces of work. A data-integrity fix that restored more than half the
+evidence this system had been silently discarding, and a derived layer that
+locates the thing a moment is about. Then a verification pass whose finding is
+the most useful thing here: **the layer is read by exactly one consumer, and
+the route to the others is not the one it looked like.**
+
+## Part 1 — the evidence that was being dropped
+
+`GameEventType.UNKNOWN_EVENT` was called `unexpected_event` until V2-P2. That
+phase migrated the `game_events` table and did not migrate the `event_ids` JSON
+on `moments`. The loader filtered stored names against the enum and dropped
+whatever did not match, without a word.
+
+| | before | after |
+|---|---:|---:|
+| event references loaded | 496 | **1,119** (all of them) |
+| dropped silently | **623** (56 %) | **0** |
+| moments loading with no events | **210 / 435** | **0** |
+| `Moment.importance`, every type | 0.000 | surprise 0.330, skill 0.658, victory 0.901 |
+| `surprise` confidence | 0.059 | **0.816** (the stored value) |
+
+The confidence row is why this mattered beyond a count. `Moment.confidence` is
+`max(event.confidence, default=0.0)`, so a moment stripped of its events read
+0.059 — and V2-P1.8's audit drew a conclusion from that gap before noticing
+where the number came from. The audit carries the correction.
+
+**No edit changed.** Every consumer that counts events filters to *named* ones,
+and all 623 restored references are `unknown_event`. Evidence restored,
+behaviour untouched: house edit identical on all 17 projects, every style metric
+identical to three decimals.
+
+The fix is a read-time rename, so no stored row is rewritten and an older
+database keeps working. Nothing is dropped without being named:
+`_stored_types` returns `(resolved, unresolvable)` and the unresolvable are
+logged. `_restore` matches events to a moment by span **and** type multiset
+together, and falls back to placeholders rather than substituting a different
+event — 362 of 435 matched, 73 fell back, and the 73 are the guard working.
+
+## Part 2 — `EditorialEventSpan`
+
+Derived, never stored, never a replacement. `game_events` remains the truth;
+`Moment` remains the unit. This answers what neither can: inside a moment that
+runs for three minutes, where is the thing it is about?
+
+Four boundaries, each carrying a timestamp, a confidence, the store that
+supplied it and a sentence. Evidence is consulted strongest-first: the events'
+own spans, then the tension lane, then vision and motion, then audio.
+
+| | established | of 435 |
+|---|---:|---:|
+| onset | 208 | 48 % |
+| action | 208 | 48 % |
+| resolution | 36 | 8 % |
+| aftermath | 11 | 3 % |
+
+The other 227 are moments of a single event that fills them. There is nothing
+inside to locate and the span says so in `unknown` rather than producing four
+boundaries around a number nobody measured.
+
+### The case it was built for
+
+A moment running 2935.0 → 3112.9, labelled `victory`, 177.9 seconds long:
+
+```
+onset       2935.0   conf 0.97  [events]  the first event of this moment
+action      3000.8   conf 0.89  [events]  the heaviest event here is a victory (0.90)
+resolution  3011.7   conf 0.89  [events]  a victory ends here, 43% through the moment
+aftermath   —        not established, and not invented
+```
+
+The assertion that matters in its test is the **negative** one: the resolution
+is the victory event's own end, and is not the moment's midpoint, its end, or
+anything derived from the word "victory" appearing on the label.
+
+### Two defects in the first implementation
+
+**The aftermath was a phantom.** It returned the moment's end at confidence 0.5
+whenever a resolution existed, with a reason reading "the moment runs on after
+the resolution" — the raw end wearing a boundary's name. A label with no fact
+under it. Removed: no speech after, no aftermath, and `unknown` says so.
+
+**The evidence was consulted in the wrong order**, and this one changed the
+numbers. `_payoff` checked `evidence.resolves` before the located resolution.
+`resolves` is true for *any* tension decrease, so a fall of 0.016 returned a
+payoff of 0.032 and a located victory at confidence 0.89 was never reached. A
+weak signal preempting a strong one is not a fallback chain, it is a
+first-match-wins list in the wrong order. Corrected, PAYOFF went from 3 to 9.
+
+## Part 3 — the verification, and what it found
+
+**The editorial span has exactly one consumer.** Traced through every reader:
+
+| layer | reads the span? | reads instead |
+|---|---|---|
+| `_payoff`, `semantics.py:439` | **yes** | — |
+| `best_in` / `best_out` | no | `self.into` / `self.out_of`, scene seams |
+| `ContextPolicy.bounds_for` | no | `semantics.purpose` |
+| `pacing_engine` | no | `PacingContext` |
+| `SequenceReading` | no | the raw moment spans |
+
+So it is semantic annotation with one exception, which is precisely what this
+pass was asked to check.
+
+### Why cut-point quality did not move
+
+0.1147 → 0.1139. Three independent causes, all measured:
+
+1. **Seams are sparse.** One every 9–15 s; the median cut is 7.2 s from the
+   nearest, and only 25 % are within the 2 s drift bound.
+2. **Speech forbids nearly half of the ones that exist.** 45 % of candidate
+   out-seams are unsafe, and **22 % of all of them are blocked by a single
+   speech span longer than 30 seconds** — 154 coarse spans (9 % of the
+   transcript) blocking 877 seams.
+3. **Nothing in the cut path reads the boundaries.**
+
+### Connecting it was tried, measured, and reverted
+
+The opportunity looked real: of 48 moments with a located resolution, 17 have a
+safe seam within 20 s of it that differs from today's cut, and the shot would
+stop a median of **26 seconds earlier**. On the victory case the shot runs
+**110 seconds past its own resolution**.
+
+Wiring it into `CutPolicy` produced **zero change**, and the reason is the
+`max_drift` guard: moving the out-point to just after the resolution is a
+54.7-second move against a 1.5-second bound.
+
+**The guard is right.** Snapping a cut to a seam a second or two away and
+ending a shot on its point are different acts. The first is what `max_drift`
+bounds. The second is trimming a shot's tail, which is `ContextPolicy`'s job
+and is bounded at `MAX_TRIM_FRACTION` — where the same 54.7 seconds is 30 % of
+the shot, inside the fence.
+
+So the change was reverted rather than the bound widened. Widening a defence to
+let one feature through turns a guard into a formality, and the parameter stays
+on the signature with the reasoning recorded next to it.
+
+## The numbers
+
+| | before | after |
+|---|---:|---:|
+| **PAYOFF** | 3 | **9** |
+| **Replay candidates** | 0 | **5** |
+| editorial span, where a resolution exists | 64.4 s | 56.8 s (83 %) |
+| cut-point quality | 0.1147 | 0.1139 |
+| pacing | 0.8205 | 0.8203 |
+| judge total | 0.7025 | 0.7022 |
+| reaction linkage (aftermath found) | — | 11 |
+
+**House edit: zero videos changed** across all 17 projects. One project,
+`proj-ca4d0eac9d6`, has a changed **axis record** — `pacing 0.886 → 0.827` —
+with identical selection, identical timeline boundaries and the identical
+winning profile. The cause is direct and measured: PAYOFF rising from 3 to 9
+changed two adjacent shots to the same purpose, so a length change between them
+now counts as arbitrary by the pacing axis's definition. Not reverted by hand.
+
+## What this says about Replay
+
+Five candidates, up from zero. That is a real rise and it is not enough to
+justify loosening `_exclusive`, which was the condition set before the work
+started.
+
+And the ceiling is now visible: **21 of 48 located resolutions have a seam near
+them that speech forbids**, because the transcript segments run to 392 seconds.
+That is the same coarseness blocking P1.8, reached from a different direction —
+and it is a better target than Replay.

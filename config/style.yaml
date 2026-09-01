@@ -242,7 +242,19 @@ style:
         # one.
         trim_lead_in: 0.30
         trim_tail: 0.10
-        dead_time_weight: 0.8
+        # Zero, and this is the one number in the file argued *down*.
+        #
+        # It was 0.8, and it contradicted two things at once: the selection
+        # doctrine four lines above, where `dead_time_penalty: 0.55` says a
+        # quiet stretch is welcome here, and this style's own description --
+        # "dead time cheap because the pause before a punchline is the
+        # punchline". A comic pause earns no context, no anticipation, no
+        # progression, no payoff and no reaction. That is what makes it a
+        # pause, and pricing it removes the beat the joke lands on.
+        #
+        # Comedy is the one style where dead time is the technique. Nothing
+        # else in this file may say that, and this style has to.
+        dead_time_weight: 0.0
         # A joke lands on the laugh, and the laugh is in the seconds after the
         # shot. `trim_tail` above is deliberately small for the same reason;
         # this is the other half of it -- the tail is not merely spared, it is
@@ -252,6 +264,31 @@ style:
         # ending is left alone: a joke's last laugh is often its quietest
         # shot, and `_ending` protects a reaction but not a wry one.
         trim_weak_opening: true
+      pacing:
+        # A joke needs room to land. A little longer than the house, and
+        # nowhere near cinematic's 1.35: a slow joke is not a funnier one.
+        band_scale: 1.10
+        # The last shot gets more of it than any other, because a comic ending
+        # cut on time is cut early.
+        ending_relief: 2.0
+      audio:
+        # The held breath before the reveal -- the *pause* of setup, pause,
+        # reveal, in the one layer that can actually hold it. Twice the
+        # house's 0.8s, and a lower floor so more beats qualify, because a
+        # comic beat is rarely the session's loudest moment.
+        silence_before_payoff: 1.6
+        silence_min_strength: 0.40
+      judgement:
+        # Comedy is talked over. The house expects speech across 0.35 of an
+        # edit and marks a talkier one down; here the talking is the joke.
+        ideal_speech_share: 0.55
+      critique:
+        # A callback is a form, not fatigue. The house calls three of a kind a
+        # repeat worth flagging; a running gag is four or five by design.
+        repeat_run: 5
+        # And a bit holds longer than 25s before it tires, because the timing
+        # is the point and the payoff is at the end of it.
+        fatigue_seconds: 40.0
 
     competitive:
       version: 1
@@ -280,6 +317,35 @@ style:
         trim_weak_ending: true
         # The call after the play is part of the play.
         hold_for_response: true
+      pacing:
+        # Slightly under the house. A competitive edit is watched to see what
+        # happened, and a shot held past the moment it is understood is a shot
+        # asking the viewer to admire it.
+        band_scale: 0.90
+        # And it lands on the beat harder than anything else here: the shot
+        # after the kill starts when the kill lands, not a beat later.
+        on_the_beat_seconds: 0.20
+      audio:
+        # Clarity over drama. The house holds a breath before a payoff; here
+        # the payoff explains itself and a silence in front of it reads as the
+        # edit telling the viewer what to feel about a scoreline.
+        silence_before_payoff: 0.30
+        silence_min_strength: 0.75
+      judgement:
+        # **Clarity over decoration**, as a number the judge reads. The house
+        # expects three nameable beats a minute and marks an edit down for
+        # having fewer; this style earns nothing by decorating and should not
+        # be scored as though it did.
+        ideal_effects_per_minute: 1.5
+      critique:
+        # Five clean kills of the same kind is what this audience came for.
+        # The house flags three of a kind as a repeat; here repetition is the
+        # subject, and the critic saying otherwise is the critic applying
+        # somebody else's taste.
+        repeat_run: 6
+        # And decoration is capped rather than encouraged: half the house's
+        # allowance, so a busy stretch is flagged sooner.
+        effects_per_ten_seconds: 2.0
 
     minimal:
       version: 1

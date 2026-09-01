@@ -148,7 +148,9 @@ class CutPolicy:
     def is_neutral(self) -> bool:
         return not self.snap_to_seams
 
-    def resolve(self, cuts: Any, start: float, end: float) -> tuple[float, float]:
+    def resolve(
+        self, cuts: Any, start: float, end: float, resolution: float | None = None
+    ) -> tuple[float, float]:
         """The in and out points this policy would use.
 
         Returns the caller's own numbers when neutral, when there is nothing to
@@ -161,6 +163,22 @@ class CutPolicy:
         if self.is_neutral or cuts is None:
             return start, end
         moved_in = float(cuts.best_in(start))
+        # `resolution` is accepted and deliberately **not** used to move the
+        # out-point. V2-P2.2 tried it: a shot containing a victory runs a
+        # median of 26 seconds past it, and on one moment 110 seconds, so
+        # ending the shot at the first safe seam after the resolution looked
+        # obviously right. It is not this policy's decision to make.
+        #
+        # Snapping a cut to a seam a second or two away and ending a shot on
+        # its point are different acts. The first is what `max_drift` bounds,
+        # at 1.5-2.0s; the second moved cuts by 54.7 seconds in the case
+        # measured, which the bound correctly refused. Widening the bound to
+        # let it through would have turned a guard into a formality for the
+        # sake of one feature -- and trimming a shot's tail is
+        # `ContextPolicy`'s job, bounded at `MAX_TRIM_FRACTION`, where the
+        # same 54.7 seconds is 30 % of the shot and inside the fence.
+        #
+        # The parameter stays so the call site keeps passing what it knows.
         moved_out = float(cuts.best_out(end))
         if abs(moved_in - start) > self.max_drift:
             moved_in = start
@@ -586,8 +604,12 @@ def _shape(
     end = float(moment.context_end)
 
     start, end = strategy.context.bounds_for(semantics, start, end)
+    located = getattr(getattr(evidence, "span", None), "resolution", None)
     start, end = strategy.cut.resolve(
-        getattr(evidence, "cuts", None) if evidence is not None else None, start, end
+        getattr(evidence, "cuts", None) if evidence is not None else None,
+        start,
+        end,
+        located.seconds if located is not None else None,
     )
     end = strategy.reaction.held_end(semantics, end, source_length or end)
 

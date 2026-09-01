@@ -543,6 +543,8 @@ VAI__MODELS__VISION__MODEL=llava:13b
 | [docs/P0_RESULTS.md](docs/P0_RESULTS.md) | before → after → delta for the editing upgrade, regression included |
 | [docs/P1_RESULTS.md](docs/P1_RESULTS.md) | reading the joins between shots, and the metric that was measuring the wrong thing |
 | [docs/P1_8_CLASSIFIER_AUDIT.md](docs/P1_8_CLASSIFIER_AUDIT.md) | why half of every moment is labelled `surprise`, and what that costs |
+| [docs/P2_2_EVENT_BOUNDARIES.md](docs/P2_2_EVENT_BOUNDARIES.md) | the evidence that was being dropped, and locating the thing a moment is about |
+| [docs/P2_1_REPLAY_ANALYSIS.md](docs/P2_1_REPLAY_ANALYSIS.md) | replay, analysed and deferred: two candidates in 254 clips |
 | [docs/TUNING.md](docs/TUNING.md) | controlled tuning — the six guards, and how to turn it on |
 | `docs/PHASE_N.md` | what each phase delivered, what it deferred, and the bugs it found |
 | [docs/ASSESSMENT.md](docs/ASSESSMENT.md) | environment, dependencies, risks |
@@ -550,7 +552,7 @@ VAI__MODELS__VISION__MODEL=llava:13b
 ## Development
 
 ```bash
-.venv/bin/python -m pytest              # 2631 tests (~43 min)
+.venv/bin/python -m pytest              # 2661 tests (~43 min)
 .venv/bin/python -m pytest tests/unit   # the unit belt alone (~5 min)
 .venv/bin/python -m pytest -m "not slow"  # fast subset
 .venv/bin/ruff check .

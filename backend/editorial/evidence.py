@@ -158,6 +158,14 @@ class EditorialEvidence:
 
     cuts: CutPoints = field(default_factory=CutPoints)
 
+    #: Where inside this moment the thing it is about begins and ends (V2-P2.2).
+    #:
+    #: An interpretation laid over the raw span, never a replacement for it:
+    #: `source_start` and `source_end` above remain what the moment stage
+    #: measured, and a reader can compare the two. Empty when nothing inside
+    #: could be located, which is the honest answer for a moment of one event.
+    span: Any = None
+
     #: Whether anything at all was recorded here. "Nothing happened" and
     #: "nobody looked" are different statements and only the second is a
     #: reason to distrust everything else said about this stretch.
@@ -269,9 +277,39 @@ def read(
         phase=phase,
         phase_confidence=confidence,
         cuts=_cuts(seen, span),
+        span=_editorial_span(moment, reader, stores),
         observed=not seen.is_empty,
         unknown=tuple(unknown),
     )
+
+
+def _editorial_span(moment: Any, reader: Any, stores: Stores) -> Any:
+    """Read the moment's internal structure, or None when there is none.
+
+    Never fatal, and never a substitute: a moment whose boundaries cannot be
+    placed keeps its raw span and every consumer falls back to it, which is
+    what every consumer did before this layer existed.
+    """
+    from backend.editorial import event_span
+
+    try:
+        media_id = str(getattr(moment, "media_id", ""))
+        end = float(getattr(moment, "end_seconds", 0.0))
+        following = project(
+            Span(
+                media_id=media_id,
+                start_seconds=end,
+                end_seconds=end + CONTEXT_SECONDS,
+            ),
+            stores,
+        )
+        return event_span.read(moment, reader=reader, after=following)
+    except Exception:
+        logger.info(
+            "Could not read this moment's internal structure; the raw span stands",
+            extra={"moment_id": str(getattr(moment, "id", ""))},
+        )
+        return None
 
 
 def _state(reader: Any, start: float, end: float) -> State:

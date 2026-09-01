@@ -56,7 +56,7 @@ All 435 moments this machine has stored.
 
 | moment type | count | share | every event unnamed | has a named event | mean confidence |
 |---|---:|---:|---:|---:|---:|
-| **surprise** | **224** | **51.5 %** | **224** | **0** | **0.059** |
+| **surprise** | **224** | **51.5 %** | **224** | **0** | **0.816** ⚠ |
 | chaos | 71 | 16.3 % | 0 | 71 | 0.917 |
 | tension | 63 | 14.5 % | 0 | 63 | 0.920 |
 | skill | 28 | 6.4 % | 0 | 28 | 0.898 |
@@ -69,10 +69,39 @@ All 435 moments this machine has stored.
 | comeback | 2 | 0.5 % | 0 | 2 | 0.816 |
 | boss / victory | 1 each | 0.2 % | 0 | 1 each | 0.970 |
 
+⚠ the stored column. This table first reported 0.059 for `surprise`, which was
+the load defect corrected immediately below — and 0.816 is the number that
+matters, because it means nothing marks these moments as unclassified.
+
 Two columns carry the whole audit. **Every `surprise` moment — 224 of 224 —
 has no named event in it**, and no moment of any other type is in that state.
-And its mean confidence is **0.059** against 0.88–0.97 everywhere else, a
-fifteen-fold gap.
+
+> ### Correction, 2026-09-01: the confidence column above is wrong
+>
+> It read **0.059** for `surprise` against 0.88–0.97 elsewhere, and this
+> document drew a conclusion from that gap: *"the system already knows it does
+> not know."* **That was false, and the cause is a missed migration.**
+>
+> `GameEventType.UNKNOWN_EVENT` was named `unexpected_event` until V2-P2. The
+> `game_events` table was migrated; the `moments.event_ids` JSON blob was not.
+> `_from_row` filters loaded types against the enum, so every stale entry is
+> dropped **silently** — 623 of 1,119, **56 % of all event references**. A
+> `surprise` moment holds nothing but unnamed events, so it loads with **no
+> events at all**: 210 of 435 moments are in that state, and
+> `Moment.confidence` is `max(event.confidence, default=0.0)`.
+>
+> The 0.059 was that default. The **stored** confidence for `surprise` is
+> **0.816**, against 0.917 for chaos and 0.920 for tension.
+>
+> This makes the finding worse rather than better. The system does *not* record
+> that it is uncertain about these moments — it records 0.816, a hair below the
+> types it is genuinely sure of. There is no confidence signal for a downstream
+> layer to respect, and §6's proposed minimal change can no longer lean on one.
+>
+> The load defect is **not fixed here**. Restoring 623 event references changes
+> what `judge._effect_density` counts, which changes the judge, which can change
+> the house edit — so it goes through the same measured process every other
+> house-edit change in this project has.
 
 Per project, the dominant type's share has a median of 57 % and a maximum of
 92 % (`proj-dc1cf6be95a3`: 45 surprise, 4 tension, and nothing else across 49
@@ -106,7 +135,7 @@ different questions with genuinely different evidence:
 
 | | what it means | what could answer it |
 |---|---|---|
-| **unnamed** | the correlator found something and could not say what | already known — `confidence 0.059`, and the event types present |
+| **unnamed** | the correlator found something and could not say what | the event types present — **not** the confidence, which is 0.816 and says nothing (see the correction above) |
 | **novelty** | new relative to what this session has shown | the semantic timeline's `novelty` lane, which exists and nothing reads |
 | **surprise** | *unexpected* relative to what the context predicted | nothing measures this today; it needs a model of what was expected |
 | **highlight** | high editorial value, worth keeping | the score, and `ShotSemantics`'s five claims |
@@ -181,10 +210,15 @@ unnamed sample from 3 to a number worth dividing by.
 
 ## 5. What it costs downstream, today
 
-The confidence field is honest and partly consumed: `scoring.py` applies a
-`low_confidence` penalty, and `needs_review` is stored and surfaced. But
-**`moment_type` is read as a meaningful editorial label, independent of
-confidence**, by every layer above it:
+The confidence field is consumed — `scoring.py` applies a `low_confidence`
+penalty and `needs_review` is stored and surfaced — but it is **not** a signal
+that this moment is unclassified. `surprise` carries a stored 0.816, and the
+0.059 an earlier draft of this section relied on was the load defect above.
+Both penalties therefore fire on the same footage every other type gets, and
+neither marks the absence of a type.
+
+**`moment_type` is read as a meaningful editorial label, independent of any of
+this**, by every layer above it:
 
 | reads the type | what it does with `surprise` |
 |---|---|
@@ -214,9 +248,14 @@ hook strength of 0.8.
 Proposed, not implemented, and deliberately not a rewrite.
 
 **The classifier is not miscalibrated. It is correct and it is being
-misread.** It already says "I do not know" twice — once as `unknown_event`, and
-once as `confidence: 0.059`. What is missing is that the layers above treat the
-absence of a type as a type.
+misread.** It says "I do not know" exactly once, as `unknown_event`, and that
+one signal is thrown away twice over: `EVENT_TO_MOMENT` turns it into an
+editorial word, and the load defect then drops the events that carried it. The
+confidence column does not say it at all — an earlier draft of this section
+claimed it did, on a number that was the load defect's default.
+
+What is missing is that the layers above treat the absence of a type as a type,
+and that there is only one place saying so.
 
 So the minimal change is to make the distinction visible where it is consumed,
 not to invent a better classifier:
