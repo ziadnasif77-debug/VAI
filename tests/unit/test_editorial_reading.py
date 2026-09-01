@@ -69,10 +69,19 @@ class _Moment:
 
 
 @dataclass
+class _Word:
+    word: str
+    start: float
+    end: float
+    confidence: float | None = 0.9
+
+
+@dataclass
 class _Said:
     start: float
     end: float
     text: str = "that was close"
+    words: tuple = ()
 
 
 @dataclass
@@ -202,6 +211,58 @@ class TestWhereAShotMayBeCut:
 
         assert evidence.cuts.safe(59.0) is False
         assert evidence.cuts.best_out(58.0) == pytest.approx(58.0), "fell back"
+
+    def test_the_silence_between_words_is_safe_to_cut_in(self) -> None:
+        """A transcript segment is a container, and on this machine the
+        containers run to 391.8 seconds while the words inside them occupy
+        half that. Forbidding the container forbade 22 % of every candidate
+        seam behind a single span, and the word timings were stored the whole
+        time -- `TranscriptSegment.words` carries them and `_from_row` loads
+        them. This asked the wrong object for its span.
+        """
+        stores = Stores(
+            cuts={"media-1": [_Cut(50.0)]},
+            said={
+                "media-1": [
+                    _Said(
+                        40.0,
+                        61.0,
+                        words=(_Word("first", 40.0, 40.4), _Word("last", 60.5, 61.0)),
+                    )
+                ]
+            },
+        )
+
+        evidence = read(_Moment(), stores=stores, reader=_Lanes())
+
+        assert evidence.cuts.safe(50.0) is True, "twenty seconds of silence"
+        assert evidence.cuts.safe(40.2) is False, "inside the first word"
+        assert evidence.cuts.safe(60.7) is False, "inside the last word"
+
+    def test_a_segment_with_no_word_timings_still_forbids_its_whole_span(self) -> None:
+        """The fallback. Declaring an unmeasured stretch safe to cut through
+        is the one outcome worse than being too cautious."""
+        stores = Stores(
+            cuts={"media-1": [_Cut(50.0)]},
+            said={"media-1": [_Said(40.0, 61.0, words=())]},
+        )
+
+        evidence = read(_Moment(), stores=stores, reader=_Lanes())
+
+        assert evidence.cuts.safe(50.0) is False
+
+    def test_a_cut_just_beside_a_word_is_still_refused(self) -> None:
+        """`SPEECH_MARGIN` still applies, now per word rather than per
+        paragraph -- a cut a fifth of a second after somebody stops talking is
+        a cut on their breath."""
+        stores = Stores(
+            cuts={"media-1": [_Cut(40.5)]},
+            said={"media-1": [_Said(40.0, 61.0, words=(_Word("only", 40.0, 40.4),))]},
+        )
+
+        evidence = read(_Moment(), stores=stores, reader=_Lanes())
+
+        assert evidence.cuts.safe(40.5) is False
 
     def test_with_no_seams_the_moment_keeps_its_own_edges(self) -> None:
         evidence = read(_Moment(), stores=Stores(), reader=_Lanes())

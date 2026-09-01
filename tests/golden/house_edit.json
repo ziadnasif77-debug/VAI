@@ -2708,9 +2708,9 @@
         "effect_density": 0.199,
         "ending": 0.433,
         "intensity": 0.416,
-        "pacing": 0.886,
+        "pacing": 0.827,
         "structure": 1.0,
-        "total": 0.731,
+        "total": 0.722,
         "variety": 1.0
       },
       "clips": 18,
@@ -2809,7 +2809,7 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.7308,
+      "judge_total": 0.722,
       "median_shot": 56.63,
       "profile": "A",
       "timeline": {

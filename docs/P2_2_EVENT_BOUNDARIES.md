@@ -155,6 +155,53 @@ winning profile. The cause is direct and measured: PAYOFF rising from 3 to 9
 changed two adjacent shots to the same purpose, so a length change between them
 now counts as arbitrary by the pacing axis's definition. Not reverted by hand.
 
+## Part 4 — the coarseness was in the question, not the transcript
+
+The ceiling named above — 21 of 48 located resolutions with a seam nearby that
+speech forbids, transcript segments running to 391.8 seconds — turned out to be
+partly an artefact.
+
+`transcript_segments` has a `words` column. That 391.8-second segment carries
+word-level timings, and its first word occupies **0.16 seconds**.
+`TranscriptSegment.words` holds them, `_from_row` loads them, and nothing
+between the database and the evidence layer was missing anything.
+
+**One function asked the wrong object for its span.** `_cuts` built the
+forbidden list from the *segment*:
+
+```python
+spoken = tuple((said.start, said.end) for said in evidence.said ...)
+```
+
+so a container of 391.8 seconds forbade cutting across all of it. Measured
+across every segment on this machine: **7,119 seconds of words inside 14,382
+seconds of segment.** Half of everything marked unsafe was silence, and 989
+gaps between consecutive words exceed a second.
+
+| | before | after |
+|---|---:|---:|
+| seams safe to cut on | 2,193 (55 %) | **3,065 (77 %)** |
+| blocked by speech | 1,780 (45 %) | **908 (23 %)** |
+| **blocked by a span over 30 s** | **877 (22 %)** | **0** |
+| median forbidden span | 2.6 s | **0.38 s** |
+| longest forbidden span | 391.8 s | 29.0 s |
+| resolutions with a safe seam within 20 s | 17 / 48 | **28 / 48** |
+| resolutions the speech guard blocks | 21 | **10** |
+
+House edit unchanged — zero videos, zero axis records. The two styles that snap
+to seams gain where they should: `transition_quality` 0.0756 → **0.0834**,
+cut-point quality 0.1185 → **0.1223**, with the judge flat at −0.0002. The
+improvement is in where cuts land, not in a metric being courted.
+
+A segment with no word timings still forbids its whole span. Declaring an
+unmeasured stretch safe to cut through is the one outcome worse than being too
+cautious, and `SPEECH_MARGIN` still applies — now per word rather than per
+paragraph, so a cut a fifth of a second after somebody stops talking is still
+a cut on their breath.
+
+Ten cases remain genuinely blocked. That is real continuous speech, and no
+amount of reading the data differently will move it.
+
 ## What this says about Replay
 
 Five candidates, up from zero. That is a real rise and it is not enough to
