@@ -32,13 +32,12 @@ from backend.editorial.semantics import EditorialValue, ShotPurpose, ShotSemanti
 from backend.editorial.strategy import (
     MAX_SEAM_DRIFT,
     MAX_TRIM_FRACTION,
-    ReactionPolicy,
-    MAX_TRIM_FRACTION,
     NEUTRAL,
     ContextPolicy,
     CutPolicy,
     DeadTimePolicy,
     EditingStrategy,
+    ReactionPolicy,
     apply,
     resolve,
 )

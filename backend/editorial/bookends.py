@@ -94,7 +94,10 @@ class BookendPolicy:
             return "starts at the first shot and ends at the last"
         ends = [
             name
-            for name, asked in (("opening", self.trim_weak_opening), ("ending", self.trim_weak_ending))
+            for name, asked in (
+                ("opening", self.trim_weak_opening),
+                ("ending", self.trim_weak_ending),
+            )
             if asked
         ]
         return f"trims a weak {' and '.join(ends)}, up to {self.max_share:.0%} of the edit"

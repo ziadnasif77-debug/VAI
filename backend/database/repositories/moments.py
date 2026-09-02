@@ -125,7 +125,7 @@ class MomentRepository:
             )
         return len(rows)
 
-    def _events_for(self, media_ids: "Iterable[str]") -> dict[str, list[GameEvent]]:
+    def _events_for(self, media_ids: Iterable[str]) -> dict[str, list[GameEvent]]:
         """Every recording's game events, once per recording.
 
         Batched deliberately. A moment-by-moment fetch is one query per moment
@@ -153,7 +153,7 @@ class MomentRepository:
                 )
         return found
 
-    def _hydrated(self, rows: "Sequence[sqlite3.Row]") -> list[Moment]:
+    def _hydrated(self, rows: Sequence[sqlite3.Row]) -> list[Moment]:
         """Rows as moments, carrying their real events wherever they exist."""
         events = self._events_for(row["media_id"] for row in rows)
         return [_from_row(row, events.get(row["media_id"])) for row in rows]
@@ -254,7 +254,7 @@ class MomentRepository:
 
 
 def _restore(
-    row: sqlite3.Row, types: list[str], stored: "Sequence[GameEvent] | None"
+    row: sqlite3.Row, types: list[str], stored: Sequence[GameEvent] | None
 ) -> tuple[GameEvent, ...]:
     """This moment's real events, or named placeholders when they cannot be had.
 

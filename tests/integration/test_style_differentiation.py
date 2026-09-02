@@ -154,7 +154,7 @@ def edits(live) -> dict[str, dict[str, dict]]:
 @pytest.mark.slow
 def test_a_style_is_not_the_house_edit_under_a_different_name(edits) -> None:
     """The number the baseline put at 55 of 85 before this phase existed."""
-    identical: dict[str, int] = {style: 0 for style in STYLES}
+    identical: dict[str, int] = dict.fromkeys(STYLES, 0)
     total = 0
     for per_style in edits.values():
         house = per_style[HOUSE]["fingerprint"]

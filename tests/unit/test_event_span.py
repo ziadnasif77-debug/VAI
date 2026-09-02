@@ -29,7 +29,6 @@ import pytest
 
 from backend.core.models.enums import GameEventType, MomentType
 from backend.editorial.event_span import (
-    SETTLED,
     WORTH_LOCATING,
     EditorialEventSpan,
     read,
@@ -231,7 +230,7 @@ class TestNothingToLocateIsSaidRatherThanFilled:
 
     def test_an_event_filling_almost_all_of_the_moment_is_not_located(self) -> None:
         moment = _moment([_event(GameEventType.VICTORY, 2936.0, 3110.0, 0.9)])
-        assert (3110.0 - 2936.0) > (3112.9 - 2935.0) * (1.0 - WORTH_LOCATING)
+        assert (3112.9 - 2935.0) * (1.0 - WORTH_LOCATING) < (3110.0 - 2936.0)
         assert not read(moment).is_located
 
     def test_a_moment_with_no_events_locates_nothing(self) -> None:

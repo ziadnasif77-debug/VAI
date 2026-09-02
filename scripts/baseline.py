@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import itertools
 import json
 import statistics
 import sys
@@ -176,7 +177,17 @@ def _measure(database, config, project_id: str, target: float) -> dict:
                 for profile, plan in proposed
             ]
             scored = [
-                (profile, plan, judging.judge(plan, reader=None, config=config, style=policy, editorial=reading))
+                (
+                    profile,
+                    plan,
+                    judging.judge(
+                        plan,
+                        reader=None,
+                        config=config,
+                        style=policy,
+                        editorial=reading,
+                    ),
+                )
                 for profile, plan in proposed
             ]
             winner = judging.best(scored)
@@ -483,7 +494,7 @@ def _paced(plan, config, style, database, durations) -> dict:
         return {"measured": False}
     changed = sum(
         1
-        for a, b in zip(lengths, lengths[1:])
+        for a, b in itertools.pairwise(lengths)
         if abs(b / max(a, 1e-6) - 1.0) >= 0.20
     )
     return {

@@ -39,7 +39,6 @@ from backend.database.repositories.moments import (
     _stored_types,
 )
 from backend.gaming.correlation import GameEvent
-from backend.moments.formation import Moment
 
 pytestmark = pytest.mark.unit
 

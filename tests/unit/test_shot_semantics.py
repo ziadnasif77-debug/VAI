@@ -29,10 +29,10 @@ from backend.core.models.enums import GameEventType, MomentType
 from backend.editorial.evidence import EditorialEvidence, State
 from backend.editorial.semantics import (
     BUSY_EVENTS,
-    RESPONSE_WINDOW,
     ESTABLISHED_LABELS,
     NAMED_FLOOR,
     REACTION_WORDS,
+    RESPONSE_WINDOW,
     EditorialValue,
     ShotPurpose,
     read,

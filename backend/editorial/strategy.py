@@ -47,10 +47,10 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from backend.core.logging import LogChannel, get_logger
-from backend.editorial.policy import NEUTRAL as NEUTRAL_SELECTION
-from backend.editorial.policy import SelectionPolicy
 from backend.editorial.bookends import NEUTRAL as NEUTRAL_BOOKENDS
 from backend.editorial.bookends import BookendPolicy
+from backend.editorial.policy import NEUTRAL as NEUTRAL_SELECTION
+from backend.editorial.policy import SelectionPolicy
 from backend.editorial.semantics import ShotPurpose, ShotSemantics
 
 logger = get_logger("editorial.strategy", LogChannel.PIPELINE)
@@ -170,9 +170,12 @@ class ContextPolicy:
         """
         if not self.trim_at_resolution or evidence is None:
             return None
-        if self.protect_reaction and semantics is not None:
-            if semantics.purpose is ShotPurpose.REACTION:
-                return None
+        if (
+            self.protect_reaction
+            and semantics is not None
+            and semantics.purpose is ShotPurpose.REACTION
+        ):
+            return None
         located = getattr(getattr(evidence, "span", None), "resolution", None)
         if located is None:
             return None
@@ -692,7 +695,8 @@ def _shape(
 
     dead = strategy.dead_time.score_for(semantics)
 
-    if (start, end) == (moment.context_start, moment.context_end) and dead == moment.dead_time_score:
+    unchanged = (start, end) == (moment.context_start, moment.context_end)
+    if unchanged and dead == moment.dead_time_score:
         return moment
     shaped = moment.with_context(start, end) if (start, end) != (
         moment.context_start,
@@ -714,11 +718,11 @@ __all__ = [
     "NEUTRAL_DEAD_TIME",
     "BookendPolicy",
     "ContextPolicy",
-    "ReactionPolicy",
     "CutPolicy",
     "DeadTimePolicy",
     "EditingStrategy",
     "EditorialIntent",
+    "ReactionPolicy",
     "apply",
     "resolve",
 ]
