@@ -344,6 +344,14 @@ make a `MISSION FAILED` screen into content. That separation is deliberate:
 the default style declares no opinion at all, and a rule that were merely
 "off by default" would have shipped the video that started this.
 
+Two absences read the same from outside and are not the same thing. A
+recording with no text on screen, or a game nobody wrote a profile for, is
+generic and quietly so — §23's promise. A profiles *directory* that is not
+there means the install is broken, and it used to be swallowed by the same
+catch-all: every game became generic, the log said so once, and the feature
+looked like it was working. It is now a configuration error that stops the
+stage and names the path.
+
 **A style changes decisions before it changes appearances — and reaches the
 optimiser never.** It has picked a decoration profile since V1, and since
 V2-P2.5 it also says how the captions look; what it may never do is reach

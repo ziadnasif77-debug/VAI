@@ -55,9 +55,13 @@ class MomentsWorker:
         """Non-gameplay stretches, from every store that has an opinion.
 
         Never fatal: a store that will not answer leaves the older, vision-only
-        guard standing rather than stopping the stage (§95).
+        guard standing rather than stopping the stage (§95). A configuration
+        error is not a store declining to answer -- a missing profiles
+        directory would turn every game generic and look like the feature
+        working -- so that one is allowed through (V2-P0.3).
         """
         from backend.analysis import frame_state as _fs
+        from backend.core.errors import ConfigurationError
         from backend.database.repositories.gaming import OcrRepository
         from backend.gaming import content
         from backend.gaming.profiles import GENERIC_PROFILE, load_profile
@@ -83,6 +87,8 @@ class MomentsWorker:
                 profile=profile,
                 duration_seconds=duration,
             )
+        except ConfigurationError:
+            raise
         except Exception:
             logger.exception("Content states unavailable; the vision guard stands")
             return ()

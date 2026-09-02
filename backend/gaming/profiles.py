@@ -509,7 +509,22 @@ def load_profile(game: str, profiles_dir: Path) -> ProfileResolution:
     if requested.lower() in _UNSPECIFIED:
         return ProfileResolution(profile=GENERIC_PROFILE, requested=requested, exact=True)
 
-    path = Path(profiles_dir) / requested / PROFILE_FILENAME
+    base = Path(profiles_dir)
+    if not base.is_dir():
+        # Two absences that read the same from the outside and are not the
+        # same thing (V2-P0.3). "This game has no profile" is the ordinary
+        # case §23 promises never to fail on. "The profiles directory is not
+        # there" means the install is broken -- every game would silently
+        # become generic and the feature would look like it was working.
+        # That was swallowed by a catch-all until a log line gave it away.
+        raise ConfigurationError(
+            f"The game profiles directory is missing: {base}",
+            code=ErrorCode.CONFIG_INVALID,
+            details={"game": requested, "profiles_dir": str(base)},
+            recoverable=False,
+        )
+
+    path = base / requested / PROFILE_FILENAME
     if not path.is_file():
         logger.info(
             "No profile for this game; using the generic one",

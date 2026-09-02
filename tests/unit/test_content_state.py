@@ -302,3 +302,49 @@ class TestBridgingUnsampledGaps:
 
         assert len(content.excluded_spans(states, observed_at=[])) == 2
 
+
+
+class TestConfigurationIsNotSwallowed:
+    """V2-P0.3: the workers' catch-alls let a configuration error through.
+
+    Both workers wrap the profile lookup in ``except Exception`` so a store
+    that will not answer cannot stop the stage (§95). A missing profiles
+    directory is not a store declining to answer: every game would silently
+    become generic, and the feature would look like it was working.
+    """
+
+    @staticmethod
+    def _context(tmp_path, game_profile: str | None):
+        from types import SimpleNamespace
+
+        row = {"game_profile": game_profile} if game_profile else None
+        database = SimpleNamespace(fetch_one=lambda *args, **kwargs: row)
+        return SimpleNamespace(database=database, profiles_dir=tmp_path / "not-there")
+
+    def test_the_edl_worker_raises_when_the_directory_is_missing(self, tmp_path) -> None:
+        from backend.core.errors import ConfigurationError
+        from backend.pipeline.workers.edl_worker import EdlWorker
+
+        with pytest.raises(ConfigurationError, match="profiles directory is missing"):
+            EdlWorker()._profile(self._context(tmp_path, "hitman"), "media-1")
+
+    def test_the_edl_worker_stays_generic_when_the_recording_has_no_ocr(
+        self, tmp_path
+    ) -> None:
+        # No OCR row means no game name, and the directory is never consulted:
+        # a recording without text is the ordinary case, not an install error.
+        from backend.pipeline.workers.edl_worker import EdlWorker
+
+        assert EdlWorker()._profile(self._context(tmp_path, None), "media-1") is GENERIC_PROFILE
+
+    def test_the_moments_worker_raises_when_the_directory_is_missing(self, tmp_path) -> None:
+        from types import SimpleNamespace
+
+        from backend.core.errors import ConfigurationError
+        from backend.pipeline.workers.moments_worker import MomentsWorker
+
+        media = SimpleNamespace(id="media-1")
+        with pytest.raises(ConfigurationError, match="profiles directory is missing"):
+            MomentsWorker()._excluded_spans(
+                self._context(tmp_path, "hitman"), media, vision=[], duration=60.0
+            )

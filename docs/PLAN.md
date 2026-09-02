@@ -7,9 +7,9 @@
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
-| Last updated | 2026-08-12, end of Phase 15 |
-| Current phase | **All 15 phases complete.** Next: whatever the numbers in PHASE_15 point at |
-| Tests | 1314 passing (4 opt-in model tests skipped by default) |
+| Last updated | 2026-09-03, end of V2-P0.3 (the exclusion layer) |
+| Current phase | **V2-P0.1–P0.3 closed.** Next: P0.4 — the seconds no detector sampled (see the closure note and Open decisions) |
+| Tests | 2739 passing, 5 skipped (opt-in model tests) — full run 2026-09-03, 39m50s |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
 ---
@@ -114,6 +114,9 @@ Development order follows SPEC §126.
 | P2 | **Timeline UX** | trim/split/move/delete controls in the UI over the §42 API, refusals shown verbatim | ✅ **done** |
 | P2 | **Upload metadata** | evidence-built title/description/tags/chapters/thumbnail, `POST /metadata/suggest`, wired into Export | ✅ **done** |
 | P2 | **Profile authoring** | docs/PROFILES.md + `scripts/profile_report.py` signature miner | ✅ **done** |
+| V2-P0.3 | **Two absences, told apart** | "this recording has no OCR" and "the profiles directory is missing" both ended in the generic table through `except Exception`. The second is a broken install and is now a `ConfigurationError` that the moments and EDL workers let through instead of swallowing; the first stays generic and quiet, as §23 promises. Gate: the unspecified names never touch the directory; a missing directory raises from both workers by name | ✅ **done** |
+| V2-P0.2 | **The exclusion layer** | `backend/gaming/content.py`: OCR reads and vision labels merged into one `GameplayState` per stretch; moments whose core is a menu are refused and their context pulled back; clips trimmed to the longest stretch that is still the game, never split. Bridging closes a gap between two refusals only when no detector observed anything inside it. Gate on the 88.5-min HITMAN benchmark: 74 → 63 moments, 336 → 298 clips, 40 excluded spans over 347.2 s, 0 of 298 clips intersect one; `scripts/bridge_safety.py` — 596.9 s of observed gameplay beside the excluded spans, **0.00 s removed by the bridge**; the acceptance render verified frame by frame — the MISSION FAILED menu, the restart prompt and the loading screen at 1:47 are gone | ✅ **done** |
+| V2-P0.1 | **The evidence gets a consumer** | the OCR had stored `MISSIONFAILED`, `AGENT DOWN:`, `EXIT TO MENU` and the vision model had labelled the neighbours `loading`, and nothing read either. Per-game content rules on the `GameProfile` mechanism (regex over OCR in named regions, with reach), generic fallback, `WELCOME T[O0]` because the OCR reads "t0" three times in four. Measured rather than assumed: text and labels refuse 16 and 10 clips of the shipped render and share 4 | ✅ **done** |
 | V2-P0 | **Architecture integrity** | every shipped configuration key must have a consumer: `scripts/config_coverage.py` + a unit test that fails on a new orphan. 51 orphans found — the publish-authorisation gate wired (it had never been read), `enabled_targets` and the Director's brief window made real, 48 keys deleted from YAML and schema together | ✅ **done** |
 | V2-P11 | **Editorial reading, and a style that decides** | the layer that lets one recording become four different edits. `backend/evidence/projection.py` had existed since Phase A with **no production consumer**; `editorial/evidence.py` reads a moment as a shot on top of it (before/during/after from the lanes, safe cut points from seams the footage already has, an unread lane says `unknown` rather than reading as calm), and `editorial/situations.py` reads *cross-type* situations above the measured same-type `Episode` — grouping by the links the correlator already found, never by proximity, which is the merge that reader measured and refused. `SelectionPolicy` is the typed seam a style reaches the optimiser through: **the optimiser's body is unchanged and a neutral policy returns the caller's own config object**, so the house style selects exactly what it always selected. `editorial/doctrine.py` is the single place a style name becomes numbers. The Director sees the reading and still answers in indices; the pacing engine gains the shot's own arc in its reason trace; CRITIC2 reports `style_violation` **with no verb, because none of §42's verbs answers it**. Gate: house 0 moments different by construction, and gaming_fast 12, cinematic 10, funny 10, minimal 10 — no two styles cutting alike | ✅ **done** |
 | V2-P10 | **Controlled tuning** | the only mechanism here allowed to change a decision without a person asking, and the most fenced thing in the project because of it: `tuning_deltas` (0015) with six guards — bounded by P8's `limits`, one step ≤10% of a key's range, ≥15 measured videos with ≥5 per arm, reversible by marking a row (the file is never rewritten), a required reason and evidence, and a switch that is off. A delta is always **base-relative**, so ten legal steps still cannot leave the fence, and the bound is re-checked at read time in case the file changed. A proposal is a comparison, **not a significance test, not a model, not a licence**. Gate: `status` prints switch OFF, 0 of 15 videos, 0 adjustments in force — and every one of the 14 tunable keys refuses with the distance to the evidence it lacks | ✅ **done** |
@@ -127,6 +130,78 @@ Development order follows SPEC §126.
 | V2-P2 | **Moment understanding** | phases measured from the session's own lanes (setup · anticipation · escalation · payoff · reaction · dead · unknown) with a confidence anchored to the refusal threshold; context expansion reads them instead of a per-type constant; `unexpected_event` → `unknown_event`. Gate: 78% of moments carry a named arc above 0.5 confidence (bar 60%), the rest say unknown | ✅ **done** |
 | V2-P1b | **Semantic spine** | the lanes become a stage of their own between GAME_EVENTS and MOMENTS, stored in `semantic_timelines` under a digest of their inputs' *values*; nine lanes behind `SemanticReader`; `frames.motion_score` measured at last (it had never been written, at weight 0.35) | ✅ **done** |
 | V2-P1 | **Semantic Timeline + Dynamic Pacing** | 2Hz fused heat lanes per session; the guard walks each clip and re-reads the level at every cut; chronology constitution (`ensure_chronological`, hook-at-0 the sole exception). Gate on a 31-minute session: 95/95 clips inside their band's cap, hot/cold shot-length ratio 0.37 (target ≤ 0.50), QA 78 | ✅ **done** |
+
+### The exclusion layer closed, and what the render still carried (2026-09-03)
+
+V2-P0.1 and P0.2 were committed on 2026-09-02 as a checkpoint with the gate
+explicitly *open*: full suite, the bridge measured, the acceptance render
+looked at. This entry is the gate being run, and P0.3 landing beside it.
+
+**The bridge took nothing.** `scripts/bridge_safety.py` recomputes the
+excluded spans twice from the same stored OCR, vision and timeline — bridging
+off, bridging on — and compares what each build keeps of the *observed*
+gameplay next to every excluded span. Observed is deliberately narrow: a
+second counts only when a detector looked within 3.5 s of it and did not call
+it non-gameplay. On the benchmark, ±10 s around 51 unbridged spans:
+
+| | |
+|---|---:|
+| observed gameplay beside excluded spans | 596.90 s |
+| of it retained, bridge off | 51.15 s |
+| of it retained, bridge on | 51.15 s |
+| **removed by the bridge** | **0.00 s** |
+
+Eleven gaps closed, and no detector had spoken for a second inside any of them.
+
+**The render, frame by frame.** The acceptance render (`rnd-09d8d81bacf9`,
+917 s, the current 298-clip timeline) was tiled at one frame every two
+seconds — 459 frames — and read. The defect the phase was opened for is gone:
+no MISSION FAILED menu, no "restart the mission?" prompt, no loading screen
+at 1:47 or anywhere else. The in-game inventory wheel and the mission-story
+card are on screen for a second or two each, and both are gameplay
+overlays, which is the wave-5 lesson from 2026-08-29 holding.
+
+**And one thing it still carried, recorded because the gate is for finding
+it.** At 2:43 the pause menu — HITMAN's OBJECTIVES / MAP / MISSION STORIES /
+INTEL tabs over a dimmed frame — plays for about three seconds (source
+525.5–528.5 s, inside clip 47). The layer did not miss it; the layer never
+saw it. The nearest samples are a vision frame at 517.5 s and an OCR+vision
+frame at 528.9 s, both gameplay, and nothing in the 11.4 s between. This is
+the case the bridge is forbidden to invent evidence for, and it did not.
+
+The evidence was on disk anyway. The `frames` table holds a *base* frame
+every 3 s, and the one at 528.0 s shows the pause menu in full — `analyzed =
+0`, because OCR and vision run on candidate frames only. Measured over the
+whole render: **174 s (18%) sit more than 3.5 s from any OCR or vision
+sample**, in 29 stretches of two seconds or more, the longest 18.2 s. On the
+recording itself the OCR's median gap is 5.1 s but 273 gaps exceed 7 s and
+cover 3,567 s; vision's median is 4.7 s with 272 gaps over 7 s covering
+3,041 s. A three-second menu fits inside most of them. That is P0.4, written
+into Open decisions: read the base frames that fall inside the *planned*
+clips — the evidence is already extracted, and OCR at that density is cheap
+next to a render.
+
+**The suite said no first.** The full run failed 20-odd integration tests
+across critique, EDL, story, render and QA, every one the same way: zero
+moments formed, so every stage after skipped with a reason and the test
+found nothing to assert on. `FakeVisionProvider` picked a subject by the hash
+of the frame's filename from a vocabulary that included "a loading screen"
+and "a menu with the inventory open" — one frame in four non-gameplay, a
+recording no game produces. Harmless while labels were decoration; once
+P0.2 started refusing footage on a `loading` or `menu` label at 0.9, every
+seconds-long fixture lost its moments to menus nobody drew. The fake's
+vocabulary is now all gameplay, and a test that wants a menu builds the
+observation and says so — the same precedent as the screen guard: a
+component that edits the clip list is exercised where its input is meant.
+The layer itself was not touched; the measurement above is the reason.
+
+**P0.3.** `load_profile` raises `ConfigurationError` when the profiles
+directory itself is missing, and the two workers that wrapped it in `except
+Exception` re-raise that one class. The unspecified names (`auto`, blank,
+`generic`) resolve before the directory is looked at, so a recording with no
+OCR stays generic and quiet. `scripts/bridge_safety.py` inherits the same
+rule: a measurement taken with every game silently generic is not a
+measurement of the profiles.
 
 ### Phase F — preferences ✅ done
 
@@ -1617,6 +1692,7 @@ Not blocking, but worth settling before the phase that needs them.
 | ~~Remotion licence for commercial use~~ | ~~Phase 9~~ | **Settled 2026-08-11:** free for individuals and for-profit organisations with up to 3 employees; above that, a company licence. This project is inside the free tier. |
 | ~~The worker leaves queued jobs untouched~~ | ~~when reproduced~~ | **Settled 2026-08-12:** cancelling flagged queued jobs and left them queued; `next_runnable` skips a cancelled job, so nothing ran them and nothing said so. One project sat at "queued" for eight hours beside a healthy idle worker. A queued job is now cancelled outright, and startup settles rows an older build abandoned. |
 | ~~The overlay pass renders 599 s to cover 115 s~~ | ~~next speed pass~~ | **Settled 2026-08-19:** the overlay now renders only the stretches that draw something. `backend/rendering/overlay_plan.py` merges the composition's spans (already recorded since Phase 9 and never read), caps the count so the composite's filter graph stays small, rewrites the elements into a shorter composition, and hands FFmpeg the offsets to put each stretch back. Timed on *Ziad 4* against the same composition, same machine, same settings: the whole layer took **1,284 s** for 18,287 frames; the segmented layer took **15.5 s** for 98 -- **83x**, and the overlay stops being the render at all. Measured across all nine real projects: **43.8% to 99.5% of the Chromium frames removed**, median 88%; on *Ziad 2* itself, 31 spans become 23 segments and 80.4% of the pass disappears. The segment ceiling of 24 costs almost nothing — the worst project saves 43.8% at 24 against 45.3% uncapped. Proved against a decoder rather than a filter string: two one-second stretches from a two-second overlay land on exactly their frames, the gaps stay untouched, and the video keeps its full length. Original measurement below. | Measured 2026-08-12 on *Ziad 2*: of a 9:58 programme, captions and effects occupy **115 s (19%) across 52 islands**, and Remotion screenshots every frame of all 599 s anyway. The overlay took **22 of the render's 26 minutes**; the cut and concat took 1.4 s on NVENC. Rendering only the islands (merged with a join tolerance, then composited at their offsets) is the largest single speed win left. The risk is A/V alignment, so it needs the frozen-frame and sync QA checks as its gate. |
+| **P0.4 — the seconds no detector sampled** | next exclusion pass | Found 2026-09-03 by looking at the acceptance render: a 3 s pause menu at 2:43 that no OCR or vision sample fell inside, while a base frame at 528.0 s showing it in full sat on disk unanalysed. 18% of the render is more than 3.5 s from any sample. The cheap closure: run OCR over the 3 s base frames that fall inside the planned clips (after STORY, before EDL), feed the reads into `content.read` like any other, and let the same refusals apply. Measure first: how many of the 29 unsampled stretches a base-frame pass would have observed, and how many seconds of gameplay it would wrongly refuse. |
 | **Shorts cannot be published through the button** | next publishing pass | Found 2026-08-28 during the first real upload: the publish worker resolves a render id from the renders table, and Shorts live beside it as loose files. The test Short went up through the publisher stack directly. The fix is a small one -- let a publish payload name a Short by path or register Shorts as render rows -- and it should ride with the next publishing change. |
 | **J-cuts / L-cuts (audio leads or trails the cut)** | next editing pass | Researched 2026-08-14: the standard alternative to hard A/V cuts inside scenes. Needs overlapping audio across segment boundaries, which the segment-concat render pipeline cannot express today -- a real but contained rework of the audio assembly. Dip-to-black time-jump grammar shipped instead (same research pass); LUFS was already at YouTube's -14; effects budget (6/min) already exceeds the 30-60s pattern-interrupt cadence the retention literature recommends -- the sparse *triggers* are what limit effect count, same root as the menu-detection density note below. |
 | **The render assumes an empty card and never checks** | next render pass | Measured 2026-08-15: a `qwen2.5-coder:7b` model left resident by *another program* held 4.7 GB of the 3070's 8 GB — with `expires_at` in the year 2318, so nothing would ever release it. Chromium then could not start, timing out after 25 s, and **19 render-dependent tests failed** across two full suite runs that each took 45 minutes instead of 22. §54's "one heavy model at a time" is honoured *between our own stages* and assumes nothing else is on the machine. The overlay pass should read free VRAM before starting Chromium and either lower `--concurrency` or say plainly that the card is full — a render that fails after twenty minutes because something else is resident is the worst way to learn it. |
@@ -1655,4 +1731,5 @@ Not blocking, but worth settling before the phase that needs them.
 | 2026-08-29 | **One source, and no way around it.** Owner's rule verbatim: recordings come from `D:\Gaming 2026` and there must be no way to fetch them from anywhere else. `application.media_source_roots` ships with exactly that entry; the ingestion service refuses any path outside it at the one chokepoint every import passes through — UI, API and scripts alike — with the path resolved first (`..` hops and symlinks are not a way around) and compared case-insensitively, before the file is even stat'ed: whether something exists outside the vault is not the app's business. The native file dialog now opens inside the vault too (a remembered directory is honoured only if it sits inside). Empty list = rule off, which is how the test fixtures run; seven dedicated tests pin the wall, including the shipped-config entry itself. 1,781 unit tests. |
 | 2026-08-29 | **The daily policy becomes a machine.** The owner's twelve-section DAILY VIDEO PRODUCTION & PUBLISHING POLICY, implemented whole: a `production_ledger` (migration 0005) whose per-recording state machine (new→processing→edited→ready→published/failed) makes every decision idempotent — the `daily_runs` primary key IS the 02:00 mutex, so a restart, crash or double firing produces nothing twice; discovery actually walks `D:\Gaming 2026` and seeds pre-policy imports as done (§4 reaches backwards); caps of 1 long + 2 Reels counted from the ledger before any work; production fires at 02:00 Europe/Oslo and publication is scheduled **on YouTube itself** via `status.publishAt` at 10:00 Europe/Oslo (tzdata installed — Windows ships no IANA db; January = 09:00 UTC, July = 08:00 UTC, proven in tests), so an app crash after upload cannot publish early; the quality floor holds a weak day in EDITED with the reason on record; yesterday's failure gets tomorrow, three attempts, never a second slot today; `daily.output_directory` ships null — the copy step waits for the owner's word and the report says so; a `DailyScheduler` thread (JobWorker's shape) ticks inside serve.py, `scripts/daily_cycle.py` drives a tick by hand; the §12 report lands in `reports/daily/<day>.json` and rewrites as the day advances. Seventeen dedicated tests. |
 | 2026-08-29 | **The montage-quality day: five waves, one evidence standard.** The owner asked for better editing; the autopsy of that night's 84/100 video found a 596 s plan shipped as 189 s, seven dip-to-blacks in ten clips, and four effects on an action session. Wave 1 — *evidence before knives*: a corroboration floor (one sampled frame may warn, not cut), a 4 s interior bridge, an event veto, and a rescue for zero-piece moments; replayed live, 189 s→346 s with 11/11 moments represented. Wave 2 — *only an act break earns a dip*: tiered jumps with a 2-dip budget, mediums keep the cut and the whoosh; plus effects triggers that admit real session types (death-freeze, chase ramps). Waves 3-4 — the E2E pushed back (QA 72) and was right twice: the veto became a ±4 s *neighbourhood* (one near_death had blessed 24.6 s of stillness) and the rescue stopped borrowing menu seconds. Wave 5 — the eyeball caught the menu check convicting pure gameplay on free-text labels ("inventory" = a hotbar): it now consumes the guard's own distilled spans, in seconds. Final: same recording, **QA 84 at 300 s** versus 84 at 189 s — 59% more video at the same honest score, dips 7→2, effects 4→7 with freeze_frame and camera_shake finally firing. 1,821 unit tests. |
+| 2026-09-03 | **The exclusion layer's gate run, and P0.3.** Bridge safety on the HITMAN benchmark: 596.9 s of observed gameplay beside 51 excluded spans, 0.00 s removed by bridging. Acceptance render read at 459 frames: the MISSION FAILED menu, restart prompt and loading screen at 1:47 are gone; a 3 s pause menu at 2:43 remains because no detector sampled the 11.4 s it sits in — recorded as P0.4 with the density numbers. The full suite had failed 20-odd integration tests because `FakeVisionProvider` labelled one frame in four `loading`/`menu` by filename hash; its vocabulary is now all gameplay, the layer untouched. P0.3: a missing profiles directory is a `ConfigurationError` the moments and EDL workers no longer swallow; a recording with no OCR stays generic. Full suite after: 2739 passed, 5 skipped, exit 0. |
 | 2026-08-29 | **The done-shelf.** Owner: every recording whose video is produced and on YouTube moves to `D:\Gaming 2026\Ferdig` — created if missing. `daily.archive_directory` ships that path; the sweep runs every tick (a failed move retries on the next one), moving is not deleting (§7: the original survives, relocated), the ledger key and the media rows follow the file so resume/§47 never lose it, name collisions take a numbered seat, and discovery excludes the shelf outright — the machine must never mistake its own finished work for a new recording. Five dedicated tests; 1,806 unit tests green. |

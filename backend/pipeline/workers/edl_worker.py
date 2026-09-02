@@ -262,7 +262,13 @@ class EdlWorker:
         return spans
 
     def _profile(self, context: WorkerContext, media_id: str) -> Any:
-        """The game's profile, or the generic one. Never raises."""
+        """The game's profile, or the generic one.
+
+        A recording with no OCR, or a game with no profile, is generic. A
+        profiles directory that is not there is a configuration error and is
+        raised, not swallowed (V2-P0.3).
+        """
+        from backend.core.errors import ConfigurationError
         from backend.gaming.profiles import GENERIC_PROFILE, load_profile
 
         try:
@@ -275,6 +281,8 @@ class EdlWorker:
             if not name:
                 return GENERIC_PROFILE
             return load_profile(name, context.profiles_dir).profile
+        except ConfigurationError:
+            raise
         except Exception:
             logger.exception("Profile unavailable; the generic table stands")
             return GENERIC_PROFILE

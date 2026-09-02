@@ -94,6 +94,23 @@ class TestProfiles:
         assert resolution.profile.has_ocr_regions
         assert "kill_feed" in resolution.profile.reading_regions()
 
+    def test_a_missing_profiles_directory_is_a_configuration_error(
+        self, tmp_path: Path
+    ) -> None:
+        # V2-P0.3. "No profile for this game" and "no profiles directory" read
+        # the same from outside -- both end in the generic table -- and are
+        # not the same thing. The second is a broken install, and it was
+        # swallowed by a catch-all until a log line gave it away.
+        with pytest.raises(ConfigurationError, match="profiles directory is missing"):
+            load_profile("hitman", tmp_path / "not-there")
+
+    def test_the_generic_names_never_need_the_directory(self, tmp_path: Path) -> None:
+        # The unspecified names resolve before the directory is looked at: a
+        # recording with no OCR must stay generic and quiet, not become an
+        # install error.
+        for value in ("auto", "", "generic"):
+            assert load_profile(value, tmp_path / "not-there").profile.is_generic
+
     def test_a_malformed_profile_fails_loudly(self, tmp_path: Path) -> None:
         # A broken profile that silently became generic would look like the
         # feature working.

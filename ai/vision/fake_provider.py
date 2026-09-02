@@ -30,24 +30,32 @@ FAKE_VERSION: Final[str] = "fake-vision-1"
 
 #: A small closed vocabulary. Recognisable in a failing test's output, and
 #: plausible enough that a description reads like one.
+#:
+#: Every entry is gameplay. The vocabulary used to carry a loading screen and
+#: an open menu, which made one frame in four non-gameplay by the hash of its
+#: filename -- a recording no game produces. That was harmless while labels
+#: were decoration; once the exclusion layer (V2-P0.2) started refusing
+#: footage on the strength of a ``loading`` or ``menu`` label, every pipeline
+#: fixture lost its moments to menus nobody drew. A test that wants a menu
+#: builds the observation and says so.
 _SUBJECTS: Final[tuple[str, ...]] = (
     "a firefight in an open courtyard",
     "the player reloading behind cover",
     "a scoreboard overlay",
-    "a loading screen",
+    "the player climbing onto a rooftop",
     "the player sprinting down a corridor",
     "an explosion filling the frame",
-    "a menu with the inventory open",
+    "the player taking aim from a window",
     "a vehicle crossing rough ground",
 )
 _LABELS: Final[tuple[tuple[str, ...], ...]] = (
     ("combat",),
     ("combat", "low_health"),
     ("scoreboard",),
-    ("loading",),
+    ("traversal",),
     ("traversal",),
     ("combat", "explosion"),
-    ("menu", "inventory"),
+    ("combat",),
     ("driving",),
 )
 
