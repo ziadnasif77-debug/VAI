@@ -233,6 +233,24 @@ def build_plan(
         # selection time (§33), not a reorder at the end.
         ordered = pacing.order(ordered, config.pacing)
     if chronological:
+        # Time order, and here rather than only in the story path.
+        #
+        # `chronological` used to do one thing -- suppress the hook -- and the
+        # ordering it names was applied only by `_directed`. So `best_moments`
+        # and `compilation` sorted by score, interleaved by type, and were then
+        # run through `pacing.order` above, producing a plan the chronology
+        # constitution rejects. On a real 88-minute session that is not a rare
+        # corner: 28 selected moments, 12 backwards steps, and
+        # `_ensure_plan_chronology` refusing the plan at
+        # "a clip precedes footage that happened before it (0.0s after
+        # 1113.4s)". The mode could not produce a valid edit at all while the
+        # flag was true, and true is the default intent.
+        #
+        # The key is `_directed`'s own, so the two paths cannot drift: media
+        # first, then the moment's context start. Story mode has already sorted
+        # by it and `sort` is stable, so this is a no-op there rather than a
+        # second opinion.
+        ordered = sorted(ordered, key=lambda moment: (moment.media_id, moment.context_start))
         # An empty selection rather than None: "no hook" is a state the type
         # already models, with a reason attached, and every reader of a plan
         # expects a HookSelection to be there.

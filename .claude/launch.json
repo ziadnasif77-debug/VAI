@@ -4,8 +4,21 @@
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "apps/web"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "apps/web"
+      ],
       "port": 5173
+    },
+    {
+      "name": "vai",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "scripts/serve.py"
+      ],
+      "port": 8765
     }
   ]
 }

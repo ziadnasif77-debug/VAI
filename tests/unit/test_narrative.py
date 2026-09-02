@@ -486,6 +486,91 @@ class TestChronologicalOrder:
         starts = [moment.context_start for moment in plan.moments]
         assert starts == sorted(starts), "a clip plays before one that happened earlier"
 
+    def test_best_moments_runs_forwards_when_it_is_asked_to(self, config) -> None:
+        # The regression this exists for. `chronological` used to do one thing
+        # -- suppress the hook -- and the ordering it names was applied only by
+        # the story path. So `best_moments` sorted by score, interleaved by
+        # type, went through `pacing.order`, and produced a plan the chronology
+        # constitution rejects. On a real 88-minute session: 28 moments, 12
+        # backwards steps, and the stage refusing its own output with
+        # "a clip precedes footage that happened before it (0.0s after
+        # 1113.4s)". The mode could not make a valid edit while the flag was
+        # true, and true is the default intent.
+        plan = build_plan(
+            _pool(),
+            mode=VideoMode.BEST_MOMENTS,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+            chronological=True,
+        )
+
+        starts = [moment.context_start for moment in plan.moments]
+        assert starts == sorted(starts), "a clip plays before one that happened earlier"
+
+    def test_the_chronology_validator_accepts_what_best_moments_now_builds(
+        self, config
+    ) -> None:
+        # Ending at the guard that did the rejecting, not at a sorted list:
+        # this is the assertion that would have caught the defect, because the
+        # plan was well-formed by every other measure.
+        from backend.timeline.validation import ensure_chronological
+
+        plan = build_plan(
+            _pool(),
+            mode=VideoMode.BEST_MOMENTS,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+            chronological=True,
+        )
+
+        class _AsClip:
+            __slots__ = ("media_id", "role", "source_start")
+
+            def __init__(self, moment) -> None:
+                self.media_id = moment.media_id
+                self.source_start = moment.context_start
+                self.role = moment.metadata.get("role", "body")
+
+        ensure_chronological([_AsClip(moment) for moment in plan.moments])
+
+    def test_compilation_runs_forwards_too(self, config) -> None:
+        # The same defect, the same line, the other mode that reaches it.
+        plan = build_plan(
+            _pool(),
+            mode=VideoMode.COMPILATION,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+            chronological=True,
+        )
+
+        starts = [moment.context_start for moment in plan.moments]
+        assert starts == sorted(starts)
+
+    def test_best_moments_is_untouched_when_it_is_not_asked_to(
+        self, config
+    ) -> None:
+        # The other half of the contract. `best_moments` without the flag is
+        # strongest-first with types interleaved (§35), and that is a taste
+        # this fix is not allowed to quietly replace: the ordering must be the
+        # score order, not the clock.
+        plan = build_plan(
+            _pool(),
+            mode=VideoMode.BEST_MOMENTS,
+            target_seconds=TARGET,
+            config=config.narrative,
+            policy=config.duration_policy,
+        )
+
+        starts = [moment.context_start for moment in plan.moments]
+        assert starts != sorted(starts), (
+            "without the flag this mode orders by score, and the fixture must "
+            "be able to show the difference"
+        )
+        assert plan.hook.exists, "and it still opens on a hook"
+
     def test_the_hook_is_what_it_gives_up(self, config) -> None:
         chronological = build_plan(
             _pool(),
