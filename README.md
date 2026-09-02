@@ -120,6 +120,47 @@ peak now travels with the span and the depth is interpolated: the configured
 4,035-second recording that changes the music level under **24.6 % of the
 video**, with the deepest point unchanged.
 
+**It refuses footage that is not the game.** A recording is not a stream of
+gameplay: it contains menus, loading screens, pause screens, the game's own
+intro, and the screen a player sees when they die. Every stage used to treat
+all of it as material to be scored and cut, and a real 88-minute session
+proved what that costs — seventeen seconds of a `MISSION FAILED` menu, a
+"restart the mission?" prompt and a loading screen played at 1:47 of a
+finished video.
+
+The evidence had been on disk the whole time. At that instant the OCR had read
+`MISSIONFAILED`, `AGENT DOWN:` and `EXIT TO MENU` and stored every word, and
+the vision model had labelled neighbouring frames `loading`. **Nothing
+consumed either.** `backend/gaming/content.py` is the consumer that was
+missing: it merges the two into one `GameplayState` per stretch — a span, not
+an instant, because OCR samples a frame every seven seconds and a menu on
+screen for twenty is read once — and the moment and timeline stages refuse
+what it names.
+
+Merged rather than run in parallel, and that was measured rather than assumed:
+on that session the text reads and the vision labels refuse **sixteen and ten**
+clips of the shipped render and share only **four**. The labels see menus with
+nothing written on them; the text sees the ones whose whole identity is
+written. Neither alone was ever going to be enough.
+
+The vocabulary is per-game with a generic fallback, reusing the mechanism
+`GameProfile` already had for events: regex over OCR, restricted to named HUD
+regions, carrying how far the state reaches either side of the frame that
+proved it. A game adds its own wording — HITMAN's loading screen names its
+targets and says nothing generic — and may disable any generic rule by name,
+the same escape hatch the fusion table already offered.
+
+Two corrections are worth recording because both were mine. The first cut of
+this trusted the vision half at 0.45, below the threshold that refuses
+footage, on the grounds that the model had called a `MISSION FAILED` screen "a
+combat situation". That was the wrong lesson from the right observation: the
+sentence was a *description*, and the layer reads the model's **labels** —
+which at that instant said `loading`, correctly. Distrusting labels for a
+description's error cost six real menus. And the generic pattern for a game's
+opening had to become `WELCOME T[O0]`, because the OCR read "Welcome t0" three
+times out of four and "Sapienza Ilaly" for Italy. That is a property of
+reading text off a compressed frame, not of one game.
+
 **It argues with itself before rendering.** Three candidate edits are built from
 the same moments under different profiles and scored by a deterministic judge on
 eight axes. The winner is rendered; all three are kept in the job result, with
@@ -293,6 +334,15 @@ and evidence, reversible by marking a row — and the switch is off. A proposal 
 a comparison written down, not a significance test, not a model, and not a
 licence. `python scripts/tuning.py status` prints the real state, which today is
 `0 of 15`.
+
+**Editorial safety is not a matter of taste, and no style may vote on it.**
+Refusing a menu is not an opinion two styles could reasonably differ on, any
+more than "do not cut mid-word" is. A style decides *how* valid material is
+cut; it does not get to decide what counts as valid. `funny` and `competitive`
+and `cinematic` will edit the same footage differently, and none of them can
+make a `MISSION FAILED` screen into content. That separation is deliberate:
+the default style declares no opinion at all, and a rule that were merely
+"off by default" would have shipped the video that started this.
 
 **A style changes decisions before it changes appearances — and reaches the
 optimiser never.** It has picked a decoration profile since V1, and since

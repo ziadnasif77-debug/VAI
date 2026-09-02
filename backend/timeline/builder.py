@@ -159,6 +159,7 @@ def build_timeline(
     notes: Sequence[str] = (),
     metadata: Mapping[str, Any] | None = None,
     transitions: TransitionsConfig | None = None,
+    excluded_spans: Sequence[tuple[float, float]] = (),
 ) -> BuildResult:
     """Lay selected clips onto a non-destructive timeline (§40, §42).
 
@@ -172,6 +173,13 @@ def build_timeline(
             the alternative is a renderer failing on a seek nobody can explain.
         notes: anything the narrative stage wants carried forward.
         metadata: mode, hook summary and similar, stored on the timeline.
+        excluded_spans: source stretches that are not gameplay (V2-P0.2).
+            Menus, loading screens and failure screens, read by
+            :mod:`backend.gaming.content` from evidence the analysis already
+            stored. Applied here and not only at moment formation because
+            that is where the defect actually was: on the session this was
+            written from, the moment's own core never touched the menu -- its
+            *clips* reached 180 seconds past its window and picked one up.
 
     Returns:
         The timeline and an account of any clamping, so the caller can report
@@ -188,6 +196,7 @@ def build_timeline(
         )
 
     bounded = _bounded(clips, media_durations or {})
+    bounded, excluded_notes = _without_excluded(bounded, excluded_spans)
     bounded, exclusivity_notes = _exclusive(bounded)
     # V2's constitution, checked on the finished selection rather than on an
     # intermediate. Two moments whose context expansions overlap arrive out of
@@ -198,7 +207,7 @@ def build_timeline(
 
     ensure_chronological(bounded)
     bounded, clamped, clamp_notes = _apply_duration_band(bounded, policy)
-    clamp_notes = [*exclusivity_notes, *clamp_notes]
+    clamp_notes = [*excluded_notes, *exclusivity_notes, *clamp_notes]
     if not bounded:
         return BuildResult(
             timeline=Timeline(
@@ -362,6 +371,105 @@ def _bounded(
             )
         )
     return bounded
+
+
+#: What is left of a clip after a menu is cut out of it must still be a shot.
+#: Below this it is a flash, and a flash of the frames either side of a loading
+#: screen is worse than not having the clip at all.
+MIN_SURVIVING_SECONDS: Final[float] = 1.0
+
+
+def _without_excluded(
+    clips: Sequence[PlannedClip], spans: Sequence[tuple[float, float]]
+) -> tuple[list[PlannedClip], list[str]]:
+    """Keep no footage that is not gameplay (V2-P0.2).
+
+    A clip that runs into a menu is trimmed to the longest stretch of itself
+    that is still the game; a clip that is *inside* one is dropped. Trimming
+    rather than dropping outright is deliberate -- a shot that ends two
+    seconds early because a loading screen begins is a shot, while dropping it
+    would lose the play that preceded it.
+
+    Only the longest surviving piece is kept, never both halves. Splitting one
+    planned clip into two would put a cut nobody chose in the middle of a
+    shot, and the pieces would each be judged as a shot they never were.
+    """
+    if not spans:
+        return list(clips), []
+
+    kept: list[PlannedClip] = []
+    trimmed = 0
+    dropped = 0
+    removed = 0.0
+    for clip in clips:
+        pieces = _gameplay_pieces(clip.source_start, clip.source_end, spans)
+        if not pieces:
+            dropped += 1
+            removed += clip.seconds
+            logger.info(
+                "Dropped a clip that is entirely not gameplay",
+                extra={
+                    "media_id": clip.media_id,
+                    "span": [round(clip.source_start, 2), round(clip.source_end, 2)],
+                },
+            )
+            continue
+        start, end = max(pieces, key=lambda piece: piece[1] - piece[0])
+        if end - start < MIN_SURVIVING_SECONDS:
+            dropped += 1
+            removed += clip.seconds
+            continue
+        if start > clip.source_start + 1e-6 or end < clip.source_end - 1e-6:
+            trimmed += 1
+            removed += (clip.source_end - clip.source_start) - (end - start)
+            kept.append(
+                PlannedClip(
+                    media_id=clip.media_id,
+                    source_start=start,
+                    source_end=end,
+                    moment_id=clip.moment_id,
+                    moment_type=clip.moment_type,
+                    score=clip.score,
+                    role=clip.role,
+                    beat=clip.beat,
+                    sources=clip.sources,
+                )
+            )
+        else:
+            kept.append(clip)
+
+    notes: list[str] = []
+    if trimmed or dropped:
+        notes.append(
+            f"removed {removed:.1f}s that was not gameplay: {trimmed} clip(s) "
+            f"trimmed, {dropped} dropped (V2-P0.2)"
+        )
+        logger.info(
+            "Kept the edit clear of menus and loading screens",
+            extra={"trimmed": trimmed, "dropped": dropped, "seconds": round(removed, 2)},
+        )
+    return kept, notes
+
+
+def _gameplay_pieces(
+    start: float, end: float, spans: Sequence[tuple[float, float]]
+) -> list[tuple[float, float]]:
+    """What is left of ``start``-``end`` once every excluded span is cut out."""
+    pieces = [(start, end)]
+    for lo, hi in sorted(spans):
+        nxt: list[tuple[float, float]] = []
+        for a, b in pieces:
+            if hi <= a or lo >= b:
+                nxt.append((a, b))
+                continue
+            if a < lo:
+                nxt.append((a, min(lo, b)))
+            if b > hi:
+                nxt.append((max(hi, a), b))
+        pieces = [(a, b) for a, b in nxt if b - a > 1e-6]
+        if not pieces:
+            return []
+    return pieces
 
 
 def _apply_duration_band(

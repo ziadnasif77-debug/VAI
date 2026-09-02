@@ -241,6 +241,7 @@ def form_moments(
     *,
     media_id: str,
     non_gameplay: Sequence[StateSpan] = (),
+    excluded_spans: Sequence[tuple[float, float]] = (),
 ) -> list[Moment]:
     """Group correlated events into moments (§28).
 
@@ -261,6 +262,14 @@ def form_moments(
     spike and not a moment, and the finished video carried 40 of them before
     this argument existed. Context may still touch a menu — a loading screen on
     either side of a mission start is honest — so only the core is measured.
+
+    ``excluded_spans`` is the same question asked with more evidence (V2-P0.2):
+    the vision labels above *plus* the literal text the OCR read, merged into
+    one decision. It does two things the older argument does not. It refuses a
+    core the text proves is a menu even when no label said so, and it **pulls
+    the context back** to the edge of one rather than letting it reach in. The
+    second is what mattered: on the session this was written from the moment's
+    core never touched the menu at all, and the footage still arrived.
     """
     ordered = sorted(events, key=lambda event: event.start_seconds)
     if not ordered:
@@ -278,6 +287,7 @@ def form_moments(
         moments.extend(_build(group, config, media_id))
 
     kept, rejected = _drop_non_gameplay(moments, non_gameplay, config)
+    kept, refused, pulled = _respect_exclusions(kept, excluded_spans)
 
     logger.info(
         "Formed moments",
@@ -287,6 +297,8 @@ def form_moments(
             "groups": len(groups),
             "moments": len(kept),
             "rejected_non_gameplay": rejected,
+            "refused_by_content": refused,
+            "context_pulled_back": pulled,
             "by_type": _tally(kept),
         },
     )
@@ -337,6 +349,55 @@ def _drop_non_gameplay(
             )
         )
     return kept, rejected
+
+
+def _respect_exclusions(
+    moments: Sequence[Moment], spans: Sequence[tuple[float, float]]
+) -> tuple[list[Moment], int, int]:
+    """Refuse moments that are not gameplay, and stop context reaching into one.
+
+    Two rules, and the second is the one the older guard was missing. A moment
+    whose *core* overlaps an excluded stretch is not a moment: the spike that
+    formed it was a menu sound. A moment whose core is clean but whose
+    *context* reaches into one keeps the moment and loses the reach -- the
+    play is real, and the loading screen after it is not part of it.
+    """
+    if not spans:
+        return list(moments), 0, 0
+
+    ordered = sorted(spans)
+    kept: list[Moment] = []
+    refused = 0
+    pulled = 0
+    for moment in moments:
+        if any(
+            moment.start_seconds < hi and lo < moment.end_seconds for lo, hi in ordered
+        ):
+            refused += 1
+            logger.debug(
+                "Refused a moment whose core is not gameplay",
+                extra={
+                    "start": round(moment.start_seconds, 2),
+                    "end": round(moment.end_seconds, 2),
+                },
+            )
+            continue
+        start, end = moment.context_start, moment.context_end
+        for lo, hi in ordered:
+            if hi <= start or lo >= end:
+                continue
+            if lo <= moment.start_seconds and hi < moment.end_seconds:
+                start = max(start, hi)
+            elif lo > moment.start_seconds:
+                end = min(end, lo)
+            else:
+                start, end = moment.start_seconds, moment.end_seconds
+        if start > moment.context_start + 1e-6 or end < moment.context_end - 1e-6:
+            pulled += 1
+            kept.append(replace_moment(moment, context_start=start, context_end=end))
+        else:
+            kept.append(moment)
+    return kept, refused, pulled
 
 
 def _build(group: list[GameEvent], config: FormationConfig, media_id: str) -> list[Moment]:

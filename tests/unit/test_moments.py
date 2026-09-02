@@ -823,3 +823,51 @@ class TestDoctrineTiers:
         for score in (0.9, 0.8, 0.7, 0.6):
             assert tier_for(score) != "below"
         assert tier_for(0.5999) == "below"
+
+@pytest.mark.unit
+class TestExclusionsReachFormation:
+    """V2-P0.2 at the moment layer: refuse the core, pull back the context."""
+
+    def test_a_core_that_is_a_menu_is_refused(self, config) -> None:
+        from backend.moments.formation import form_moments
+
+        assert not form_moments(
+            [_event(GameEventType.KILL, 100.0, duration=4.0)],
+            config.moments.formation,
+            media_id="m",
+            excluded_spans=[(95.0, 120.0)],
+        )
+
+    def test_context_is_pulled_back_to_the_edge_of_a_menu(self, config) -> None:
+        # The rule the older guard was missing, and the one that mattered: the
+        # core never touched the menu, and the footage still arrived.
+        from backend.moments.formation import form_moments
+
+        (moment,) = form_moments(
+            [_event(GameEventType.KILL, 100.0, duration=4.0)],
+            config.moments.formation,
+            media_id="m",
+            excluded_spans=[(112.0, 140.0)],
+        )
+
+        assert moment.context_end <= 112.0
+        assert moment.start_seconds == pytest.approx(100.0), "the core is untouched"
+
+    def test_a_clean_recording_forms_exactly_what_it_formed_before(
+        self, config
+    ) -> None:
+        from backend.moments.formation import form_moments
+
+        events = [_event(GameEventType.KILL, 100.0, duration=4.0)]
+        before = form_moments(events, config.moments.formation, media_id="m")
+        after = form_moments(
+            events, config.moments.formation, media_id="m", excluded_spans=[]
+        )
+
+        assert len(before) == len(after)
+        for one, two in zip(before, after, strict=True):
+            assert one.start_seconds == two.start_seconds
+            assert one.end_seconds == two.end_seconds
+            assert one.context_start == two.context_start
+            assert one.context_end == two.context_end
+

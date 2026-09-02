@@ -122,6 +122,64 @@ class EventRule(_Model):
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in self.patterns)
 
 
+class ContentRule(_Model):
+    """Text that identifies what the screen is showing when it is not the game.
+
+    The JSON form of :class:`backend.gaming.content.ContentRule`. Deliberately
+    separate from :class:`EventRule`: that one names things that *happen in
+    the game* and everything downstream treats its output as material worth
+    selecting. A menu is not material, and giving it the same vocabulary is
+    how seventeen seconds of them reached a finished video (V2-P0.1).
+
+    ``lead_seconds`` and ``hold_seconds`` are the point of this rule existing
+    at all. OCR samples roughly a frame every seven seconds, so a menu on
+    screen for twenty is read at one instant; a rule that produced a point
+    would be describing the sample rather than the screen.
+    """
+
+    state: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    patterns: tuple[str, ...] = ()
+    regions: tuple[str, ...] = ()
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    lead_seconds: float = Field(default=4.0, ge=0.0)
+    hold_seconds: float = Field(default=8.0, ge=0.0)
+    vision_may_raise: bool = True
+
+    @field_validator("patterns")
+    @classmethod
+    def _compilable(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        for pattern in value:
+            try:
+                re.compile(pattern, re.IGNORECASE)
+            except re.error as exc:
+                raise ValueError(f"Invalid pattern {pattern!r}: {exc}") from exc
+        return value
+
+    @field_validator("state")
+    @classmethod
+    def _known_state(cls, value: str) -> str:
+        from backend.gaming.content import ContentState
+
+        try:
+            ContentState(value)
+        except ValueError as exc:
+            allowed = ", ".join(sorted(item.value for item in ContentState))
+            raise ValueError(
+                f"Unknown content state {value!r}. Allowed: {allowed}."
+            ) from exc
+        return value
+
+    @model_validator(mode="after")
+    def _asks_for_something(self) -> ContentRule:
+        if not self.patterns:
+            raise ValueError(
+                f"Content rule {self.name!r} declares no patterns, so it would "
+                "match every frame in the recording."
+            )
+        return self
+
+
 class HudKind(str, Enum):
     """The shapes of HUD indicator this reader knows (§24)."""
 
@@ -258,6 +316,15 @@ class GameProfile(_Model):
     #: Rules that name an instant from evidence no single detector could name,
     #: consulted ahead of the generic table (Phase 0.2, 0.3).
     fusion_rules: tuple[ProfileFusionRule, ...] = ()
+
+    #: This game's own wording for menus, loading screens and failure
+    #: screens (V2-P0.1). Appended to the generic table rather than replacing
+    #: it, because most games say "LOADING" the same way.
+    content_rules: tuple[ContentRule, ...] = ()
+
+    #: Names of generic *content* rules this game contradicts, by the same
+    #: escape hatch and for the same reason as the fusion one below.
+    suppressed_content_rules: tuple[str, ...] = ()
 
     #: Names of generic fusion rules this game contradicts. The generic table
     #: is written for the common case, and Grounded is the measured
@@ -502,6 +569,7 @@ __all__ = [
     "GENERIC_PROFILE_ID",
     "PROFILE_FILENAME",
     "UNSPECIFIED_GAMES",
+    "ContentRule",
     "EventRule",
     "GameProfile",
     "HudChangeRule",

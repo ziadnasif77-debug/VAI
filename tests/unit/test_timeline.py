@@ -2010,3 +2010,80 @@ class TestEffectPlacementRules:
 
     def test_a_valid_effect_passes(self) -> None:
         assert self._placeable(self._instance())
+
+@pytest.mark.unit
+class TestNothingButGameplayReachesTheTimeline:
+    """V2-P0.2, written from the render that carried a menu at 1:47.
+
+    The moment's own core never touched that menu. Its clips reached 180
+    seconds past its window and picked one up, so the guard has to be here as
+    well as at formation -- this is the stage that decides what footage a clip
+    occupies.
+    """
+
+    def _clip(self, start: float, end: float):
+        from backend.timeline.builder import PlannedClip
+
+        return PlannedClip(
+            media_id=MEDIA,
+            source_start=start,
+            source_end=end,
+            moment_id="m1",
+            moment_type=None,
+            score=0.5,
+            role="body",
+            beat="body",
+            sources=(),
+        )
+
+    def test_a_clip_inside_a_menu_is_dropped(self) -> None:
+        from backend.timeline.builder import _without_excluded
+
+        kept, notes = _without_excluded([self._clip(100.0, 110.0)], [(95.0, 120.0)])
+
+        assert kept == []
+        assert notes and "not gameplay" in notes[0]
+
+    def test_a_clip_that_runs_into_a_menu_is_trimmed_not_dropped(self) -> None:
+        # A shot that ends early because a loading screen begins is still a
+        # shot. Dropping it would lose the play that came before.
+        from backend.timeline.builder import _without_excluded
+
+        (kept,), _ = _without_excluded([self._clip(100.0, 120.0)], [(110.0, 130.0)])
+
+        assert kept.source_start == pytest.approx(100.0)
+        assert kept.source_end == pytest.approx(110.0)
+
+    def test_a_menu_in_the_middle_keeps_the_longer_side_only(self) -> None:
+        # Never both halves: splitting one planned clip into two would put a
+        # cut nobody chose in the middle of a shot.
+        from backend.timeline.builder import _without_excluded
+
+        (kept,), _ = _without_excluded(
+            [self._clip(100.0, 130.0)], [(105.0, 110.0)]
+        )
+
+        assert kept.source_start == pytest.approx(110.0)
+        assert kept.source_end == pytest.approx(130.0)
+
+    def test_a_sliver_left_over_is_not_a_shot(self) -> None:
+        from backend.timeline.builder import MIN_SURVIVING_SECONDS, _without_excluded
+
+        kept, _ = _without_excluded(
+            [self._clip(100.0, 110.0)],
+            [(100.0 + MIN_SURVIVING_SECONDS / 2, 120.0)],
+        )
+
+        assert kept == []
+
+    def test_clean_footage_is_returned_unchanged(self) -> None:
+        # By identity: a project with nothing to exclude must build exactly the
+        # timeline it built before this existed.
+        from backend.timeline.builder import _without_excluded
+
+        clips = [self._clip(100.0, 110.0)]
+        kept, notes = _without_excluded(clips, [])
+
+        assert kept[0] is clips[0]
+        assert notes == []
+

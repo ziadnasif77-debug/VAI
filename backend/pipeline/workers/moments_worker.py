@@ -51,6 +51,47 @@ class MomentsWorker:
 
     stage = JobStage.MOMENTS
 
+    def _excluded_spans(self, context, media, vision, duration: float):
+        """Non-gameplay stretches, from every store that has an opinion.
+
+        Never fatal: a store that will not answer leaves the older, vision-only
+        guard standing rather than stopping the stage (§95).
+        """
+        from backend.analysis import frame_state as _fs
+        from backend.database.repositories.gaming import OcrRepository
+        from backend.gaming import content
+        from backend.gaming.profiles import GENERIC_PROFILE, load_profile
+
+        try:
+            row = context.database.fetch_one(
+                "SELECT game_profile FROM ocr_results WHERE media_id = ? "
+                "AND game_profile IS NOT NULL LIMIT 1",
+                (media.id,),
+            )
+            name = str(row["game_profile"]) if row is not None else ""
+            profile = (
+                load_profile(name, context.profiles_dir).profile
+                if name
+                else GENERIC_PROFILE
+            )
+            detections = OcrRepository(context.database).list_for_media(media.id)
+            states = content.read(
+                detections=detections,
+                frame_spans=_fs.non_gameplay(
+                    _fs.spans(vision, duration_seconds=duration)
+                ),
+                profile=profile,
+                duration_seconds=duration,
+            )
+        except Exception:
+            logger.exception("Content states unavailable; the vision guard stands")
+            return ()
+        return content.excluded_spans(
+            states,
+            observed_at=[d.timestamp for d in detections]
+            + [float(getattr(o, "timestamp", 0.0)) for o in vision],
+        )
+
     def _reader(self, context: WorkerContext, media, duration: float):
         """The session's lanes, or ``None``.
 
@@ -100,11 +141,18 @@ class MomentsWorker:
         # loading screens and cutscenes. Reading it here keeps them out of the
         # edit instead of letting QA report them after the render.
         screen_states = frame_state.spans(vision, duration_seconds=duration)
+        # V2-P0.2: the vision half above, and the text half beside it. The
+        # labels see menus with nothing written on them; the OCR sees the ones
+        # whose whole identity is written text -- MISSIONFAILED, EXIT TO MENU.
+        # Measured on one 88-minute session, the two refuse ten and sixteen
+        # clips of a shipped render and share only four, so neither alone was
+        # ever going to be enough.
         moments = form_moments(
             events,
             config.formation,
             media_id=media.id,
             non_gameplay=frame_state.non_gameplay(screen_states),
+            excluded_spans=self._excluded_spans(context, media, vision, duration),
         )
         if not moments:
             context.report(1.0, "No moments formed")

@@ -100,6 +100,7 @@ class EdlWorker:
             media_durations=durations,
             transitions=context.config.narrative.transitions,
             notes=story.get("notes", ()),
+            excluded_spans=self._excluded(context, durations),
             metadata={
                 "mode": story.get("mode"),
                 "within_target": story.get("within_target"),
@@ -202,6 +203,81 @@ class EdlWorker:
                 details={"project_id": context.project_id},
             )
         return dict(job.result)
+
+    def _excluded(
+        self, context: WorkerContext, durations: dict[str, float]
+    ) -> list[tuple[float, float]]:
+        """Source stretches that are not gameplay, across every recording used.
+
+        Read here rather than carried from the moments stage because this is
+        the stage that decides what footage a clip occupies, and the defect
+        being closed was exactly a clip occupying footage no moment claimed.
+        Nothing is re-analysed: OCR, vision and the game profile are all
+        already stored, and reading them costs a query.
+
+        Never fatal. A recording whose evidence will not load is measured
+        without the exclusion rather than skipped -- the same §95 rule the
+        Director and the Critic follow -- and the count is logged so a silent
+        pass-through is visible in the record.
+        """
+        from backend.analysis import frame_state
+        from backend.database.repositories.gaming import OcrRepository
+        from backend.database.repositories.vision import VisionRepository
+        from backend.gaming import content
+
+        spans: list[tuple[float, float]] = []
+        for media_id, length in durations.items():
+            try:
+                observations = VisionRepository(context.database).list_for_media(media_id)
+                detections = OcrRepository(context.database).list_for_media(media_id)
+                states = content.read(
+                    detections=detections,
+                    frame_spans=frame_state.non_gameplay(
+                        frame_state.spans(observations, duration_seconds=float(length))
+                    ),
+                    profile=self._profile(context, media_id),
+                    duration_seconds=float(length),
+                )
+            except Exception:
+                logger.exception(
+                    "Content states unavailable; the edit is built without them",
+                    extra={"media_id": media_id},
+                )
+                continue
+            found = content.excluded_spans(
+                states,
+                observed_at=[d.timestamp for d in detections]
+                + [float(getattr(o, "timestamp", 0.0)) for o in observations],
+            )
+            spans.extend(found)
+            if found:
+                logger.info(
+                    "Refusing footage that is not gameplay",
+                    extra={
+                        "media_id": media_id,
+                        "spans": len(found),
+                        "seconds": round(sum(b - a for a, b in found), 2),
+                    },
+                )
+        return spans
+
+    def _profile(self, context: WorkerContext, media_id: str) -> Any:
+        """The game's profile, or the generic one. Never raises."""
+        from backend.gaming.profiles import GENERIC_PROFILE, load_profile
+
+        try:
+            row = context.database.fetch_one(
+                "SELECT game_profile FROM ocr_results WHERE media_id = ? "
+                "AND game_profile IS NOT NULL LIMIT 1",
+                (media_id,),
+            )
+            name = str(row["game_profile"]) if row is not None else ""
+            if not name:
+                return GENERIC_PROFILE
+            return load_profile(name, context.profiles_dir).profile
+        except Exception:
+            logger.exception("Profile unavailable; the generic table stands")
+            return GENERIC_PROFILE
 
     def _durations(self, context: WorkerContext) -> dict[str, float]:
         """Source lengths, so a clip cannot be laid out past the end of a file."""
