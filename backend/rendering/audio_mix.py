@@ -35,6 +35,7 @@ from typing import Any, Final
 
 import numpy as np
 
+from backend.audio_director.plan import LOUD_ENOUGH
 from backend.config.schema import AudioConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import EffectType
@@ -235,14 +236,47 @@ def game_under_speech_spans(
 
 
 def event_spans(
-    events: Iterable[tuple[float, float]], config: AudioConfig
+    events: Iterable[Sequence[float]], config: AudioConfig
 ) -> list[DuckSpan]:
-    """Spans covering important game audio, at §74's shallower depth."""
-    return [
-        DuckSpan(start=start, end=end, depth_db=config.ducking.game_event_duck_db)
-        for start, end in events
-        if end > start
-    ]
+    """Spans covering important game audio, at §74's shallower depth.
+
+    The depth is set by how loud the event actually got (V2-P2.6). Each item
+    is ``(start, end)`` or ``(start, end, peak)``, where ``peak`` is the audio
+    lane's highest value inside the span, on the same 0-1 scale as the
+    threshold that defined it.
+
+    Interpolated between ``game_event_duck_floor_db`` at the threshold and
+    ``game_event_duck_db`` at full scale, so the configured depth keeps its
+    meaning -- it is what an event at 1.0 gets, and nothing ducks further.
+    Without a peak the configured depth applies unchanged, which is what every
+    caller got before the lane's measurement was kept.
+    """
+    ducking = config.ducking
+    deep = float(ducking.game_event_duck_db)
+    shallow = float(ducking.game_event_duck_floor_db)
+    spans: list[DuckSpan] = []
+    for event in events:
+        start, end = float(event[0]), float(event[1])
+        if end <= start:
+            continue
+        peak = float(event[2]) if len(event) > 2 else None
+        spans.append(DuckSpan(start=start, end=end, depth_db=_duck_depth(peak, shallow, deep)))
+    return spans
+
+
+def _duck_depth(peak: float | None, shallow: float, deep: float) -> float:
+    """How far the bed steps aside for an event that peaked at ``peak``.
+
+    Clamped at both ends rather than extrapolated: a lane value above 1.0 is
+    not a louder-than-possible explosion, it is a lane that needs looking at,
+    and inventing a duck deeper than the configured one on the strength of it
+    would be the wrong response.
+    """
+    if peak is None:
+        return deep
+    fraction = (peak - LOUD_ENOUGH) / (1.0 - LOUD_ENOUGH)
+    fraction = min(1.0, max(0.0, fraction))
+    return round(shallow + fraction * (deep - shallow), 3)
 
 
 def merge_spans(spans: Sequence[DuckSpan], *, gap: float = 0.25) -> list[DuckSpan]:

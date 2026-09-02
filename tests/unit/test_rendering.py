@@ -186,6 +186,85 @@ class TestDuckingEnvelope:
 
         assert envelope.min() == pytest.approx(deepest, rel=1e-3)
 
+    def test_a_full_scale_event_ducks_by_exactly_the_configured_depth(
+        self, config
+    ) -> None:
+        # `game_event_duck_db` keeps its meaning: it is what an event at the
+        # top of the lane gets, and nothing gets more.
+        (span,) = audio_mix.event_spans([(1.0, 3.0, 1.0)], config.audio)
+        assert span.depth_db == pytest.approx(config.audio.ducking.game_event_duck_db)
+
+    def test_an_event_that_only_just_qualifies_ducks_by_the_floor(
+        self, config
+    ) -> None:
+        (span,) = audio_mix.event_spans(
+            [(1.0, 3.0, audio_mix.LOUD_ENOUGH)], config.audio
+        )
+        assert span.depth_db == pytest.approx(
+            config.audio.ducking.game_event_duck_floor_db
+        )
+
+    def test_a_footstep_and_an_explosion_are_no_longer_identical(
+        self, config
+    ) -> None:
+        # The whole point. Measured across 1,900 spans on this machine, 304
+        # sat under 0.80 and 110 were at full scale, and every one of them
+        # ducked the bed by an identical 8 dB.
+        quiet, loud = audio_mix.event_spans(
+            [(1.0, 3.0, 0.76), (5.0, 7.0, 0.99)], config.audio
+        )
+        assert quiet.depth_db > loud.depth_db + 3.0
+
+    def test_the_depth_rises_with_the_peak(self, config) -> None:
+        peaks = [0.75, 0.80, 0.90, 1.0]
+        depths = [
+            span.depth_db
+            for span in audio_mix.event_spans(
+                [(float(i), float(i) + 0.5, peak) for i, peak in enumerate(peaks)],
+                config.audio,
+            )
+        ]
+        assert depths == sorted(depths, reverse=True)
+        assert len(set(depths)) == len(peaks)
+
+    def test_nothing_ducks_deeper_than_the_configured_depth(self, config) -> None:
+        # A lane value above 1.0 is a lane worth looking at, not a
+        # louder-than-possible explosion, and inventing a deeper duck on the
+        # strength of it would be the wrong response.
+        (span,) = audio_mix.event_spans([(1.0, 3.0, 1.4)], config.audio)
+        assert span.depth_db == pytest.approx(config.audio.ducking.game_event_duck_db)
+
+    def test_a_span_with_no_peak_keeps_the_configured_depth(self, config) -> None:
+        # What every caller got before the lane's measurement was kept.
+        (span,) = audio_mix.event_spans([(1.0, 3.0)], config.audio)
+        assert span.depth_db == pytest.approx(config.audio.ducking.game_event_duck_db)
+
+    def test_merging_a_quiet_event_into_a_loud_one_keeps_the_loud_depth(
+        self, config
+    ) -> None:
+        # The bed cannot climb back between two events a fifth of a second
+        # apart, so the deeper of the two governs the whole stretch.
+        merged = audio_mix.merge_spans(
+            audio_mix.event_spans([(1.0, 3.0, 0.76), (3.1, 5.0, 1.0)], config.audio)
+        )
+        assert len(merged) == 1
+        assert merged[0].depth_db == pytest.approx(
+            config.audio.ducking.game_event_duck_db
+        )
+
+    def test_the_envelope_is_shallower_for_a_quiet_event(self, config) -> None:
+        # Ending at the gain curve the renderer multiplies in, not at the
+        # DuckSpan: this is the number that reaches the video.
+        def floor_for(peak: float) -> float:
+            spans = audio_mix.event_spans([(2.0, 5.0, peak)], config.audio)
+            return float(
+                audio_mix.build_envelope(
+                    spans, duration_seconds=8.0, config=config.audio
+                ).min()
+            )
+
+        assert floor_for(0.76) > floor_for(1.0)
+
     def test_a_span_past_the_end_is_ignored(self, config) -> None:
         spans = audio_mix.speech_spans([(50.0, 60.0)], config.audio)
         envelope = audio_mix.build_envelope(

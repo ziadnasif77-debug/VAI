@@ -1497,7 +1497,18 @@ class DuckingConfig(_Section):
 
     enabled: bool = True
     speech_duck_db: float = -14.0
+    #: How far the music steps aside for a game event **at full scale**. Until
+    #: V2-P2.6 this was the depth for every loud span regardless of how loud it
+    #: actually got, which made a footstep and an explosion identical to the
+    #: bed. It is now the deep end of a range, so nothing ducks further than
+    #: this and the configured value keeps its meaning.
     game_event_duck_db: float = -8.0
+    #: And the shallow end: how far it steps aside for an event that only just
+    #: crosses the loudness threshold. Not zero -- a span that qualified as
+    #: competing with the music and then changed nothing would be a span for no
+    #: reason -- and shallower than every other duck here, because "the bed
+    #: leans back" is the whole of what a quiet event asks for.
+    game_event_duck_floor_db: float = -3.0
     #: How far the *gameplay* track drops under speech. §72 orders the mix
     #: Speech > Important Game Audio > Music, and without this the order holds
     #: only until the game gets loud -- which is exactly when someone shouts.

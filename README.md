@@ -111,6 +111,15 @@ budget and a no-repeat rule.
 own loud moments, speech read from the transcript rather than from opt-in
 captions, and silence used as a tool that QA is told about in advance.
 
+And the ducking hears *how* loud. The audio lane's value is what defines a loud
+span, and it used to be compared against the threshold and then discarded — so
+across 1,900 spans on this machine there was exactly **one** duck depth, and a
+footstep a hair over the line took the bed down as far as a full explosion. The
+peak now travels with the span and the depth is interpolated: the configured
+`-8.0 dB` is what an event at full scale gets, and nothing gets more. On one
+4,035-second recording that changes the music level under **24.6 % of the
+video**, with the deepest point unchanged.
+
 **It argues with itself before rendering.** Three candidate edits are built from
 the same moments under different profiles and scored by a deterministic judge on
 eight axes. The winner is rendered; all three are kept in the job result, with

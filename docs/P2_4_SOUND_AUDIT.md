@@ -129,6 +129,16 @@ contract covers selection, boundaries and judge axes, none of which touch
 audio. So it needs its own before/after, on rendered output rather than on the
 plan, and that is not this pass.
 
+> **Fixed in V2-P2.6.** The peak now travels with the span and the depth is
+> interpolated between a new `game_event_duck_floor_db: -3.0` and the
+> configured `-8.0`, which becomes the depth at full scale rather than the
+> depth for everything. Re-measured across every recording rather than four:
+> **1,900 spans, 1 distinct depth before and 845 after.** On rendered output,
+> 24.6 % of one 4,035-second video carries a different music level and the bed
+> sits 2.40 dB louder at the median changed sample — with the deepest point
+> unchanged at −8.00 dB, because a real explosion still gets what the setting
+> was written for. See [`P2_6_DUCK_DEPTH.md`](P2_6_DUCK_DEPTH.md).
+
 ## Verdict
 
 **SOUND HIERARCHY: COMPLETE**, with one non-blocking gap recorded above.
@@ -138,10 +148,12 @@ consumed and not overridden, clipping is guarded, and four of five styles
 produce audibly different soundtracks from the same footage. Nothing here needs
 a new abstraction: the wiring exists and works.
 
-Two items are recorded rather than fixed, both deliberately:
+One item was recorded rather than fixed here, and has since been fixed; one
+remains:
 
-1. **Duck depth is flat regardless of how loud the event is** (§6). A real
-   editorial difference, and a change to every rendered video's sound.
+1. ~~**Duck depth is flat regardless of how loud the event is**~~ (§6).
+   **Done in V2-P2.6**, with the before/after on rendered output that this
+   section asked for.
 2. **`minimal` declares no audio doctrine**, so it sounds exactly like the
    house style. That is a one-line addition to `config/style.yaml` whenever
    somebody decides what a minimal edit should sound like.

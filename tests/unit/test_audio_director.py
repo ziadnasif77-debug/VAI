@@ -152,9 +152,36 @@ class TestDuckingUnderTheGame:
         )
 
         assert plan.event_spans, "the game's own loud moments duck the bed"
-        start, end = plan.event_spans[0]
-        assert start == pytest.approx(20.0)
-        assert end == pytest.approx(30.0)
+        span = plan.event_spans[0]
+        assert span.start == pytest.approx(20.0)
+        assert span.end == pytest.approx(30.0)
+        # And how loud it got travels with it (V2-P2.6). The comparison that
+        # defines the span already measured this; it used to be discarded.
+        assert span.peak == pytest.approx(0.9)
+
+    def test_the_peak_is_the_loudest_instant_not_the_first(self, config) -> None:
+        # A span that starts at 0.78 and builds to 0.99 is an explosion, and
+        # reading its opening value would price it as a footstep.
+        loud = [0.1] * 40 + [0.78] * 6 + [0.99] * 6 + [0.80] * 8 + [0.1] * 540
+        session = _Session([(0.0, 300.0, "normal")], audio=loud)
+
+        plan = plan_audio(
+            reader=session, duration_seconds=300.0, spoken=(), beats=(), config=config
+        )
+
+        assert plan.event_spans[0].peak == pytest.approx(0.99)
+
+    def test_two_loud_stretches_keep_their_own_peaks(self, config) -> None:
+        quiet_then_loud = (
+            [0.1] * 20 + [0.78] * 20 + [0.1] * 20 + [1.0] * 20 + [0.1] * 520
+        )
+        session = _Session([(0.0, 300.0, "normal")], audio=quiet_then_loud)
+
+        plan = plan_audio(
+            reader=session, duration_seconds=300.0, spoken=(), beats=(), config=config
+        )
+
+        assert [round(span.peak, 2) for span in plan.event_spans] == [0.78, 1.0]
 
     def test_a_brief_spike_is_not_a_span(self, config) -> None:
         session = _Session([(0.0, 300.0, "normal")], audio=[0.1] * 40 + [0.9] + [0.1] * 559)

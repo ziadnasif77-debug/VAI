@@ -490,18 +490,18 @@ class RenderWorker:
             )
 
         if config.ducking.enabled and plan.event_spans:
-            # Under the game's own loud moments, at last. `event_spans` has
-            # existed since Phase 12 and `game_event_duck_db` has been
-            # configured beside it; the only caller was a unit test.
+            # Under the game's own loud moments. `event_spans` has existed
+            # since Phase 12 and `game_event_duck_db` has been configured
+            # beside it; the only caller was a unit test.
+            #
+            # Built by `audio_mix.event_spans` rather than here, so the depth
+            # is decided in one place and scales with how loud the event
+            # actually got (V2-P2.6). This used to hand every span the same
+            # depth: of 1,900 spans on this machine, 304 barely cross the
+            # threshold and 110 are at full scale, and all of them ducked the
+            # bed by an identical 8 dB.
             loud = audio_mix.merge_spans(
-                [
-                    audio_mix.DuckSpan(
-                        start=start,
-                        end=end,
-                        depth_db=config.ducking.game_event_duck_db,
-                    )
-                    for start, end in plan.event_spans
-                ]
+                audio_mix.event_spans(plan.event_spans, config)
             )
             music_envelope = audio_mix.write_envelope(
                 audio_mix.build_envelope(
