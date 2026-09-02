@@ -52,8 +52,21 @@ own spans, then the tension lane, then vision and motion, then audio.
 |---|---:|---:|
 | onset | 208 | 48 % |
 | action | 208 | 48 % |
-| resolution | 36 | 8 % |
-| aftermath | 11 | 3 % |
+| resolution | **48** | **11 %** |
+| aftermath | **17** | **4 %** |
+
+> **Corrected 2026-09-02.** This table first read `resolution 36 (8 %)` and
+> `aftermath 11 (3 %)`. Those counts were taken **before the resolution
+> priority fix described two sections below** — the one where `evidence.resolves`
+> was consulted ahead of the located resolution, so a tension fall of 0.016
+> preempted a victory sitting at 0.89 confidence. That fix is what took
+> `PAYOFF` from 3 to 9, and it necessarily raised these two rows as well; the
+> table was simply not re-run after it.
+>
+> Re-measured through `editorial_reading.read` — the story stage's own call —
+> while fixing the Replay metric. The corrected numbers are **higher**, so they
+> argue *against* the conclusion the Replay measurement reached, which is the
+> reason to trust them rather than a reason to doubt them.
 
 The other 227 are moments of a single event that fills them. There is nothing
 inside to locate and the span says so in `unknown` rather than producing four
@@ -141,12 +154,23 @@ on the signature with the reasoning recorded next to it.
 | | before | after |
 |---|---:|---:|
 | **PAYOFF** | 3 | **9** |
-| **Replay candidates** | 0 | **5** |
+| **Replay candidates** | 0 | **5** (see note) |
 | editorial span, where a resolution exists | 64.4 s | 56.8 s (83 %) |
 | cut-point quality | 0.1147 | 0.1139 |
 | pacing | 0.8205 | 0.8203 |
 | judge total | 0.7025 | 0.7022 |
-| reaction linkage (aftermath found) | — | 11 |
+| reaction linkage (aftermath found) | — | **17** |
+
+> **Note on the two rows marked above, 2026-09-02.** The aftermath count is
+> corrected here for the same reason as the table in Part 2: it was taken
+> before the resolution priority fix.
+>
+> The "5 replay candidates" row carried **no stated definition** and was an
+> ad-hoc count that no code reproduces — `scripts/baseline.py` has never
+> measured replay. It is left in place as the historical record it is, and it
+> is **superseded**: Replay was measured in full against a definition fixed in
+> advance and **closed at 0 candidates**. See
+> [`P2_1_REPLAY_ANALYSIS.md`](P2_1_REPLAY_ANALYSIS.md#closed--2026-09-02).
 
 **House edit: zero videos changed** across all 17 projects. One project,
 `proj-ca4d0eac9d6`, has a changed **axis record** — `pacing 0.886 → 0.827` —
@@ -255,6 +279,17 @@ the test so the next reader does not repeat the argument.
 Five candidates, up from zero. That is a real rise and it is not enough to
 justify loosening `_exclusive`, which was the condition set before the work
 started.
+
+> **Settled, 2026-09-02: Replay is CLOSED.** The instinct in this section was
+> right and the number under it was not measurable. Replay was later measured
+> against a definition fixed before the result was seen — action and resolution
+> both located at 0.80 confidence inside a core span of 12 seconds — and
+> returned **0 candidates across 435 moments and 10.21 hours of source**. Even
+> ignoring every quality condition, only 48 moments carry an action and a
+> resolution together, which is 0.78 per ten minutes against a threshold of
+> 1.0: **unreachable on this data before a single filter is applied.**
+> `_exclusive` is untouched. See
+> [`P2_1_REPLAY_ANALYSIS.md`](P2_1_REPLAY_ANALYSIS.md#closed--2026-09-02).
 
 And the ceiling is now visible: **21 of 48 located resolutions have a seam near
 them that speech forbids**, because the transcript segments run to 392 seconds.

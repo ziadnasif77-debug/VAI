@@ -157,14 +157,16 @@ later, and the audit currently blocked on missing footage is the one that
 would tell us whether event boundaries improve.
 
 **(b) Fix what makes candidates scarce first.** ~~Resolving events have a
-median span of 39.5 s.~~ **Superseded by the correction above:** resolving
-events are a median of 12.5 s and were never the coarse unit. What this option
-was reaching for is the moment-to-event gap, and V2-P2.2 has since built it —
-`EditorialEventSpan` locates a resolution inside a moment in 36 of 435 cases,
-which is what took replay candidates from 0 to 5. Narrowing them — the same class of problem as the coarse
+median span of 39.5 s. Narrowing them — the same class of problem as the coarse
 transcript segments — would create candidates for replay *and* improve
-`PAYOFF`, the pacing axis's `differs`, and the situations reader. It is not
-Replay, and it is closer to the blocked P1.8 than to P2.
+`PAYOFF`, the pacing axis's `differs`, and the situations reader.~~
+
+**Superseded.** Resolving events are a median of 12.5 s and were never the
+coarse unit; the moment wrapped around them was. What this option was reaching
+for is exactly the moment-to-event gap, and V2-P2.2 has since built it —
+`EditorialEventSpan` locates a resolution inside a moment in 48 of 435 cases.
+This option is therefore **done**, and the closure below measures what it
+produced.
 
 **(c) Take P2 out of order** and build `Humor` and `Competitive` doctrine
 first. Both are style doctrine through the seam that already exists, both
@@ -175,3 +177,107 @@ Replay depends on event spans.
 agreed order, on the strength of the 2-of-254 measurement. But the order was
 agreed and this is a change to it, so it is the owner's call and no code is
 written until it is made.
+
+---
+
+# CLOSED — 2026-09-02
+
+**Replay is not built, and `_exclusive` is not touched.** The decision was made
+against a metric fixed *before* the number was seen, which is the only way a
+threshold means anything.
+
+## The definition that was measured
+
+A clip is a Replay Candidate only if **all** of these hold:
+
+| | |
+|---|---|
+| `EditorialEventSpan.action` | established — not `None`, not in `unknown` |
+| `action.confidence` | **≥ 0.80** |
+| `EditorialEventSpan.resolution` | established |
+| `resolution.confidence` | **≥ 0.80** |
+| the clip's core span | **≤ 12.0 s** (`span.raw_duration`, which is what "core span" meant earlier in this document) |
+| `reaction` | **not evidence.** A supplementary signal at most; it entered no condition |
+| `ShotPurpose.PAYOFF` | **not a criterion.** Not on its own, and not in combination |
+
+No replay-specific exception was used and no shared boundary was relaxed. The
+measurement walked `editorial_reading.read(...)` — the story stage's own call,
+not an approximation of it.
+
+## The result
+
+| | |
+|---|---:|
+| moments examined | **435** |
+| **candidates under the official definition** | **0** |
+| source footage | **10.21 h** (612.9 min; no recording is shared between projects) |
+| **candidates per 10 minutes** | **0.0000** |
+| **coverage** | **0 of 17 projects — 0 %** |
+| per project, median / mean | 0 / 0.000 |
+
+The rejection funnel, which matters more than the total because it shows that
+nothing failed narrowly:
+
+| first failing criterion | moments |
+|---|---:|
+| no `action` boundary at all | 227 |
+| has an action, no `resolution` | 160 |
+| action confidence below 0.80 | 12 |
+| resolution confidence below 0.80 | 14 |
+| **passes both confidence gates, core span over 12 s** | **22** |
+| **accepted** | **0** |
+
+Those 22 are the whole population of near-misses, and they are not near: the
+**shortest is 23.5 seconds** against a 12-second rule, and their median is
+81.4 s.
+
+## Both thresholds failed
+
+| threshold, fixed in advance | required | measured | |
+|---|---|---|---|
+| rate | ≥ 1.0 per 10 min | 0.0000 | **FAIL** |
+| coverage | ≥ 60 % of projects | 0 % | **FAIL** |
+
+## Sensitivity — the verdict does not depend on a judgement call
+
+"Core span" could have been read as the action→resolution stretch rather than
+the moment's own duration. It was measured both ways:
+
+| reading | candidates | rate | coverage | |
+|---|---:|---:|---:|---|
+| moment duration (official) | **0** | 0.0000 | 0 % | FAIL / FAIL |
+| action → resolution (alternative) | **8** | 0.1305 | 23.5 % | FAIL / FAIL |
+
+**Upper bound.** Ignoring the core-span rule *and* both confidence floors
+entirely, only **48 moments in the whole database carry an action and a
+resolution together**. That is **0.7832 per 10 minutes** — below the 1.0
+threshold before a single quality condition is applied. Reaching 1.0 would
+need 61.3 candidates against a total stock of 48.
+
+**So the threshold is structurally unreachable on this data.** No adjustment to
+the definition reverses the result, which is why this is a closure rather than
+a deferral.
+
+## `ANGLE` remains unbuildable
+
+Unchanged from §1 and worth restating in the closure: `ANGLE` needs a second
+camera on the same instant, and this system records one. It would be an enum
+member with no implementation — the orphaned-key pattern two phases were spent
+removing.
+
+## When this may be reopened
+
+Only on a change in the **evidence**, never on a change of mind about the
+threshold:
+
+- the **source material changes** — a different game, capture setup, or
+  recording style whose events are sharper than the ones measured here;
+- **multi-angle footage** exists, which would make `ANGLE` implementable and
+  change what a replay is for;
+- **richer evidence** narrows the moment further, so that the action and
+  resolution inside it are located often enough and tightly enough to clear
+  0.80 confidence inside a short span.
+
+Until one of those is true, the machinery would be correct and idle, and the
+cost of getting there is a loosening of `_exclusive` — a defect boundary
+written after a real viewer watched 25 seconds twice.
