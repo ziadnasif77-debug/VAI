@@ -548,6 +548,17 @@ several projects on this machine use, and one 6 GB vision model loaded once
 serves all of them — where its files live is the machine's decision, not a
 consumer's. Setting it here once cost 36 GB in duplicate downloads.
 
+One more thing about that variable, learned the hard way: the Ollama desktop
+app keeps its *own* model-location setting, and when the app starts the server
+— at login, or after it updates itself — that setting wins over
+`OLLAMA_MODELS`. On this machine it pointed at the empty duplicate, and every
+model call for a night answered 404 while the stages reported "the model
+returned nothing usable after 3 attempts". A 404 from Ollama is now
+`MODEL_NOT_FOUND`, names the model and the endpoint, and is asked once; the
+Critic checks the model is there before it asks it anything, as the OCR and
+vision stages already did; and `python scripts/doctor.py` says which models the
+running Ollama is missing. Where the store lives stays the machine's decision.
+
 Then open **http://127.0.0.1:8765**.
 
 On Windows, double-clicking **`VAI.bat`** does all of the above, opens the

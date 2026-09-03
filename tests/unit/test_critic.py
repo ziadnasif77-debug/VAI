@@ -376,3 +376,23 @@ class TestTheRevision:
 
         assert revision.changed is False
         assert revision.timeline is timeline
+
+
+class TestAnAbsentModel:
+    """The Critic asks whether its model is there before it asks it anything.
+
+    On 2026-09-03 the server was up with an empty store; the Critic asked
+    three times and reported "did not answer". Asking first names the
+    absence, the way the OCR and vision stages already do (§95).
+    """
+
+    def test_an_unavailable_provider_is_a_named_rejection(self) -> None:
+        from ai.llm.fake_provider import FakeLLMProvider
+        from backend.critic.service import CritiqueRejection, review
+
+        evidence = _evidence()
+        provider = FakeLLMProvider(responses={}, available=False)
+        outcome = review(evidence, provider=provider)
+        assert isinstance(outcome, CritiqueRejection)
+        assert outcome.reason == "the reasoning model is not available"
+        assert provider.calls == []

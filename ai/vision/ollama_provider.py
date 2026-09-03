@@ -244,6 +244,8 @@ class OllamaVisionProvider:
                 self._loaded = True
                 return _to_observations(response.get("response", ""), timestamps)
             except (ValidationError, ModelError) as exc:
+                if getattr(exc, "code", None) is ErrorCode.MODEL_NOT_FOUND:
+                    raise
                 last_error = exc
                 if attempt < MAX_ATTEMPTS:
                     logger.warning(
@@ -287,6 +289,17 @@ class OllamaVisionProvider:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                # The server is up and the model is absent (see the LLM
+                # provider for the day this cost every stage three tries).
+                raise ModelError(
+                    f"Ollama at {self._config.endpoint} has no model "
+                    f"{self._config.model!r} (HTTP 404). `ollama list` shows what "
+                    "its store holds.",
+                    code=ErrorCode.MODEL_NOT_FOUND,
+                    details={"endpoint": self._config.endpoint, "model": self._config.model},
+                    cause=exc,
+                ) from exc
             raise ModelError(
                 f"Ollama rejected the request: HTTP {exc.code}.",
                 code=ErrorCode.VISION_FAILED,

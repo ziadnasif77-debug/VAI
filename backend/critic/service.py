@@ -99,6 +99,16 @@ def review(
     """
     if provider is None:
         return CritiqueRejection(reason="no reasoning model is configured")
+    if not provider.is_available():
+        # The OCR and vision stages ask this before they start (§95); the
+        # Critic asked the model directly and reported "did not answer" after
+        # three tries when the server was up and its store was empty
+        # (2026-09-03). Asking first names the absence instead of describing
+        # the silence.
+        return CritiqueRejection(
+            reason="the reasoning model is not available",
+            detail={"model": getattr(provider.info(), "name", "")},
+        )
     if evidence.is_empty:
         return CritiqueRejection(reason="there is no edit to review")
 

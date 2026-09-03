@@ -431,3 +431,61 @@ class TestEveryPromptsGrammar:
 
         in_code = getattr(importlib.import_module(module), name)
         assert load_prompt(prompt_id).output_schema == in_code
+
+
+class TestAMissingModel:
+    """A 404 from Ollama means the store has no such model (2026-09-03).
+
+    The server was up, the desktop app had restarted it after an update with
+    its own model-location setting pointing at an empty store, and every
+    stage spent three attempts to report "returned nothing usable". The
+    answer the caller needs is the model's name and the endpoint, at once.
+    """
+
+    def test_a_404_names_the_model_and_the_endpoint(self, config, monkeypatch) -> None:
+        import io
+        import urllib.error
+        import urllib.request
+
+        def missing(request, timeout):
+            raise urllib.error.HTTPError(
+                request.full_url, 404, "Not Found", {}, io.BytesIO(b"{}")
+            )
+
+        monkeypatch.setattr(urllib.request, "urlopen", missing)
+        provider = OllamaLLMProvider(config.models.llm, gpu=config.gpu)
+
+        with pytest.raises(ModelError) as error:
+            provider._post("/api/generate", {}, timeout=1)
+
+        assert error.value.code is ErrorCode.MODEL_NOT_FOUND
+        assert config.models.llm.model in str(error.value)
+        assert config.models.llm.endpoint in str(error.value)
+
+    def test_a_missing_model_is_not_asked_again(self, config) -> None:
+        provider = OllamaLLMProvider(config.models.llm, gpu=config.gpu)
+        seen: list[str] = []
+
+        def fake_post(path, body, *, timeout):
+            seen.append(path)
+            raise ModelError("no such model", code=ErrorCode.MODEL_NOT_FOUND)
+
+        provider._post = fake_post  # type: ignore[assignment]
+        with pytest.raises(ModelError) as error:
+            provider.complete_json("hello", schema=SCHEMA, prompt_id="test")
+
+        assert error.value.code is ErrorCode.MODEL_NOT_FOUND
+        assert len(seen) == 1
+
+    def test_other_rejections_still_get_their_retries(self, config) -> None:
+        provider = OllamaLLMProvider(config.models.llm, gpu=config.gpu)
+        seen: list[str] = []
+
+        def fake_post(path, body, *, timeout):
+            seen.append(path)
+            raise ModelError("HTTP 500", code=ErrorCode.LLM_REQUEST_FAILED)
+
+        provider._post = fake_post  # type: ignore[assignment]
+        with pytest.raises(ModelError):
+            provider.complete_json("hello", schema=SCHEMA, prompt_id="test")
+        assert len(seen) == MAX_ATTEMPTS

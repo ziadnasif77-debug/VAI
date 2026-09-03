@@ -189,6 +189,10 @@ class OllamaLLMProvider:
                     fields["attempts"] = attempt
                     return parsed
                 except (ValidationError, ModelError) as error:
+                    if getattr(error, "code", None) is ErrorCode.MODEL_NOT_FOUND:
+                        # Asking twice more for a model that is not there
+                        # only delays the answer the caller needs.
+                        raise
                     last_error = error
                     if attempt < MAX_ATTEMPTS:
                         logger.warning(
@@ -232,6 +236,23 @@ class OllamaLLMProvider:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
+            if error.code == 404:
+                # Ollama answers 404 for a model its store does not hold.
+                # That is not a request to retry and not a schema failure:
+                # the server is up, the model is absent -- on this machine
+                # because the desktop app's own model-location setting
+                # overrode OLLAMA_MODELS after an update and served an
+                # empty store, and every stage spent three attempts saying
+                # "returned nothing usable" (2026-09-03).
+                raise ModelError(
+                    f"Ollama at {self._config.endpoint} has no model "
+                    f"{self._config.model!r} (HTTP 404). `ollama list` shows what "
+                    "its store holds; the store is the desktop app's model-location "
+                    "setting when the app started the server, OLLAMA_MODELS otherwise.",
+                    code=ErrorCode.MODEL_NOT_FOUND,
+                    details={"endpoint": self._config.endpoint, "model": self._config.model},
+                    cause=error,
+                ) from error
             raise ModelError(
                 f"Ollama rejected the request: HTTP {error.code}.",
                 code=ErrorCode.LLM_REQUEST_FAILED,

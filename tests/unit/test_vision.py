@@ -258,3 +258,47 @@ class TestSceneModel:
         with pytest.raises(AnalysisError) as exc_info:
             detect_scenes(tmp_path / "absent.mp4", config.analysis.scenes)
         assert exc_info.value.code is ErrorCode.SCENE_DETECTION_FAILED
+
+
+class TestAMissingVisionModel:
+    """The vision provider follows the LLM provider: a 404 is the model's
+    absence, named at once and never retried (2026-09-03)."""
+
+    def test_a_404_is_model_not_found(self, config, monkeypatch) -> None:
+        import io
+        import urllib.error
+        import urllib.request
+
+        from ai.vision.ollama_provider import OllamaVisionProvider
+        from backend.core.errors import ErrorCode, ModelError
+
+        def missing(request, timeout):
+            raise urllib.error.HTTPError(
+                request.full_url, 404, "Not Found", {}, io.BytesIO(b"{}")
+            )
+
+        monkeypatch.setattr(urllib.request, "urlopen", missing)
+        provider = OllamaVisionProvider(config.models.vision, gpu=config.gpu)
+        with pytest.raises(ModelError) as error:
+            provider._post("/api/generate", {}, timeout=1)
+        assert error.value.code is ErrorCode.MODEL_NOT_FOUND
+        assert config.models.vision.model in str(error.value)
+
+    def test_a_missing_model_is_not_asked_again(self, config, tmp_path) -> None:
+        from ai.vision.ollama_provider import OllamaVisionProvider
+        from backend.core.errors import ErrorCode, ModelError
+
+        provider = OllamaVisionProvider(config.models.vision, gpu=config.gpu)
+        seen: list[str] = []
+
+        def fake_post(path, body, *, timeout):
+            seen.append(path)
+            raise ModelError("no such model", code=ErrorCode.MODEL_NOT_FOUND)
+
+        provider._post = fake_post  # type: ignore[assignment]
+        frame = tmp_path / "frame.jpg"
+        frame.write_bytes(bytes([0xFF, 0xD8, 0xFF, 0xD9]))
+        with pytest.raises(ModelError) as error:
+            provider.describe((frame,), (1.0,))
+        assert error.value.code is ErrorCode.MODEL_NOT_FOUND
+        assert len(seen) == 1
