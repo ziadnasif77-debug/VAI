@@ -129,6 +129,15 @@ class PublishRequest(_Base):
             "channel or playlist identifier for a future upload target."
         ),
     )
+    short: str | None = Field(
+        default=None,
+        description=(
+            "The filename of a Short this project produced, when the thing "
+            "going out is a Short rather than the render. Shorts live beside "
+            "the renders as files the SHORTS stage named; the worker accepts "
+            "only a name that stage reported. Empty means the render."
+        ),
+    )
 
 
 class PublishResult(_Base):

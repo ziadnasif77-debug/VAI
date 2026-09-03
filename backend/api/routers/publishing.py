@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from backend.api.dependencies import AppState, get_state
 from backend.core.errors import ErrorCode
@@ -77,6 +77,20 @@ class PublishBody(BaseModel):
     metadata: VideoMetadata = Field(default_factory=VideoMetadata)
     destination: str | None = None
     render_id: str | None = None
+    #: A Short's filename, as the SHORTS job reported it. Found live on the
+    #: first real upload: the worker resolved renders only, Shorts sat
+    #: beside them as loose files, and the test Short went up through the
+    #: publisher stack by hand. One request names one file: a Short or a
+    #: render, never both.
+    short: str | None = Field(default=None, min_length=1, max_length=255)
+
+    @model_validator(mode="after")
+    def _one_file(self) -> PublishBody:
+        if self.short and self.render_id:
+            raise ValueError("name a Short or a render, not both")
+        if self.short and ("/" in self.short or "\\" in self.short or self.short in {".", ".."}):
+            raise ValueError("a Short is named by its filename, not a path")
+        return self
 
 
 class QueuedPublish(BaseModel):
@@ -213,6 +227,7 @@ def publish(
         "metadata": body.metadata.model_dump(mode="json"),
         "destination": body.destination,
         "render_id": body.render_id,
+        "short": body.short,
         # Somebody pressed publish. The worker refuses a publication that
         # cannot name who asked for it.
         "authorised_by": "human",

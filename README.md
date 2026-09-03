@@ -583,6 +583,14 @@ ollama pull qwen2.5:7b-instruct
 
 ### Publishing to YouTube
 
+Shorts go out the same way. The Export screen lists every Short the project
+produced, read off the shorts job's own result, and *Publish this Short*
+sends it up with the form's title and `#Shorts`. A request names a Short by
+the filename that stage reported and by nothing else — not a path, not a
+directory listing — so the only files that can leave this machine are the
+ones a stage of this project produced and wrote down. The publish history
+records which Short went, and borrows no render id from the long video.
+
 The OAuth client must be a **Desktop app** client, not "TV and Limited Input".
 That is not a preference: Google's device flow requires the TV type and refuses
 the YouTube Analytics scopes on it, *and* blocks the loopback redirect for it —

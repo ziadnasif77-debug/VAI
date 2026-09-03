@@ -13,6 +13,16 @@ import {useCallback, useState} from 'react';
 import {usePolling} from '../lib/usePolling';
 import {api, timecode, type Project} from '../lib/api';
 
+/** One entry of the shorts job's `shorts` result list. */
+type ShortFile = {
+  output_path: string;
+  seconds?: number;
+  type?: string | null;
+  span?: string;
+};
+
+const basename = (path: string): string => path.split(/[\\/]/).pop() ?? path;
+
 export function ExportScreen({
   project,
   onPreview,
@@ -42,6 +52,44 @@ export function ExportScreen({
     intervalMs: 5000,
     active: (value) => (value?.findings.length ?? 0) === 0,
   });
+  // The Shorts this project produced, read off the shorts job's result — the
+  // same place the files are reported, so the button can only name a Short
+  // that exists.
+  const jobs = usePolling(() => api.jobs.list(project.id), {
+    intervalMs: 4000,
+    active: (value) =>
+      (value?.items ?? []).some(
+        (item) => item.stage === 'shorts' && (item.status === 'running' || item.status === 'queued'),
+      ),
+  });
+  const shortsJob = (jobs.data?.items ?? []).find((item) => item.stage === 'shorts') ?? null;
+  const shorts = ((shortsJob?.result?.shorts as ShortFile[] | undefined) ?? []).filter(
+    (item) => typeof item.output_path === 'string',
+  );
+  const [publishedShort, setPublishedShort] = useState<string | null>(null);
+
+  const publishShort = useCallback(
+    async (file: ShortFile) => {
+      setBusy(true);
+      setPublishedShort(null);
+      try {
+        await api.publishing.publish(project.id, {
+          target: 'youtube',
+          short: basename(file.output_path),
+          metadata: {
+            title: `${title} #Shorts`,
+            description,
+            tags: tags.includes('Shorts') ? tags : [...tags, 'Shorts'],
+            visibility,
+          },
+        });
+        setPublishedShort(basename(file.output_path));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [project.id, title, description, tags, visibility],
+  );
 
   const start = useCallback(async () => {
     setBusy(true);
@@ -243,6 +291,35 @@ export function ExportScreen({
           Generate Shorts
         </button>
         <p className="muted">Progress and file paths land on the shorts job in Analysis.</p>
+        {shorts.length > 0 && (
+          <ul className="shorts-list">
+            {shorts.map((file) => (
+              <li key={file.output_path}>
+                <span className="mono file-path">{basename(file.output_path)}</span>
+                <span className="muted">
+                  {' '}
+                  {file.seconds ? `${file.seconds}s` : ''}
+                  {file.type ? ` · ${file.type}` : ''}
+                  {file.span ? ` · ${file.span}` : ''}
+                </span>{' '}
+                <button
+                  onClick={() => void publishShort(file)}
+                  disabled={busy || !youtube?.connected}
+                  title={
+                    youtube?.connected
+                      ? 'Upload this Short to YouTube with the title and visibility below'
+                      : 'Connect YouTube first'
+                  }
+                >
+                  Publish this Short
+                </button>
+                {publishedShort === basename(file.output_path) && (
+                  <span className="muted"> queued — the link lands on the publish job.</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="panel">

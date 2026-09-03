@@ -131,6 +131,8 @@ export type SuggestedMetadata = {
 
 export type PublishBody = {
   target: 'local_file' | 'youtube';
+  /** A Short's filename as the shorts job reported it; omit to publish the render. */
+  short?: string;
   metadata?: {
     title?: string;
     description?: string;

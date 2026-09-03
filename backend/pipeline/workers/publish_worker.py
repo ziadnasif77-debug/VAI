@@ -105,6 +105,9 @@ class PublishWorker:
         return {
             **result.model_dump(mode="json"),
             "render_id": request.render_id,
+            # Which Short went out, when one did; the render id above is
+            # empty in that case rather than borrowed from the long video.
+            "short": request.short,
             # The metadata as sent, so a later edit to the project does not
             # rewrite the history of what was actually published.
             "metadata_snapshot": request.metadata.model_dump(mode="json"),
@@ -199,10 +202,13 @@ class PublishWorker:
             target=payload.get("target") or "local_file",
             metadata=VideoMetadata.model_validate(payload.get("metadata") or {}),
             destination=payload.get("destination"),
+            short=str(payload.get("short") or "") or None,
         )
 
     def _render(self, context: WorkerContext, payload: dict[str, Any]) -> dict[str, Any]:
-        """The file being published: the named render, or the latest one."""
+        """The file being published: the named Short, the named render, or the latest render."""
+        if payload.get("short"):
+            return self._short(context, payload)
         renders = RenderRepository(context.database)
         wanted = str(payload.get("render_id") or "")
         record = None
@@ -227,6 +233,48 @@ class PublishWorker:
         # The payload carries the id forward so the result names what went out.
         payload["render_id"] = str(record.get("id"))
         return record
+
+    def _short(self, context: WorkerContext, payload: dict[str, Any]) -> dict[str, Any]:
+        """A Short, by the filename the SHORTS stage reported.
+
+        Shorts are not render rows: the SHORTS stage cuts them from the
+        source and lists them in its result, beside the renders on disk. The
+        first real upload found the button could not reach them and the test
+        Short went up through the publisher stack by hand. This resolves a
+        name against that list and nothing else -- not a path from the
+        request, not a glob over the directory -- so the only files that can
+        leave are the ones a stage of this project produced and wrote down.
+        """
+        wanted = str(payload.get("short") or "")
+        job = JobRepository(context.database).find(context.project_id, JobStage.SHORTS)
+        produced = [
+            item
+            for item in ((job.result or {}).get("shorts") or [])
+            if isinstance(item, dict) and item.get("output_path")
+        ]
+        names = [Path(str(item["output_path"])).name for item in produced]
+        match = next(
+            (item for item, name in zip(produced, names, strict=True) if name == wanted), None
+        )
+        if match is None:
+            raise PublishError(
+                f"This project produced no Short named {wanted!r}."
+                + (f" It produced: {', '.join(names)}." if names else " Generate Shorts first."),
+                code=ErrorCode.MEDIA_NOT_FOUND,
+                details={"project_id": context.project_id, "short": wanted, "produced": names},
+                recoverable=False,
+            )
+        path = Path(str(match["output_path"]))
+        if not path.is_file():
+            raise PublishError(
+                f"The Short {wanted!r} is no longer at {path}.",
+                code=ErrorCode.MEDIA_NOT_FOUND,
+                details={"project_id": context.project_id, "short": wanted, "path": str(path)},
+                recoverable=False,
+            )
+        # A Short has no render id, and the history must not invent one.
+        payload["render_id"] = ""
+        return {"id": "", "output_path": str(path), "short": wanted, **match}
 
     def _respect_authorisation(
         self, context: WorkerContext, request, payload: dict[str, Any]

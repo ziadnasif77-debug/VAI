@@ -19,6 +19,15 @@
         "scripts/serve.py"
       ],
       "port": 8765
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VAI__DAILY__ENABLED=false&& .venv\\Scripts\\python.exe scripts/serve.py --no-worker"
+      ],
+      "port": 8765
     }
   ]
 }

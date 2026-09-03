@@ -476,3 +476,36 @@ class TestPublishingEndpoints:
         # Same job row, new payload: publishing twice with yesterday's title
         # is nobody's intent.
         assert second["job_id"] == first["job_id"]
+
+
+class TestPublishingAShort:
+    def test_the_instruction_may_name_a_short(self, api_client) -> None:
+        project = api_client.post(
+            "/api/projects",
+            json={"name": "Reel", "target_duration_seconds": 900, "mode": "story"},
+        ).json()
+        response = api_client.post(
+            f"/api/projects/{project['id']}/publish",
+            json={"target": "youtube", "short": "reel-short-01-skill.mp4"},
+        )
+        assert response.status_code == 200
+        jobs = api_client.get(f"/api/projects/{project['id']}/jobs").json()["items"]
+        row = next(item for item in jobs if item["id"] == response.json()["job_id"])
+        assert row["stage"] == "publish"
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"target": "youtube", "short": "a.mp4", "render_id": "rnd-1"},
+            {"target": "youtube", "short": "../a.mp4"},
+            {"target": "youtube", "short": "shorts/a.mp4"},
+            {"target": "youtube", "short": ""},
+        ],
+    )
+    def test_a_short_is_one_filename_and_nothing_else(self, api_client, body) -> None:
+        project = api_client.post(
+            "/api/projects",
+            json={"name": "Reel", "target_duration_seconds": 900, "mode": "story"},
+        ).json()
+        response = api_client.post(f"/api/projects/{project['id']}/publish", json=body)
+        assert response.status_code == 422

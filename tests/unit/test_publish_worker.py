@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.core.errors import ErrorCode
 from backend.core.models.enums import (
     JobStage,
     JobStatus,
@@ -574,3 +575,125 @@ class TestAuthorisation:
         PublishWorker()._respect_authorisation(
             context, SimpleNamespace(target=PublishTarget.LOCAL_FILE), {}
         )
+
+
+class TestShortDelivery:
+    """A Short goes out by the name the SHORTS stage gave it.
+
+    Found on the first real upload (2026-08-28): the worker resolved render
+    rows only, Shorts sat beside them as loose files, and the test Short went
+    up through the publisher stack by hand. The name is resolved against the
+    SHORTS job result and nothing else, so only a file a stage of this
+    project produced and wrote down can leave.
+    """
+
+    @pytest.fixture
+    def shorts(self, database, config, project_id, rendered, tmp_path) -> list[Path]:
+        files = []
+        for index in range(2):
+            path = tmp_path / f"deliver-short-{index + 1:02d}-skill.mp4"
+            path.write_bytes(b"short")
+            files.append(path)
+        _stage_done(
+            database,
+            config,
+            project_id,
+            JobStage.SHORTS,
+            {
+                "shorts": [
+                    {"index": index, "output_path": str(path), "seconds": 30.0, "type": "skill"}
+                    for index, path in enumerate(files)
+                ]
+            },
+        )
+        return files
+
+    def test_a_named_short_reaches_the_publisher_and_the_history(
+        self, pipeline_runner, database, config, project_id, shorts
+    ) -> None:
+        publisher = FakePublisher()
+        outcome = _run(
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            publisher,
+            {
+                "target": "youtube",
+                "short": shorts[1].name,
+                "metadata": {"title": "Reel"},
+                "authorised_by": "human",
+            },
+        )
+        assert outcome.succeeded, outcome.job.error_message
+        request, path = publisher.requests[-1]
+        assert path == shorts[1]
+        assert request.short == shorts[1].name
+        # The history names the Short and borrows no render id.
+        assert outcome.job.result["short"] == shorts[1].name
+        assert outcome.job.result["render_id"] == ""
+
+    def test_a_name_the_stage_never_produced_is_refused_by_name(
+        self, pipeline_runner, database, config, project_id, shorts
+    ) -> None:
+        outcome = _run(
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            FakePublisher(),
+            {"target": "youtube", "short": "somebody-else.mp4", "authorised_by": "human"},
+        )
+        assert not outcome.succeeded
+        assert outcome.error_code is ErrorCode.MEDIA_NOT_FOUND
+        assert "somebody-else.mp4" in outcome.job.error_message
+        assert shorts[0].name in outcome.job.error_message
+
+    def test_a_path_is_not_a_name(
+        self, pipeline_runner, database, config, project_id, shorts
+    ) -> None:
+        # The endpoint refuses separators; the worker must too, because a
+        # payload can arrive from anywhere the job table can be written.
+        outcome = _run(
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            FakePublisher(),
+            {"target": "youtube", "short": str(shorts[0]), "authorised_by": "human"},
+        )
+        assert not outcome.succeeded
+        assert outcome.error_code is ErrorCode.MEDIA_NOT_FOUND
+
+    def test_a_short_that_vanished_is_a_clear_refusal(
+        self, pipeline_runner, database, config, project_id, shorts
+    ) -> None:
+        shorts[0].unlink()
+        outcome = _run(
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            FakePublisher(),
+            {"target": "youtube", "short": shorts[0].name, "authorised_by": "human"},
+        )
+        assert not outcome.succeeded
+        assert outcome.error_code is ErrorCode.MEDIA_NOT_FOUND
+        assert "no longer" in outcome.job.error_message
+
+    def test_without_a_name_the_render_still_goes_out(
+        self, pipeline_runner, database, config, project_id, rendered, shorts
+    ) -> None:
+        # The Shorts existing changes nothing for the ordinary press.
+        publisher = FakePublisher()
+        outcome = _run(
+            pipeline_runner,
+            database,
+            config,
+            project_id,
+            publisher,
+            {"target": "youtube", "authorised_by": "human"},
+        )
+        assert outcome.succeeded
+        assert outcome.job.result["render_id"] == rendered
+        assert outcome.job.result["short"] is None
