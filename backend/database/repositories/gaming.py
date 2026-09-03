@@ -50,8 +50,48 @@ class OcrRepository:
         game_profile: str | None = None,
         engine: str | None = None,
     ) -> int:
+        rows = self._rows(project_id, media_id, detections, game_profile, engine)
+        self._db.execute("DELETE FROM ocr_results WHERE media_id = ?", (media_id,))
+        return self._insert(rows)
+
+    def add_for_media(
+        self,
+        project_id: str,
+        media_id: str,
+        detections: Iterable[TextDetection],
+        *,
+        game_profile: str | None = None,
+        engine: str | None = None,
+    ) -> int:
+        """Append reads without touching the stored ones (V2-P0.4).
+
+        The OCR stage replaces; the planned-frame pass adds. The two must not
+        share a verb: the pass runs after every stage that consumed the OCR
+        stage's reads, and a replace here would silently rewrite the evidence
+        those stages were built on.
+        """
+        return self._insert(self._rows(project_id, media_id, detections, game_profile, engine))
+
+    def _insert(self, rows: list[dict[str, object]]) -> int:
+        if rows:
+            self._db.executemany(
+                f"INSERT INTO ocr_results ({_OCR_COLUMNS}) VALUES ("
+                ":id, :project_id, :media_id, :timestamp, :text, :confidence, :region, "
+                ":box, :game_profile, :engine, :created_at)",
+                rows,
+            )
+        return len(rows)
+
+    @staticmethod
+    def _rows(
+        project_id: str,
+        media_id: str,
+        detections: Iterable[TextDetection],
+        game_profile: str | None,
+        engine: str | None,
+    ) -> list[dict[str, object]]:
         now = datetime.now(timezone.utc).isoformat()
-        rows = [
+        return [
             {
                 "id": new_id("ocr_result"),
                 "project_id": project_id,
@@ -67,15 +107,6 @@ class OcrRepository:
             }
             for detection in detections
         ]
-        self._db.execute("DELETE FROM ocr_results WHERE media_id = ?", (media_id,))
-        if rows:
-            self._db.executemany(
-                f"INSERT INTO ocr_results ({_OCR_COLUMNS}) VALUES ("
-                ":id, :project_id, :media_id, :timestamp, :text, :confidence, :region, "
-                ":box, :game_profile, :engine, :created_at)",
-                rows,
-            )
-        return len(rows)
 
     def list_for_media(
         self,

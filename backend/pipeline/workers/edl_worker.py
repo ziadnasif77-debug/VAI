@@ -25,6 +25,7 @@ stage in milliseconds and never re-analyses the source.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,138 @@ class EdlWorker:
     """EDL -- the non-destructive description of the finished video (§40-§42)."""
 
     stage = JobStage.EDL
+
+    def __init__(self, ocr_provider: Any = None) -> None:
+        """
+        Args:
+            ocr_provider: the engine that reads the planned base frames
+                (V2-P0.4). Injected the way the OCR stage's is, so a test
+                proves the wire without depending on what is installed.
+                Built from the configuration when absent.
+        """
+        self._ocr_provider = ocr_provider
+
+    def _read_planned_frames(self, context: WorkerContext, planned) -> dict[str, Any]:
+        """OCR the base frames the edit will use and nobody has looked at (V2-P0.4).
+
+        Reads are appended to ``ocr_results`` -- they are ordinary reads with
+        timestamps, and every consumer of the table reads them like any
+        other -- and the frames are marked ``analyzed`` so a second run does
+        not read them again. The OCR stage resets that mark when it replaces
+        the reads.
+
+        Never fatal (§95): a machine with no OCR engine, or a read that
+        fails, builds the edit from the evidence it already had, and the
+        result says so. A configuration error and a cancellation are not
+        that and pass through.
+        """
+        from ai.ocr import create_ocr_provider
+        from backend.core.errors import ConfigurationError
+        from backend.database.repositories.frames import FrameRepository
+        from backend.database.repositories.gaming import OcrRepository
+        from backend.database.repositories.vision import VisionRepository
+        from backend.gaming import planned_reads
+        from backend.gaming.ocr import CROP_DIRNAME, read_frames
+        from backend.media.ffmpeg import CancelledError
+
+        settings = context.config.narrative.planned_frame_reads
+        if not settings.enabled:
+            return {"skipped": True, "reason": "disabled in configuration"}
+        ocr = context.config.analysis.ocr
+        if not ocr.enabled:
+            return {"skipped": True, "reason": "ocr disabled in configuration"}
+        try:
+            provider = self._ocr_provider or create_ocr_provider(context.config)
+        except Exception:
+            logger.exception("No OCR provider for the planned frames; built without them")
+            return {"skipped": True, "reason": "no OCR provider"}
+        if provider is None or not provider.is_available():
+            logger.info("No usable OCR engine; the planned frames go unread")
+            return {"skipped": True, "reason": "no usable OCR engine"}
+
+        summary: dict[str, Any] = {"frames": 0, "with_text": 0, "detections": 0, "media": 0}
+        spans_by_media: dict[str, list[tuple[float, float]]] = {}
+        for clip in planned:
+            spans_by_media.setdefault(clip.media_id, []).append(
+                (float(clip.source_start), float(clip.source_end))
+            )
+        for media_id, spans in spans_by_media.items():
+            try:
+                frames = FrameRepository(context.database).list_for_media(
+                    media_id, level="base", analyzed=False
+                )
+                looked = [
+                    d.timestamp for d in OcrRepository(context.database).list_for_media(media_id)
+                ] + [
+                    float(getattr(o, "timestamp", 0.0))
+                    for o in VisionRepository(context.database).list_for_media(media_id)
+                ]
+                chosen = [
+                    frame
+                    for frame in planned_reads.select(
+                        frames,
+                        spans,
+                        looked,
+                        margin_seconds=settings.margin_seconds,
+                        min_gap_seconds=settings.min_gap_seconds,
+                    )
+                    if Path(frame.image_path).is_file()
+                ]
+                if not chosen:
+                    continue
+                profile = self._profile(context, media_id)
+                work_dir = context.paths.frames / media_id / CROP_DIRNAME
+                context.report(0.05, f"Reading {len(chosen)} planned frames")
+                try:
+                    provider.load()
+                    results = read_frames(
+                        [(float(frame.timestamp), Path(frame.image_path)) for frame in chosen],
+                        provider,
+                        ocr,
+                        profile,
+                        work_dir=work_dir,
+                        should_cancel=context.should_cancel,
+                        on_progress=lambda fraction, message: context.report(
+                            0.05 + 0.1 * fraction, message
+                        ),
+                    )
+                finally:
+                    provider.unload()
+                    shutil.rmtree(work_dir, ignore_errors=True)
+                detections = [item for frame in results for item in frame.detections]
+                with context.database.transaction():
+                    OcrRepository(context.database).add_for_media(
+                        context.project_id,
+                        media_id,
+                        detections,
+                        game_profile=profile.id,
+                        engine=provider.info().provider,
+                    )
+                    FrameRepository(context.database).mark_analyzed(
+                        [frame.id for frame in chosen]
+                    )
+            except (ConfigurationError, CancelledError):
+                raise
+            except Exception:
+                logger.exception(
+                    "Planned frame reads failed; the edit is built without them",
+                    extra={"media_id": media_id},
+                )
+                continue
+            summary["frames"] += len(chosen)
+            summary["with_text"] += len(results)
+            summary["detections"] += len(detections)
+            summary["media"] += 1
+            logger.info(
+                "Read the planned base frames",
+                extra={
+                    "media_id": media_id,
+                    "frames": len(chosen),
+                    "with_text": len(results),
+                    "detections": len(detections),
+                },
+            )
+        return summary
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
         story = self._story_result(context)
@@ -91,6 +224,11 @@ class EdlWorker:
                     "clips": 0,
                 }
 
+        # V2-P0.4: before the exclusions are read, read the frames they will
+        # be read from. The detectors sampled candidate frames; the edit is
+        # about to use seconds nobody sampled.
+        planned_reads_summary = self._read_planned_frames(context, planned)
+
         context.report(0.2, f"Laying out {len(planned)} clips")
         built = build_timeline(
             planned,
@@ -108,6 +246,22 @@ class EdlWorker:
             },
         )
         timeline = built.timeline
+        if not timeline.video_clips():
+            # Every planned clip was refused -- by the exclusions, the source
+            # probes or the duration band -- and the builder said why in its
+            # notes. That is a dead end the way "no plan" is, not a broken
+            # timeline: a validation error here would report "no clips" and
+            # bury the reason (§95). Seen first when a fake read RESUME off
+            # every base frame (V2-P0.4) and the whole fixture became a menu.
+            context.report(1.0, "Every planned clip was refused")
+            return {
+                "skipped": True,
+                "reason": "every planned clip was refused: "
+                + ("; ".join(str(note) for note in built.notes[-3:]) or "no reason recorded"),
+                "clips": 0,
+                "notes": [str(note) for note in built.notes],
+                "planned_frame_reads": planned_reads_summary,
+            }
 
         context.report(0.4, "Checking the timeline")
         report = validation.validate(timeline, media_durations=durations, policy=policy)
@@ -179,6 +333,7 @@ class EdlWorker:
             },
             "style": style.name,
             "style_version": style.version,
+            "planned_frame_reads": planned_reads_summary,
             "validation": report.summary(),
             "clamped": list(built.clamped),
             "warnings": [*built.warnings, *(str(item) for item in report.warnings)],

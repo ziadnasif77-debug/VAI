@@ -348,3 +348,93 @@ class TestConfigurationIsNotSwallowed:
             MomentsWorker()._excluded_spans(
                 self._context(tmp_path, "hitman"), media, vision=[], duration=60.0
             )
+
+
+class TestWordsThatMeanNothingAlone:
+    """V2-P0.4: a pause menu's tabs, judged as a set on one frame.
+
+    HITMAN's pause screen never says PAUSED. It says OBJECTIVES, MAP, MISSION
+    STORIES, INTEL and INVENTORY, and INVENTORY alone is Grounded's hotbar
+    label 79 times in the stored reads. The rule is a conjunction: three
+    distinct tab words on the same frame, which on this machine has been a
+    menu every one of 45 times.
+    """
+
+    def test_three_tab_words_on_one_frame_are_a_pause_menu(self) -> None:
+        states = content.read(
+            detections=[
+                _Read("OBJECTIVES", 525.0),
+                _Read("MAP", 525.0),
+                _Read("INTEL", 525.0),
+                _Read("INVENTORY", 525.0),
+            ],
+            profile=GENERIC_PROFILE,
+        )
+        assert [s.state for s in states] == [ContentState.PAUSE]
+        assert states[0].covers(524.0, 526.0)
+        assert states[0].excludes
+
+    def test_one_tab_word_alone_is_not(self) -> None:
+        # The hotbar.
+        assert (
+            content.read(detections=[_Read("INVENTORY", 100.0)], profile=GENERIC_PROFILE)
+            == []
+        )
+
+    def test_two_are_still_not_enough(self) -> None:
+        # MAP and INVENTORY are button prompts on many HUDs.
+        assert (
+            content.read(
+                detections=[_Read("MAP", 100.0), _Read("INVENTORY", 100.0)],
+                profile=GENERIC_PROFILE,
+            )
+            == []
+        )
+
+    def test_the_words_have_to_share_a_frame(self) -> None:
+        # Three tab words across three sampled frames are three prompts, not
+        # a menu: the conjunction is per screen.
+        assert (
+            content.read(
+                detections=[
+                    _Read("OBJECTIVES", 100.0),
+                    _Read("MAP", 107.0),
+                    _Read("INVENTORY", 114.0),
+                ],
+                profile=GENERIC_PROFILE,
+            )
+            == []
+        )
+
+    def test_the_same_word_three_times_is_one_match(self) -> None:
+        assert (
+            content.read(
+                detections=[_Read("SAVE", 100.0), _Read("SAVE", 100.0), _Read("Save", 100.0)],
+                profile=GENERIC_PROFILE,
+            )
+            == []
+        )
+
+    def test_pause_menu_is_pause_wording_too(self) -> None:
+        # HITMAN's ESC screen is titled PAUSE MENU and never says PAUSED.
+        states = content.read(detections=[_Read("PAUSE MENU", 2352.0)], profile=GENERIC_PROFILE)
+        assert [s.state for s in states] == [ContentState.PAUSE]
+
+    def test_a_profile_may_declare_a_conjunction_of_its_own(self) -> None:
+        profile = GameProfile(
+            id="tabbed",
+            content_rules=(
+                ProfileContentRule(
+                    state="menu",
+                    name="own_tabs",
+                    patterns=(r"^\s*ALPHA\s*$", r"^\s*BETA\s*$"),
+                    min_matches=2,
+                ),
+            ),
+        )
+        alone = content.read(detections=[_Read("ALPHA", 10.0)], profile=profile)
+        both = content.read(
+            detections=[_Read("ALPHA", 10.0), _Read("BETA", 10.0)], profile=profile
+        )
+        assert alone == []
+        assert [s.state for s in both] == [ContentState.MENU]

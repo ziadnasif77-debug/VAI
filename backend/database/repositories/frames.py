@@ -168,6 +168,21 @@ class FrameRepository:
         )
         return len(frame_ids)
 
+    def reset_analyzed(self, media_id: str, *, level: str | None = None) -> int:
+        """Forget that a pass looked at these frames.
+
+        The OCR stage calls this when it replaces a recording's reads: the
+        planned-frame pass (V2-P0.4) marks the base frames it read, and reads
+        that were just deleted must not leave their frames marked as done.
+        """
+        sql = "UPDATE frames SET analyzed = 0 WHERE media_id = ?"
+        parameters: list[object] = [media_id]
+        if level is not None:
+            sql += " AND sampling_level = ?"
+            parameters.append(level)
+        cursor = self._db.execute(sql, parameters)
+        return int(getattr(cursor, "rowcount", 0) or 0)
+
     def delete_for_media(self, media_id: str, *, level: str | None = None) -> int:
         """Drop frame rows, so a re-run does not read the previous pass's list."""
         sql = "DELETE FROM frames WHERE media_id = ?"

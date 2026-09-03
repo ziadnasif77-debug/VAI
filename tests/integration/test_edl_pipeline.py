@@ -29,6 +29,7 @@ from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.pipeline.runner import PipelineRunner
+from backend.pipeline.workers.edl_worker import EdlWorker
 from backend.pipeline.workers.gaming_workers import OcrWorker
 from backend.pipeline.workers.speech_workers import TranscriptWorker
 from backend.pipeline.workers.vision_workers import VisionWorker
@@ -478,3 +479,105 @@ class TestScreenGuardWire:
                 f"a clip opens at {clip.source_in:.2f}s, inside the "
                 f"{floor:.0f}s recording-start guard"
             )
+
+
+class TestPlannedFrameReads:
+    """V2-P0.4: the EDL stage reads the base frames the edit will use.
+
+    The pass is off in the shared config, for the reason every model is: it
+    runs whatever OCR engine is installed. Here it runs with the fake
+    injected, and what the test proves is the wire -- the frames inside the
+    planned clips are read, their reads land in ``ocr_results`` beside the
+    stage's own, and the frames are marked so a second run reads nothing.
+    """
+
+    @pytest.fixture
+    def reading(self, database, paths, config, speech_provider, vision_provider):
+        reads = config.narrative.planned_frame_reads.model_copy(
+            update={"enabled": True, "margin_seconds": 3.0, "min_gap_seconds": 0.0}
+        )
+        narrative = config.narrative.model_copy(update={"planned_frame_reads": reads})
+        enabled = config.model_copy(update={"narrative": narrative})
+        planned = FakeOcrProvider(default=[("PLANNED FRAME", 0.99)])
+        workers = workers_through("edl")
+        workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
+        workers[JobStage.VISION] = VisionWorker(vision_provider)
+        workers[JobStage.OCR] = OcrWorker(FakeOcrProvider(default=[("VICTORY", 0.92)]))
+        workers[JobStage.EDL] = EdlWorker(ocr_provider=planned)
+        return PipelineRunner(database, paths, enabled, workers=workers), planned
+
+    def test_the_planned_base_frames_are_read_and_marked(
+        self, media_service, project_manager, reading, database, reaction_clip: Path
+    ) -> None:
+        from backend.database.repositories.frames import FrameRepository
+        from backend.database.repositories.gaming import OcrRepository
+
+        runner, planned = reading
+        project, media = _project_with(media_service, project_manager, reaction_clip)
+        outcomes = {o.job.stage: o for o in runner.run_project(project.id)}
+        assert outcomes[JobStage.EDL].succeeded, outcomes[JobStage.EDL].job.error_message
+
+        result = outcomes[JobStage.EDL].job.result
+        summary = result["planned_frame_reads"]
+        assert summary["frames"] > 0, "the fixture recording has base frames inside its clips"
+        assert planned.load_count == 1 and planned.unload_count == 1
+
+        clips = TimelineRepository(database).list_clips(project.id)
+        frames = FrameRepository(database).list_for_media(media.id, level="base")
+        inside = [
+            frame
+            for frame in frames
+            if any(c.source_in - 3.0 <= frame.timestamp <= c.source_out + 3.0 for c in clips)
+        ]
+        assert inside and all(frame.analyzed for frame in inside)
+        assert not any(frame.analyzed for frame in frames if frame not in inside)
+
+        reads = OcrRepository(database).list_for_media(media.id)
+        assert any(item.text == "PLANNED FRAME" for item in reads), "the pass appended its reads"
+        assert any(item.text == "VICTORY" for item in reads), "and kept the stage's own"
+
+    def test_a_second_run_reads_nothing_new(
+        self, media_service, project_manager, reading, database, reaction_clip: Path
+    ) -> None:
+        runner, planned = reading
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+        runner.run_project(project.id)
+        first = len(planned.read_paths)
+        assert first > 0
+
+        edl = next(
+            job for job in runner.jobs.list_jobs(project.id) if job.stage is JobStage.EDL
+        )
+        runner.jobs.requeue(edl.id)
+        outcome = runner.run_job(edl.id)
+        assert outcome.succeeded
+        assert outcome.job.result["planned_frame_reads"]["frames"] == 0
+        assert len(planned.read_paths) == first, "the marked frames were not read again"
+
+    def test_every_clip_refused_is_a_dead_end_not_a_broken_timeline(
+        self, media_service, project_manager, database, paths, config, speech_provider,
+        vision_provider, reaction_clip: Path
+    ) -> None:
+        # The pass reads RESUME off every base frame: the whole recording is
+        # a pause menu and every planned clip is refused. The stage skips and
+        # says so -- it does not raise INVALID_EDL over "no clips" and bury
+        # the reason. This is how the first run of the wire test failed.
+        reads = config.narrative.planned_frame_reads.model_copy(
+            update={"enabled": True, "margin_seconds": 3.0, "min_gap_seconds": 0.0}
+        )
+        narrative = config.narrative.model_copy(update={"planned_frame_reads": reads})
+        enabled = config.model_copy(update={"narrative": narrative})
+        workers = workers_through("edl")
+        workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
+        workers[JobStage.VISION] = VisionWorker(vision_provider)
+        workers[JobStage.OCR] = OcrWorker(FakeOcrProvider(default=[("VICTORY", 0.92)]))
+        workers[JobStage.EDL] = EdlWorker(ocr_provider=FakeOcrProvider(default=[("RESUME", 1.0)]))
+        runner = PipelineRunner(database, paths, enabled, workers=workers)
+
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+        outcomes = {o.job.stage: o for o in runner.run_project(project.id)}
+        edl = outcomes[JobStage.EDL]
+        assert edl.succeeded, edl.job.error_message
+        assert edl.job.result["skipped"] is True
+        assert "refused" in edl.job.result["reason"]
+        assert edl.job.result["planned_frame_reads"]["frames"] > 0

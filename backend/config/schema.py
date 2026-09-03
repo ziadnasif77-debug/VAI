@@ -1007,6 +1007,26 @@ class ScreenGuardConfig(_Section):
     min_piece_seconds: float = Field(default=8.0, gt=0)
 
 
+class PlannedFrameReadsConfig(_Section):
+    """OCR over the base frames the edit will use (gaming/planned_reads.py).
+
+    The exclusion layer refuses what a detector saw, and the detectors read
+    candidate frames only. A three-second pause menu that fell between two of
+    them reached the acceptance render while the base frame showing it sat on
+    disk unread (V2-P0.4). Reading every base frame would cost the OCR stage
+    again; reading the ones inside the planned clips cost 569 s on the
+    88-minute benchmark and refused no gameplay.
+    """
+
+    enabled: bool = True
+    #: One base interval outside each clip: the frame that proves a menu can
+    #: sit just before the clip that carries it (0.27 s, on the benchmark).
+    margin_seconds: float = Field(default=3.0, ge=0)
+    #: A frame closer than this to a stored OCR or vision sample is skipped.
+    #: Zero reads every base frame inside the clips.
+    min_gap_seconds: float = Field(default=2.0, ge=0)
+
+
 class CounterfactualsConfig(_Section):
     """Three edits from the same moments, scored before one is rendered.
 
@@ -1028,6 +1048,9 @@ class NarrativeConfig(_Section):
     optimizer: DurationOptimizerConfig
     refinement: RefinementConfig = Field(default_factory=RefinementConfig)
     screen_guard: ScreenGuardConfig = Field(default_factory=ScreenGuardConfig)
+    planned_frame_reads: PlannedFrameReadsConfig = Field(
+        default_factory=PlannedFrameReadsConfig
+    )
     transitions: TransitionsConfig = Field(default_factory=TransitionsConfig)
     director: DirectorConfig = Field(default_factory=DirectorConfig)
 

@@ -116,6 +116,16 @@ narrative:
     max_clip_seconds: 75.0
     min_piece_seconds: 8.0
 
+  # OCR over the base frames the edit will actually use (V2-P0.4). The
+  # detectors read candidate frames only; a pause menu that fell between two
+  # of them reached a finished video while the base frame showing it sat on
+  # disk unread. Runs in the EDL stage on the planned clips, so it costs a
+  # tenth of the OCR stage and answers where the answer matters.
+  planned_frame_reads:
+    enabled: true
+    margin_seconds: 3.0     # one base interval outside each clip
+    min_gap_seconds: 2.0    # skip frames a stored sample already speaks for
+
   refinement:
     enabled: true
     snap_window_seconds: 2.5    # how far a cut may move to reach a pause

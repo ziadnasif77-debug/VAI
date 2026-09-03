@@ -352,6 +352,33 @@ catch-all: every game became generic, the log said so once, and the feature
 looked like it was working. It is now a configuration error that stops the
 stage and names the path.
 
+**It reads the frames the edit will actually use.** The layer refuses what a
+detector saw, and the detectors read *candidate* frames — the cascade's
+keyframes, one every five seconds with gaps that run past two minutes. The
+first render built with the layer still carried a three-second pause menu at
+2:43: no candidate frame fell inside it, while the FRAMES stage had extracted
+a frame every three seconds the whole time and the one showing the menu in
+full sat on disk with `analyzed = 0`. Reading every base frame would cost the
+OCR stage again. Reading the ones inside the *planned* clips — after the
+story chose them, before the timeline is built — cost 569 s on the 88-minute
+benchmark, observed 20 of the 24 stretches inside the edit that nothing had
+sampled, and refused **zero seconds of gameplay**; the shipped default skips
+frames a stored sample already speaks for and reads 159. The reads land in
+`ocr_results` beside the stage's own, the frames are marked so a second run
+reads nothing, and the OCR stage resets the mark when it replaces the reads.
+
+The pass found the menu and then could not name it, which was the second
+half of the work. HITMAN's pause screen never says PAUSED. It says
+OBJECTIVES, MAP, MISSION STORIES, INTEL and INVENTORY — and INVENTORY alone
+is Grounded's hotbar label seventy-nine times in the stored reads, MAP and
+OPTIONS are button prompts on half the HUDs. None of those words is a menu.
+Three distinct ones on the same frame are: checked against every OCR frame
+stored on this machine, forty-five frames carry three or more, and every one
+is a menu. So a content rule may now be a *conjunction* — `min_matches`
+distinct patterns that have to share a screen — and `menu_tabs` is the first.
+It is the same lesson as `min_observations` on the screen guard, applied to
+words: one reading may warn; it may not cut.
+
 **A style changes decisions before it changes appearances — and reaches the
 optimiser never.** It has picked a decoration profile since V1, and since
 V2-P2.5 it also says how the captions look; what it may never do is reach

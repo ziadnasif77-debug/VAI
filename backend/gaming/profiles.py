@@ -145,6 +145,9 @@ class ContentRule(_Model):
     lead_seconds: float = Field(default=4.0, ge=0.0)
     hold_seconds: float = Field(default=8.0, ge=0.0)
     vision_may_raise: bool = True
+    #: Distinct patterns that must match on one frame. Above one the rule is
+    #: a conjunction of words that mean nothing alone (V2-P0.4).
+    min_matches: int = Field(default=1, ge=1)
 
     @field_validator("patterns")
     @classmethod

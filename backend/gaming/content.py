@@ -227,12 +227,36 @@ class ContentRule:
     #: Whether a vision description alone may raise this rule at all. False
     #: for anything whose whole identity is literal text.
     vision_may_raise: bool = True
+    #: How many *distinct* patterns must match on one frame before the rule
+    #: raises. One is the ordinary rule: a line that says MISSION FAILED is a
+    #: mission failed. Above one the rule is a conjunction, and exists for the
+    #: words that mean nothing alone -- INVENTORY is a hotbar in Grounded and
+    #: a tab in HITMAN's pause menu, and only the company it keeps tells them
+    #: apart (V2-P0.4).
+    min_matches: int = 1
 
     def matches(self, text: str, *, region: str | None = None) -> bool:
         """Whether ``text`` (optionally from ``region``) satisfies this rule."""
         if self.regions and (region is None or region not in self.regions):
             return False
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in self.patterns)
+
+    def matched_patterns(self, detections: Iterable[Any]) -> set[int]:
+        """Which of this rule's patterns the frame's detections satisfy.
+
+        Indices rather than a count, so ten OCR lines that all read RESUME
+        are one match and not ten -- a conjunction needs different words.
+        """
+        found: set[int] = set()
+        for detection in detections:
+            text = str(getattr(detection, "text", "") or "")
+            region = getattr(detection, "region", None)
+            if self.regions and (region is None or region not in self.regions):
+                continue
+            for index, pattern in enumerate(self.patterns):
+                if index not in found and re.search(pattern, text, re.IGNORECASE):
+                    found.add(index)
+        return found
 
 
 def _rule(
@@ -243,6 +267,7 @@ def _rule(
     lead: float = 4.0,
     hold: float = 8.0,
     vision_may_raise: bool = True,
+    min_matches: int = 1,
 ) -> ContentRule:
     return ContentRule(
         state=state,
@@ -252,6 +277,7 @@ def _rule(
         lead_seconds=lead,
         hold_seconds=hold,
         vision_may_raise=vision_may_raise,
+        min_matches=min_matches,
     )
 
 
@@ -315,9 +341,40 @@ GENERIC_CONTENT_RULES: Final[tuple[ContentRule, ...]] = (
         r"\bGAME\s+PAUSED\b",
         r"\bPAUSED\b",
         r"^\s*RESUME\s*$",
+        r"\bPAUSE\s+MENU\b",
         confidence=0.8,
         lead=3.0,
         hold=6.0,
+    ),
+    # A pause menu's tabs, read off one frame. None of these words is a menu
+    # on its own: INVENTORY is Grounded's hotbar label 79 times in the stored
+    # reads, MAP and OPTIONS are button prompts. Three distinct ones on the
+    # same frame have been a menu every time on this machine -- 45 stored
+    # frames across every recording, zero exceptions -- and are the reading that
+    # HITMAN's pause screen, which never says PAUSED, gives the OCR (V2-P0.4).
+    _rule(
+        ContentState.PAUSE,
+        "menu_tabs",
+        r"^\s*OBJECTIVES\s*$",
+        r"^\s*MAP\s*$",
+        r"^\s*INVENTORY\s*$",
+        r"^\s*MISSION\s+STORIES\s*$",
+        r"^\s*INTEL\s*$",
+        r"^\s*OPTIONS\s*$",
+        r"^\s*SETTINGS\s*$",
+        r"^\s*SAVE\s*$",
+        r"^\s*LOAD\s*$",
+        r"^\s*RESUME\s*$",
+        r"^\s*QUIT\s*$",
+        r"^\s*PHOTO\s+MODE\s*$",
+        r"^\s*SURVIVAL\s+GUIDE\s*$",
+        r"^\s*CONTROLS\s*$",
+        r"^\s*PAUSE\s+MENU\s*$",
+        confidence=0.8,
+        lead=3.0,
+        hold=6.0,
+        vision_may_raise=False,
+        min_matches=3,
     ),
     # -- loading ---------------------------------------------------------
     _rule(
@@ -384,6 +441,7 @@ def rules_for(profile: Any) -> tuple[ContentRule, ...]:
             lead_seconds=float(getattr(rule, "lead_seconds", 4.0)),
             hold_seconds=float(getattr(rule, "hold_seconds", 8.0)),
             vision_may_raise=bool(getattr(rule, "vision_may_raise", True)),
+            min_matches=int(getattr(rule, "min_matches", 1) or 1),
         )
         for rule in (getattr(profile, "content_rules", ()) or ())
     )
@@ -426,6 +484,8 @@ def read(
         has no evidence for.
     """
     rules = rules_for(profile)
+    single = [rule for rule in rules if rule.min_matches <= 1]
+    joint = [rule for rule in rules if rule.min_matches > 1]
     raised: list[tuple[ContentState, float, float, float, Evidence]] = []
 
     for detection in detections:
@@ -434,7 +494,7 @@ def read(
             continue
         at = float(getattr(detection, "timestamp", 0.0) or 0.0)
         region = getattr(detection, "region", None)
-        for rule in rules:
+        for rule in single:
             if not rule.matches(text, region=region):
                 continue
             raised.append(
@@ -446,6 +506,33 @@ def read(
                     Evidence("ocr", at, text[:60], rule.name),
                 )
             )
+
+    # A conjunction is judged per frame: the words have to share a screen.
+    if joint:
+        frames: dict[float, list[Any]] = {}
+        for detection in detections:
+            if str(getattr(detection, "text", "") or "").strip():
+                at = round(float(getattr(detection, "timestamp", 0.0) or 0.0), 3)
+                frames.setdefault(at, []).append(detection)
+        for at, lines in sorted(frames.items()):
+            for rule in joint:
+                found = rule.matched_patterns(lines)
+                if len(found) < rule.min_matches:
+                    continue
+                words = [
+                    str(getattr(line, "text", "")).strip()
+                    for line in lines
+                    if rule.matches(str(getattr(line, "text", "") or ""))
+                ]
+                raised.append(
+                    (
+                        rule.state,
+                        max(0.0, at - rule.lead_seconds),
+                        at + rule.hold_seconds,
+                        rule.confidence,
+                        Evidence("ocr", at, " / ".join(words)[:60], rule.name),
+                    )
+                )
 
     for span in frame_spans:
         mapped = FROM_FRAME_STATE.get(str(getattr(getattr(span, "state", None), "value", "")))

@@ -136,7 +136,16 @@ def config(config_dir: Path) -> Iterator[AppConfig]:
                 }
             ),
             "narrative": loaded.narrative.model_copy(
-                update={"director": loaded.narrative.director.model_copy(update={"enabled": False})}
+                update={
+                    "director": loaded.narrative.director.model_copy(update={"enabled": False}),
+                    # V2-P0.4 reads base frames with whatever OCR engine is
+                    # installed, inside the EDL stage. Same rule as the
+                    # models above: off here, and wired through an injected
+                    # fake in ``test_edl_pipeline.py::TestPlannedFrameReads``.
+                    "planned_frame_reads": loaded.narrative.planned_frame_reads.model_copy(
+                        update={"enabled": False}
+                    ),
+                }
             ),
             "critique": loaded.critique.model_copy(update={"enabled": False}),
         }
