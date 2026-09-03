@@ -473,6 +473,33 @@ class TestEvidenceBeforeKnives:
 
         assert len(kept) == 2
 
+    def test_an_event_that_begins_after_the_stillness_blesses_none_of_it(self) -> None:
+        # The pause menu that reached a finished video (2026-09-03): the
+        # probe measured 517.7-528.9 s frozen, the clip opened at 525.267 s,
+        # and combat began at 528.87 s -- the game resuming. The old
+        # neighbourhood reached 4 s back into the menu and the clip shipped
+        # whole. An event that does not overlap the stillness vouches for
+        # nothing; the dead opening is advanced and the remainder, shorter
+        # than a shot, is dropped.
+        clip = PlannedClip(media_id="media-1", source_start=525.267, source_end=534.0)
+        frozen = StateSpan(FrameState.PAUSE, 517.7, 528.9, observations=3)
+
+        kept = self._run([clip], [frozen], events=[(528.87, 539.57)])
+
+        assert kept == []
+
+    def test_an_event_that_overlaps_the_stillness_still_vouches_around_itself(self) -> None:
+        # The measured case the veto exists for is unchanged: the event sits
+        # inside the frozen span and keeps its own neighbourhood alive.
+        clip = self._clip(100.0, 140.0)
+        frozen = StateSpan(FrameState.PAUSE, 110.0, 130.0, observations=3)
+
+        kept = self._run([clip], [frozen], events=[(128.0, 136.0)])
+
+        # 124-130 is blessed by the overlap; 110-124 stays dead and cuts.
+        assert len(kept) == 2
+        assert 123.5 <= kept[1].source_start <= 124.5
+
     def test_zero_pieces_rescues_the_widest_live_window(self) -> None:
         # Excision that erases a detected moment silently is worse than a
         # short breath of dead time. The widest live stretch survives,

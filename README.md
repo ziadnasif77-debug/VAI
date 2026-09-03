@@ -379,6 +379,19 @@ distinct patterns that have to share a screen — and `menu_tabs` is the first.
 It is the same lesson as `min_observations` on the screen guard, applied to
 words: one reading may warn; it may not cut.
 
+Reading that menu's history back through the code found the guard's own
+leak. The source probe had measured those eleven seconds as frozen, and the
+screen guard would have dropped the clip — except that combat began 0.03 s
+after the menu closed, and a detected event vouches for the stillness around
+it: the sniper scope, the standoff, the cutscene kill. That neighbourhood
+reached four seconds back into the menu. Measured across every probe-detected
+freeze on this machine, four spans were vouched for by a neighbouring event
+alone, and all four were menus or a loading screen; the ones vouched for by
+an event *inside* them were the scope and two death screens the text rules
+already catch. So an event must now sit inside the stillness for at least a
+second before it may speak for any of it. The game resuming is not the game
+holding still.
+
 **A style changes decisions before it changes appearances — and reaches the
 optimiser never.** It has picked a decoration profile since V1, and since
 V2-P2.5 it also says how the captions look; what it may never do is reach

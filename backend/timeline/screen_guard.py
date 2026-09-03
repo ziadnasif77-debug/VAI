@@ -155,6 +155,11 @@ _STILLNESS = frozenset({FrameState.PAUSE, FrameState.TRANSITION})
 #: How much life a strong event radiates into a stillness span, each side.
 _VETO_NEIGHBOURHOOD_SECONDS = 4.0
 
+#: How long an event must sit inside a stillness span before it may vouch
+#: for any of it. The scope and the standoff hold for seconds; the combat
+#: that began 0.03 s before a pause menu closed was the game resuming.
+_VETO_MIN_OVERLAP_SECONDS = 1.0
+
 
 def _minus_neighbourhoods(
     span: StateSpan, events: Sequence[tuple[float, float]]
@@ -227,7 +232,27 @@ def _weighed(
                 weak += 1
                 continue
             if span.state in _STILLNESS and events:
-                remains = _minus_neighbourhoods(span, events)
+                # Only an event that happens *during* the stillness may
+                # vouch for it: the scope, the standoff, the cutscene kill.
+                # An event that begins after the stillness ends is the game
+                # resuming, and its neighbourhood must not reach back into
+                # what came before. Measured across every probe-detected
+                # freeze on this machine (2026-09-03): four spans were
+                # blessed by a neighbouring event alone, and all four were
+                # menus or a loading screen -- one of them the pause menu
+                # that reached a finished video, because combat began 0.03 s
+                # after it closed. Zero gameplay cases. The overlapping kind
+                # is the one the veto was measured for and keeps it -- overlap
+                # meaning at least a second of the event inside the stillness,
+                # because that combat did technically begin 0.03 s before the
+                # menu closed.
+                during = [
+                    (start, end)
+                    for start, end in events
+                    if min(end, span.end_seconds) - max(start, span.start_seconds)
+                    >= _VETO_MIN_OVERLAP_SECONDS
+                ]
+                remains = _minus_neighbourhoods(span, during) if during else [span]
                 if len(remains) != 1 or remains[0] is not span:
                     vetoed += 1
                 kept.extend(remains)
