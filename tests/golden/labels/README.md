@@ -46,6 +46,19 @@ non_gameplay
 * target approximately 60–100 spans per session
 * do not create more labels than necessary
 
+## Finding your way around the recording
+
+```bash
+python scripts/label_helper.py            # every candidate the pipeline knows the position of, in source time
+python scripts/label_helper.py --sheets   # ... and a contact sheet per 30 s window, under the cache directory
+```
+
+The helper prints detector events, the proposed moments with their cores, the
+refused stretches and the gaps the bridge closed, in order, so a stretch can be
+found without scrubbing. It proposes no label, fills no line and never writes
+under this directory: what it lists are the pipeline's own proposals, not a
+verdict on them.
+
 ## Scoring
 
 ```bash
