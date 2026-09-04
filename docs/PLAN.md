@@ -280,6 +280,18 @@ cause of that, the attempt structure (P0.5) the second, and the hook and ending
 (P0.4) are the last thing to tune on an edit nobody can watch through. P0.7 and
 P0.8 keep their places. Each still starts only on its own `AUTHORIZED` line.
 
+**Named test case for P0.5, from the benchmark (owner, 2026-09-04).** In
+`proj-5db1780821a6` the player kills Silvio Caruso and throws the body into the
+valley at source 16:40-16:50 (the vision reads "eliminated Silvio Caruso" at
+1002.2 s), then a loading screen at source 20:45 (1245.8 s, an exclusion) is a
+save reload, and the same kill and throw are done again at 20:50-21:02
+(1250-1262 s). The P0.3 gate render shows both as two consecutive events
+(video 3:50 and 4:15) with nothing marking the reload. P0.5 must read the
+loading screen as an attempt boundary: the first is `failed_attempt` or is
+dropped, the second is the `payoff`, and the edit never shows both as one
+story. The owner's own labels for the three spans are in
+`tests/golden/labels/proj-5db1780821a6.csv`.
+
 **Cost.** 569 s of OCR on an 88-minute session for all 368 frames, 159
 frames with the shipped default -- against 1,605 s for the OCR stage and
 3,168 s for vision. The cache under `.cache/base_frame_reads/` is per frame,
