@@ -44,6 +44,9 @@ qa:
       # Measured on the finished edit, not on the plan the guard then split.
       clip_density: true
       caption_covers_hud: true
+      # P0.3: no clip of the finished edit outside the span its granters
+      # authorised. A failure here blocks export.
+      authorization_bounds: true
     thresholds:
       max_silence_seconds: 12.0
 

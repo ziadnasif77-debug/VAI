@@ -26,7 +26,7 @@ from typing import Any, Final
 from backend.config.schema import CaptionsConfig, QaConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.gaming.profiles import GameProfile, Region
-from backend.qa.report import Finding, enabled_checks, passed, warning
+from backend.qa.report import Finding, enabled_checks, failure, passed, warning
 from backend.timeline.captions import Caption
 from backend.timeline.models import Timeline, TimelineClip
 
@@ -40,7 +40,67 @@ CHECKS: Final[tuple[str, ...]] = (
     "bad_transition",
     "clip_density",
     "caption_covers_hud",
+    # P0.3: the render-level regression. Every clip of the finished edit lies
+    # inside the span its granters authorised, or the export is blocked.
+    "authorization_bounds",
 )
+
+def _authorization_bounds(timeline: Timeline) -> Finding:
+    """P0.3: no final clip exceeds its authorization.
+
+    A clip outside the newest span its granters issued is a failure that
+    blocks export -- the EDL validated this before the render, and this is
+    the check that nothing between there and here widened it. A clip that
+    carries no span at all is a warning naming the cause: the timeline
+    predates authorization and is not backfilled.
+    """
+    from backend.timeline import authorization
+
+    clips = timeline.video_clips()
+    exceeded: list[str] = []
+    unauthorised = 0
+    for clip in clips:
+        try:
+            spans = authorization.spans_from_metadata(clip.metadata)
+        except authorization.AuthorizationError as error:
+            exceeded.append(f"clip {clip.clip_index}: {error}")
+            continue
+        if not spans:
+            unauthorised += 1
+            continue
+        exceeded.extend(
+            authorization.check_clip(
+                clip.media_id, clip.source_in, clip.source_out, spans,
+                label=f"clip {clip.clip_index}",
+            )
+        )
+    if exceeded:
+        return failure(
+            "authorization_bounds",
+            f"{len(exceeded)} clip(s) of the finished edit lie outside their authorized span: "
+            + "; ".join(exceeded[:3]),
+            remedy=(
+                "Nothing between the EDL and the render may widen a clip. Re-run the EDL "
+                "stage; if this recurs, the widening step must issue a grant or stop."
+            ),
+            category="content",
+            clips=len(exceeded),
+        )
+    if unauthorised:
+        return warning(
+            "authorization_bounds",
+            f"{unauthorised} of {len(clips)} clip(s) carry no authorized span: the timeline "
+            "predates authorization",
+            remedy="Re-run STORY and the EDL so every clip carries its grants (P0.3).",
+            clips=unauthorised,
+        )
+    return passed(
+        "authorization_bounds",
+        f"every one of {len(clips)} clip(s) lies inside its authorized span",
+        category="content",
+        clips=len(clips),
+    )
+
 
 #: How much corroborated menu/loading time inside one clip counts as a
 #: *section*. Below this it is a boundary lick or a bridged glance -- the
@@ -117,6 +177,8 @@ def inspect(
         findings.append(_bad_transitions(timeline, inputs.clip_levels))
     if "clip_density" in checks:
         findings.append(_clip_density(timeline))
+    if "authorization_bounds" in checks:
+        findings.append(_authorization_bounds(timeline))
     if "caption_covers_hud" in checks:
         findings.append(_captions_over_hud(captions, caption_config, inputs.profile))
 

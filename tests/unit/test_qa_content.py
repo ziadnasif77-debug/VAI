@@ -434,3 +434,55 @@ class TestDoctrineEndpoints:
         ):
             assert key in report
         assert "UNCERTAIN" in str(report["youtube"])
+
+
+class TestP03AuthorizationBounds:
+    """P0.3 test 8, at the check: no final clip exceeds its authorization."""
+
+    def _with(self, timeline, spans_by_index):
+        from backend.core.models.enums import TrackKind
+        from backend.timeline.models import Timeline, Track
+
+        clips = tuple(
+            clip.model_copy(update={"metadata": {"authorized": spans_by_index.get(i, [])}})
+            for i, clip in enumerate(timeline.video_clips())
+        )
+        return Timeline(project_id=timeline.project_id).with_track(
+            Track(kind=TrackKind.VIDEO, clips=clips)
+        )
+
+    @staticmethod
+    def _grant(clip, start, end):
+        return {
+            "media_id": clip.media_id, "start": start, "end": end,
+            "granted_by": "context_expansion", "reason": "test",
+        }
+
+    def test_p0_3_no_rendered_clip_exceeds_its_authorization(self, config, timeline) -> None:
+        clips = timeline.video_clips()
+        covered = self._with(
+            timeline,
+            {i: [self._grant(c, c.source_in - 1.0, c.source_out + 1.0)] for i, c in enumerate(clips)},
+        )
+        finding = next(
+            f for f in _inspect(covered, config) if f.check == "authorization_bounds"
+        )
+        assert finding.status.value == "passed"
+
+    def test_p0_3_a_clip_outside_its_grant_blocks_the_export(self, config, timeline) -> None:
+        clips = timeline.video_clips()
+        spans = {i: [self._grant(c, c.source_in - 1.0, c.source_out + 1.0)] for i, c in enumerate(clips)}
+        spans[1] = [self._grant(clips[1], clips[1].source_in + 2.0, clips[1].source_out)]
+        widened = self._with(timeline, spans)
+        finding = next(
+            f for f in _inspect(widened, config) if f.check == "authorization_bounds"
+        )
+        assert finding.status.value == "failed"
+        assert "clip 1" in finding.message
+
+    def test_p0_3_a_timeline_without_grants_warns_by_name(self, config, timeline) -> None:
+        finding = next(
+            f for f in _inspect(timeline, config) if f.check == "authorization_bounds"
+        )
+        assert finding.status.value == "warning"
+        assert "predates authorization" in finding.message
