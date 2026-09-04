@@ -35,7 +35,7 @@ from backend.database.repositories.vision import VisionRepository
 from backend.moments.context import ExpansionSources, expand
 from backend.moments.dead_time import dead_time_ratio, detect_dead_time
 from backend.moments.formation import form_moments, pull_back_contexts
-from backend.moments.grants import grant_first_spans
+from backend.moments.grants import grant_first_spans, without_a_span
 from backend.moments.repetition import (
     detect_repetition,
     saturation_penalties,
@@ -156,6 +156,16 @@ class MomentsWorker:
         moments, pulled_after_expansion = pull_back_contexts(moments, excluded)
         # P0.3: the first grants -- core and context -- issued here, against
         # the same exclusions, and carried to the store.
+        moments, spanless = without_a_span(moments)
+        if spanless:
+            logger.warning(
+                "Dropped moments with no watchable span: a point event walled in by exclusions",
+                extra={
+                    "media_id": media.id,
+                    "dropped": len(spanless),
+                    "at": [round(m.start_seconds, 2) for m in spanless][:8],
+                },
+            )
         moments = grant_first_spans(moments, excluded)
         if pulled_after_expansion:
             logger.info(
@@ -223,6 +233,9 @@ class MomentsWorker:
         return {
             "moments": stored,
             "formed": len(moments),
+            # P0.3: point events walled in by exclusions have no span to grant
+            # and cannot be planned; counted here rather than lost in a log.
+            "dropped_without_span": len(spanless),
             "below_minimum": len(scored) - len(offered),
             "by_type": repository.counts_by_type(media.id),
             "needs_review": sum(

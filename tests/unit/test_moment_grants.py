@@ -70,6 +70,18 @@ class TestTheFirstGrants:
         assert [span.granted_by for span in chain] == [Granter.CONTEXT_EXPANSION]
         assert chain[0].covers(680.7, 680.7)
 
+    def test_p0_3_a_point_walled_in_by_exclusions_has_no_span_and_is_set_aside(
+        self, config
+    ) -> None:
+        # The benchmark's surprise at 4657.067 s: the context was pulled back
+        # to the point itself. Nothing a clip could show; nothing to grant.
+        moment = replace_moment(_moment(config), start_seconds=4657.067, end_seconds=4657.067)
+        moment = replace_moment(moment, context_start=4657.067, context_end=4657.067)
+        kept, dropped = grants.without_a_span([moment, _moment(config)])
+        assert len(kept) == 1 and len(dropped) == 1
+        assert dropped[0].start_seconds == 4657.067
+        grants.grant_first_spans(kept)  # and the rest grants cleanly
+
     def test_p0_3_a_moment_without_a_chain_reads_as_empty(self, config) -> None:
         assert grants.spans_of(_moment(config)) == ()
 

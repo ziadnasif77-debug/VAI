@@ -79,6 +79,25 @@ def grant_first_spans(
     return granted
 
 
+def without_a_span(moments: Sequence[Moment]) -> tuple[list[Moment], list[Moment]]:
+    """Split off the moments that have no watchable span to grant.
+
+    A point event whose context was pulled back to the point -- exclusions on
+    both sides -- has nothing a clip could show. On the benchmark: a surprise
+    at 4657.067 s. Such a moment cannot be granted and cannot be planned; the
+    worker drops it and reports the count, so the loss is in the record
+    rather than in a log line.
+    """
+    kept: list[Moment] = []
+    dropped: list[Moment] = []
+    for moment in moments:
+        if moment.context_end - moment.context_start >= MIN_SPAN_SECONDS:
+            kept.append(moment)
+        else:
+            dropped.append(moment)
+    return kept, dropped
+
+
 def spans_of(moment: Moment) -> tuple[AuthorizedSpan, ...]:
     """The chain a moment carries, as objects. Empty for a pre-P0.3 moment."""
     raw = moment.metadata.get(METADATA_KEY) or []
@@ -209,4 +228,5 @@ __all__ = [
     "note_widening",
     "require_chain",
     "spans_of",
+    "without_a_span",
 ]
