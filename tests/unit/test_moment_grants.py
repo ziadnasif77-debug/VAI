@@ -59,6 +59,17 @@ class TestTheFirstGrants:
         assert grants.spans_of(granted)[1].end <= 112.0
         assert "cut back to gameplay" in grants.spans_of(granted)[1].reason
 
+    def test_p0_3_a_point_moment_is_granted_its_context_only(self, config) -> None:
+        # The benchmark holds a surprise at 680.7 s with no duration of its
+        # own. There is no core span to grant; the context is the first and
+        # only grant, and it covers the instant.
+        moment = replace_moment(_moment(config), start_seconds=680.7, end_seconds=680.7)
+        moment = replace_moment(moment, context_start=670.0, context_end=690.0)
+        (granted,) = grants.grant_first_spans([moment])
+        chain = grants.spans_of(granted)
+        assert [span.granted_by for span in chain] == [Granter.CONTEXT_EXPANSION]
+        assert chain[0].covers(680.7, 680.7)
+
     def test_p0_3_a_moment_without_a_chain_reads_as_empty(self, config) -> None:
         assert grants.spans_of(_moment(config)) == ()
 

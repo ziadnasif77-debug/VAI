@@ -20,6 +20,7 @@ from collections.abc import Mapping, Sequence
 
 from backend.moments.formation import Moment, replace_moment
 from backend.timeline.authorization import (
+    MIN_SPAN_SECONDS,
     AuthorizationError,
     AuthorizedSpan,
     Granter,
@@ -37,14 +38,21 @@ def grant_first_spans(
     granted: list[Moment] = []
     for moment in moments:
         events = ", ".join(sorted({event.event_type.value for event in moment.events})) or "none"
-        core = issue(
-            moment.media_id,
-            moment.start_seconds,
-            moment.end_seconds,
-            Granter.MOMENT_CORE,
-            f"events: {events}",
-            exclusions=exclusions,
-        )
+        chain = []
+        if moment.end_seconds - moment.start_seconds >= MIN_SPAN_SECONDS:
+            chain.append(
+                issue(
+                    moment.media_id,
+                    moment.start_seconds,
+                    moment.end_seconds,
+                    Granter.MOMENT_CORE,
+                    f"events: {events}",
+                    exclusions=exclusions,
+                ).to_dict()
+            )
+        # A point moment -- an event with no duration of its own, which the
+        # benchmark has (a surprise at 680.7 s) -- has no core span to grant;
+        # its context is the first grant, and the only one it needs.
         before = max(moment.start_seconds - moment.context_start, 0.0)
         after = max(moment.context_end - moment.end_seconds, 0.0)
         context = issue(
@@ -64,7 +72,7 @@ def grant_first_spans(
                 context_end=context.end,
                 metadata={
                     **moment.metadata,
-                    METADATA_KEY: [core.to_dict(), context.to_dict()],
+                    METADATA_KEY: [*chain, context.to_dict()],
                 },
             )
         )

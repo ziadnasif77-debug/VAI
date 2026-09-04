@@ -638,8 +638,12 @@ class TestAuthorizedSpans:
         for clip in clips:
             chain = authorization.spans_from_metadata(clip.metadata)
             assert chain, f"clip {clip.clip_index} carries no authorized span"
-            assert chain[0].granted_by is authorization.Granter.MOMENT_CORE
-            assert chain[1].granted_by is authorization.Granter.CONTEXT_EXPANSION
+            granters = [span.granted_by for span in chain]
+            assert authorization.Granter.CONTEXT_EXPANSION in granters
+            assert granters[0] in {
+                authorization.Granter.MOMENT_CORE,
+                authorization.Granter.CONTEXT_EXPANSION,
+            }
             assert not authorization.check_clip(
                 clip.media_id, clip.source_in, clip.source_out, chain
             )
