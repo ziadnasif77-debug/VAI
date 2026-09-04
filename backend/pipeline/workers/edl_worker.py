@@ -312,7 +312,10 @@ class EdlWorker:
             )
 
         context.report(0.4, "Checking the timeline")
-        report = validation.validate(timeline, media_durations=durations, policy=policy)
+        # P0.3: validated against the grants, not merely against the recording.
+        report = validation.validate(
+            timeline, media_durations=durations, policy=policy, require_authorization=True
+        )
         if not report.is_valid:
             # Raised rather than stored: a timeline with a gap or an
             # out-of-range seek is not something a later stage can work around,
@@ -341,7 +344,10 @@ class EdlWorker:
             if retimed:
                 context.report(0.65, f"Re-laid {retimed} clip(s) for time effects")
                 after = validation.validate(
-                    relaid.timeline, media_durations=durations, policy=policy
+                    relaid.timeline,
+                    media_durations=durations,
+                    policy=policy,
+                    require_authorization=True,
                 )
                 if not after.is_valid:
                     raise ValidationError(

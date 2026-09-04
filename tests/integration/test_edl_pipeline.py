@@ -620,3 +620,28 @@ class TestPlannedFrameReads:
         assert edl.error_code is ErrorCode.INVALID_EDL
         assert "dead screen time" in (edl.job.error_message or "")
         assert "recording-start guard" in (edl.job.error_message or "")
+
+
+class TestAuthorizedSpans:
+    """P0.3 at the EDL: every stored clip carries its chain and lies inside it."""
+
+    def test_p0_3_every_stored_clip_carries_and_respects_its_authorization(
+        self, edited, database
+    ) -> None:
+        from backend.timeline import authorization, validation
+
+        project, _, outcomes = edited
+        assert outcomes[JobStage.EDL].succeeded, outcomes[JobStage.EDL].job.error_message
+        timeline = TimelineRepository(database).load(project.id)
+        clips = timeline.video_clips()
+        assert clips
+        for clip in clips:
+            chain = authorization.spans_from_metadata(clip.metadata)
+            assert chain, f"clip {clip.clip_index} carries no authorized span"
+            assert chain[0].granted_by is authorization.Granter.MOMENT_CORE
+            assert chain[1].granted_by is authorization.Granter.CONTEXT_EXPANSION
+            assert not authorization.check_clip(
+                clip.media_id, clip.source_in, clip.source_out, chain
+            )
+        report = validation.validate(timeline, require_authorization=True)
+        assert report.is_valid, [str(f) for f in report.errors]

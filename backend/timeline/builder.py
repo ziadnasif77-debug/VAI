@@ -379,19 +379,9 @@ def _bounded(
                 },
             )
             continue
-        bounded.append(
-            PlannedClip(
-                media_id=clip.media_id,
-                source_start=start,
-                source_end=end,
-                moment_id=clip.moment_id,
-                moment_type=clip.moment_type,
-                score=clip.score,
-                role=clip.role,
-                beat=clip.beat,
-                sources=clip.sources,
-            )
-        )
+        # replace(): every field the clip carries survives a narrowing --
+        # the P0.3 chain included. A hand-built copy dropped it once.
+        bounded.append(replace(clip, source_start=start, source_end=end))
     return bounded
 
 
@@ -444,19 +434,7 @@ def _without_excluded(
         if start > clip.source_start + 1e-6 or end < clip.source_end - 1e-6:
             trimmed += 1
             removed += (clip.source_end - clip.source_start) - (end - start)
-            kept.append(
-                PlannedClip(
-                    media_id=clip.media_id,
-                    source_start=start,
-                    source_end=end,
-                    moment_id=clip.moment_id,
-                    moment_type=clip.moment_type,
-                    score=clip.score,
-                    role=clip.role,
-                    beat=clip.beat,
-                    sources=clip.sources,
-                )
-            )
+            kept.append(replace(clip, source_start=start, source_end=end))
         else:
             kept.append(clip)
 
@@ -579,6 +557,9 @@ def _lay_out(clips: Sequence[PlannedClip], project_id: str) -> list[TimelineClip
                 metadata={
                     "beat": clip.beat,
                     "sources": list(clip.sources),
+                    # P0.3: the grants behind these bounds, newest last. The
+                    # validator reads them back; nothing after this may widen.
+                    "authorized": [span.to_dict() for span in clip.authorized],
                     # Carried rather than left for the renderer to guess: the
                     # transition names the shape, this names its length.
                     **({"fade_seconds": OPENING_FADE_SECONDS} if edge else {}),
