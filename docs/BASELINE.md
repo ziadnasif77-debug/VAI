@@ -274,6 +274,7 @@ at each closure. Read the third row with its caveat.
 | P0.2.2, first render | `7eea7cd` | `rnd-0fef262832f5` | 906.4 s | 297 | 63 | skipped: model unavailable | passed, warnings |
 | P0.2.2, Critic live | `ff1cbbb` | `rnd-79cad18fb7f8` | 890.6 s | 297 | 63 | 13 trims, 14.7 s | passed, warnings, **52** |
 | **P0.2.2 accepted** | `457072a` | `rnd-944686d1db2d` | **927.9 s** | **304** | **60** | 21 trims, 20.55 s | passed, warnings, **54** |
+| **P0.3 gate** | `c6d1904` | `rnd-661fbf1f172a` | **922.3 s** | **288** | **61** | live: 291 reviewed, 24 trims, 28.1 s | passed, warnings, 54 |
 
 **The caveat.** The accepted render re-ran MOMENTS and therefore STORY: the
 plan went from 13 to 18 blocks, so 917.1/298/63 → 927.9/304/60 measures the

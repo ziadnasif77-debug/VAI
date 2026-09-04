@@ -120,6 +120,20 @@ peak now travels with the span and the depth is interpolated: the configured
 4,035-second recording that changes the music level under **24.6 % of the
 video**, with the deepest point unchanged.
 
+**Every second it shows was granted, by name.** A clip's source bounds are an
+`AuthorizedSpan`: a recording, two bounds, who granted them and why. The set of
+granters is closed and comes from the plan and the spec — the moment's own
+events, the context expansion, the duration optimizer, refinement, the screen
+guard's rescue, a person, and the J/L planner for sound only. Every grant is
+cut back at the exclusions, so nobody can authorise a menu, a person
+included. Narrowing needs no one; widening is a new grant; a style cannot
+widen, the Critic cannot widen, and a widening no listed step explains fails
+the edit rather than shipping. The chain travels with the clip — into the
+moments table, the story result, the stored timeline — and is checked at the
+EDL, after the Critic, in the editing API and again by QA on the finished
+video. On the 88.5-minute benchmark, every clip of the accepted render lies
+inside its grant.
+
 **It refuses footage that is not the game.** A recording is not a stream of
 gameplay: it contains menus, loading screens, pause screens, the game's own
 intro, and the screen a player sees when they die. Every stage used to treat
