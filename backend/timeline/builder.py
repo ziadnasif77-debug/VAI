@@ -427,11 +427,17 @@ def _without_excluded(
             )
             continue
         start, end = max(pieces, key=lambda piece: piece[1] - piece[0])
-        if end - start < MIN_SURVIVING_SECONDS:
+        touched = start > clip.source_start + 1e-6 or end < clip.source_end - 1e-6
+        if touched and end - start < MIN_SURVIVING_SECONDS:
+            # What an exclusion leaves of a clip can be too little to show.
+            # A clip no exclusion touched is not this pass's to drop, however
+            # short: on the benchmark twelve sub-second pacing pieces went out
+            # under "not gameplay" and five took an event's first frames with
+            # them (P0.6). The shot-length floor decides those, last.
             dropped += 1
             removed += clip.seconds
             continue
-        if start > clip.source_start + 1e-6 or end < clip.source_end - 1e-6:
+        if touched:
             trimmed += 1
             removed += (clip.source_end - clip.source_start) - (end - start)
             kept.append(replace(clip, source_start=start, source_end=end))

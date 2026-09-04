@@ -2099,6 +2099,19 @@ class TestNothingButGameplayReachesTheTimeline:
 
         assert kept == []
 
+    def test_p0_6_a_short_piece_no_exclusion_touched_is_not_dropped_as_not_gameplay(self) -> None:
+        # A sub-second pacing piece with a menu elsewhere in the recording is
+        # gameplay from end to end; this pass has no say over its length. On
+        # the benchmark twelve such pieces went out under "not gameplay" and
+        # five took an event's first frames with them.
+        from backend.timeline.builder import MIN_SURVIVING_SECONDS, _without_excluded
+
+        piece = self._clip(999.5, 999.5 + MIN_SURVIVING_SECONDS * 0.83)
+        kept, notes = _without_excluded([piece], [(2000.0, 2010.0)])
+
+        assert kept == [piece]
+        assert notes == []
+
     def test_clean_footage_is_returned_unchanged(self) -> None:
         # By identity: a project with nothing to exclude must build exactly the
         # timeline it built before this existed.
