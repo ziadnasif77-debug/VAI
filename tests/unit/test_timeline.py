@@ -2110,3 +2110,50 @@ class TestNothingButGameplayReachesTheTimeline:
         assert kept[0] is clips[0]
         assert notes == []
 
+
+
+class TestP03OnlyAPersonMayWiden:
+    def _timeline(self):
+        from backend.core.models.enums import TrackKind
+        from backend.timeline.models import Timeline, Track
+
+        clip = TimelineClip(
+            id="clip-000000000001",
+            media_id=MEDIA,
+            clip_index=0,
+            source_in=100.0,
+            source_out=130.0,
+            timeline_start=0.0,
+            timeline_end=30.0,
+            metadata={"authorized": [{**_AUTH, "start": 95.0, "end": 140.0}]},
+        )
+        return Timeline(project_id="proj-aaaaaaaaaaaa").with_track(
+            Track(kind=TrackKind.VIDEO, clips=(clip,))
+        )
+
+    def test_p0_3_a_person_widening_a_clip_issues_a_human_grant(self) -> None:
+        from backend.timeline import operations, validation
+        from backend.timeline.authorization import Granter, spans_from_metadata
+
+        widened = operations.trim(
+            self._timeline(), "clip-000000000001", start_delta=-10.0, end_delta=15.0,
+            granted_by=Granter.HUMAN, reason="the owner wanted the run-up",
+        )
+        clip = widened.video_clips()[0]
+        assert (clip.source_in, clip.source_out) == (90.0, 145.0)
+        chain = spans_from_metadata(clip.metadata)
+        assert chain[-1].granted_by is Granter.HUMAN
+        assert chain[-1].reason == "the owner wanted the run-up"
+        assert (chain[-1].start, chain[-1].end) == (90.0, 145.0)
+        assert validation.validate(widened, require_authorization=True).is_valid
+
+    def test_p0_3_a_person_cannot_widen_into_an_exclusion(self) -> None:
+        from backend.timeline import operations
+        from backend.timeline.authorization import Granter
+
+        widened = operations.trim(
+            self._timeline(), "clip-000000000001", end_delta=20.0,
+            granted_by=Granter.HUMAN, reason="more", exclusions=[(140.0, 160.0)],
+        )
+        clip = widened.video_clips()[0]
+        assert clip.source_out == 140.0, "the grant, and so the trim, stops at the menu"

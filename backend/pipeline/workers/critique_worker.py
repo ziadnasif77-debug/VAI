@@ -105,6 +105,13 @@ class CritiqueWorker:
             clip_floor=lambda index: floor_for(levels.get(index), context.config),
         )
         if revision.changed and config.apply:
+            # P0.3, brief rule 4: the Critic may not widen an authorized span.
+            # It only ever narrows through operations.trim, which refuses a
+            # widening from anyone but a person; this is the check that the
+            # timeline it wrote still lies inside every grant it carries.
+            from backend.timeline import validation
+
+            validation.require_valid(revision.timeline)
             repository.save_edit(context.project_id, revision.timeline)
         elif revision.changed:
             # Reviewed, reported, not acted on: §78's "the human has the last

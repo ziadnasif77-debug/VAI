@@ -396,3 +396,57 @@ class TestAnAbsentModel:
         assert isinstance(outcome, CritiqueRejection)
         assert outcome.reason == "the reasoning model is not available"
         assert provider.calls == []
+
+
+class TestP03TheCriticCannotWiden:
+    def test_p0_3_the_critic_cannot_widen_an_authorized_span(self) -> None:
+        # Two doors, both shut. A note cannot ask for a negative trim, and
+        # the operation a note becomes refuses a widening from anyone who is
+        # not a person.
+        import pytest
+        from pydantic import ValidationError as PydanticError
+
+        from backend.core.models.enums import TrackKind
+        from backend.critic.models import Action, Note
+        from backend.timeline import operations
+        from backend.timeline.authorization import AuthorizationError, Granter
+        from backend.timeline.models import Timeline, TimelineClip, Track
+
+        with pytest.raises(PydanticError):
+            Note(clip=0, action=Action.TRIM_START, seconds=-2.0, reason="widen")
+        with pytest.raises(PydanticError):
+            Note(clip=0, action=Action.TRIM_END, seconds=0.0, reason="widen")
+
+        clip = TimelineClip(
+            id="clip-000000000001",
+            media_id="media-1",
+            clip_index=0,
+            source_in=100.0,
+            source_out=130.0,
+            timeline_start=0.0,
+            timeline_end=30.0,
+            metadata={
+                "authorized": [
+                    {
+                        "media_id": "media-1",
+                        "start": 95.0,
+                        "end": 140.0,
+                        "granted_by": "context_expansion",
+                        "reason": "context",
+                    }
+                ]
+            },
+        )
+        timeline = Timeline(project_id="proj-aaaaaaaaaaaa").with_track(
+            Track(kind=TrackKind.VIDEO, clips=(clip,))
+        )
+        # The Critic's own verbs narrow, and narrowing needs no grant.
+        narrowed = operations.trim(timeline, clip.id, start_delta=2.0)
+        assert narrowed.video_clips()[0].source_in == 102.0
+        # A widening with no granter, or with a granter that is not a person, is refused.
+        with pytest.raises(AuthorizationError, match="only a person may give one"):
+            operations.trim(timeline, clip.id, start_delta=-2.0)
+        with pytest.raises(AuthorizationError, match="may not"):
+            operations.trim(
+                timeline, clip.id, end_delta=2.0, granted_by=Granter.DURATION_OPTIMIZER
+            )

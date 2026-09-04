@@ -38,11 +38,13 @@ from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.qa import QaRepository
 from backend.database.repositories.renders import RenderRepository
 from backend.database.repositories.timeline import TimelineRepository
+from backend.gaming.exclusions import exclusions_for_media
 from backend.interaction.models import CommandKind, EditCommand
 from backend.interaction.service import InteractionService
 from backend.services.job_manager import JobManager
 from backend.services.project_manager import ProjectManager
 from backend.timeline import operations, validation
+from backend.timeline.authorization import Granter
 
 router = APIRouter(tags=["editing"])
 
@@ -296,7 +298,13 @@ def apply_operation(
     # most.
     interaction = InteractionService(state.database, state.config)
     interaction.snapshot(project_id, reason=f"before {operation.action} on {operation.clip_id}")
-    edited = _apply(timeline, operation)
+    edited = _apply(
+        timeline,
+        operation,
+        exclusions_for=lambda media_id: exclusions_for_media(
+            state.database, media_id, state.paths.profiles_dir
+        ),
+    )
     repository.save_edit(project_id, edited)
     return _timeline_response(project_id, state)
 
@@ -554,8 +562,13 @@ def _timeline_response(project_id: str, state) -> TimelineResponse:
     )
 
 
-def _apply(timeline, operation: TimelineOperation):
-    """Route a §62 command to its operation, translating errors for the API."""
+def _apply(timeline, operation: TimelineOperation, *, exclusions_for=None):
+    """Route a §62 command to its operation, translating errors for the API.
+
+    ``exclusions_for(media_id)`` supplies the recording's excluded stretches
+    when a trim widens a clip: the person is the granter (P0.3), and their
+    grant is cut back at a menu like anyone else's.
+    """
     try:
         if operation.action == "delete":
             return operations.delete(timeline, operation.clip_id)
@@ -569,11 +582,19 @@ def _apply(timeline, operation: TimelineOperation):
             if operation.at_seconds is None:
                 raise _missing("split", "at_seconds")
             return operations.split(timeline, operation.clip_id, operation.at_seconds)
+        clips = timeline.video_clips(enabled_only=False)
+        clip = next((c for c in clips if c.id == operation.clip_id), None)
         return operations.trim(
             timeline,
             operation.clip_id,
             start_delta=operation.start_delta,
             end_delta=operation.end_delta,
+            granted_by=Granter.HUMAN,
+            reason=(
+                f"trimmed by hand (API): start {operation.start_delta:+.2f} s, "
+                f"end {operation.end_delta:+.2f} s"
+            ),
+            exclusions=exclusions_for(clip.media_id) if (exclusions_for and clip) else (),
         )
     except ValidationError as error:
         # A refused edit is the user asking for something impossible, not a

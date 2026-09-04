@@ -27,6 +27,7 @@ from backend.core.errors import ErrorCode, ValidationError
 from backend.core.ids import derived_id
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import TrackKind, TransitionType
+from backend.timeline.authorization import AuthorizationError, Granter, issue
 from backend.timeline.models import EPSILON, Timeline, TimelineClip, Track
 
 logger = get_logger("timeline.operations", LogChannel.PIPELINE)
@@ -89,6 +90,9 @@ def trim(
     *,
     start_delta: float = 0.0,
     end_delta: float = 0.0,
+    granted_by: Granter | None = None,
+    reason: str = "",
+    exclusions: Sequence[tuple[float, float]] = (),
 ) -> Timeline:
     """Move a clip's in and out points within its recording (§42).
 
@@ -96,12 +100,45 @@ def trim(
     The source bounds are respected — a trim cannot invent footage before the
     beginning of a file, and asking for it is an error rather than a clamp,
     because silently doing something else is how a user loses trust in an edit.
+
+    P0.3: narrowing needs no one. **Widening** -- an earlier start or a later
+    end -- is a new authorized span, and the only granter this operation
+    accepts is :attr:`Granter.HUMAN` (§78, §42): the Critic and the
+    post-render critic only ever narrow, a style never reaches here, and
+    nothing else may type a granter in. The grant is issued against the
+    recording's ``exclusions`` and the trim is cut back to it, so a person
+    cannot drag a clip into a menu either.
     """
     clip = _require_clip(timeline, clip_id)
     source_in = clip.source_in + start_delta
     source_out = clip.source_out + end_delta
     if source_in < -EPSILON:
         raise _invalid(f"trimming clip {clip_id} would start {-source_in:.3f}s before the file")
+
+    widening = source_in < clip.source_in - EPSILON or source_out > clip.source_out + EPSILON
+    metadata = dict(clip.metadata)
+    if widening:
+        if granted_by is not Granter.HUMAN:
+            raise AuthorizationError(
+                f"widening clip {clip_id} to [{source_in:.3f}, {source_out:.3f}] needs a "
+                "grant, and only a person may give one here; "
+                + ("no granter was named" if granted_by is None else f"{granted_by!r} may not"),
+                details={"clip_id": clip_id, "granted_by": repr(granted_by)},
+                recoverable=False,
+            )
+        span = issue(
+            clip.media_id,
+            max(0.0, source_in),
+            source_out,
+            Granter.HUMAN,
+            reason or f"trimmed by hand: start {start_delta:+.2f} s, end {end_delta:+.2f} s",
+            exclusions=exclusions,
+        )
+        # The grant may have been cut back at an exclusion; the trim follows it.
+        source_in, source_out = max(source_in, span.start), min(source_out, span.end)
+        chain = list(metadata.get("authorized") or [])
+        chain.append(span.to_dict())
+        metadata["authorized"] = chain
     if source_out - source_in < MIN_RESULT_SECONDS:
         raise _invalid(
             f"trimming clip {clip_id} would leave {source_out - source_in:.3f}s; "
@@ -114,6 +151,7 @@ def trim(
             "source_in": max(0.0, source_in),
             "source_out": source_out,
             "timeline_end": clip.timeline_start + duration,
+            "metadata": metadata,
         }
     )
     return _rewrite(timeline, clip.track, _replace(timeline, clip, [trimmed]))

@@ -483,3 +483,36 @@ class TestEndingAShotOnceItIsDecided:
         )
 
         assert after[0] is before
+
+
+class TestP03StyleCannotWiden:
+    def test_p0_3_a_style_cannot_widen_an_authorized_span(self) -> None:
+        # The reaction hold is the one policy that lengthens a shot. With a
+        # chain on the moment it stops at the grant, and says so in the
+        # moment's own ledger; nothing widens, and nothing is silent.
+        from backend.moments import grants
+
+        (before,) = grants.grant_first_spans([_moment()])
+        governing = grants.spans_of(before)[-1]
+        after = apply(
+            [before],
+            EditingStrategy(reaction=ReactionPolicy(hold_for_response=True)),
+            _Reading(ShotPurpose.REACTION, response=2.0),
+            {"media-1": 10_000.0},
+        )[0]
+        assert after.context_end == governing.end, "held to the grant, not past it"
+        assert any("refused -- a style may not widen" in line for line in after.explanation)
+        # And the plan-level check agrees: no unmarked widening to report.
+        assert grants.grant_widenings([after], {})[0].context_end == governing.end
+
+    def test_p0_3_a_bare_moment_is_still_held_the_old_way(self) -> None:
+        # The engine's own fixtures carry no chain; the pipeline refuses those
+        # before the engine, and here the hold behaves as it always has.
+        before = _moment()
+        after = apply(
+            [before],
+            EditingStrategy(reaction=ReactionPolicy(hold_for_response=True)),
+            _Reading(ShotPurpose.REACTION, response=2.0),
+            {"media-1": 10_000.0},
+        )[0]
+        assert after.context_end == before.context_end + 2.0

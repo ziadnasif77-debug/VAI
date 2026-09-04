@@ -693,10 +693,30 @@ def _shape(
     )
     end = strategy.reaction.held_end(semantics, end, source_length or end)
 
+    # P0.3, brief rule 3: style logic may not widen an authorized span. The
+    # policies above may only use what the moment was granted; the reaction
+    # hold -- the one policy that lengthens a shot -- stops at the grant, and
+    # the refusal is written into the moment's own ledger (§80).
+    refusal = None
+    governing = _governing_span(moment)
+    if governing is not None:
+        wanted = (start, end)
+        start, end = max(start, governing.start), min(end, governing.end)
+        if (start, end) != wanted:
+            refusal = (
+                f"style asked for [{wanted[0]:.2f}, {wanted[1]:.2f}] beyond the authorized "
+                f"span [{governing.start:.2f}, {governing.end:.2f}] granted by "
+                f"{governing.granted_by.value}; refused -- a style may not widen (P0.3)"
+            )
+            logger.info("A style asked past the authorized span; refused", extra={
+                "wanted": [round(wanted[0], 2), round(wanted[1], 2)],
+                "granted": [round(governing.start, 2), round(governing.end, 2)],
+            })
+
     dead = strategy.dead_time.score_for(semantics)
 
     unchanged = (start, end) == (moment.context_start, moment.context_end)
-    if unchanged and dead == moment.dead_time_score:
+    if unchanged and dead == moment.dead_time_score and refusal is None:
         return moment
     shaped = moment.with_context(start, end) if (start, end) != (
         moment.context_start,
@@ -706,7 +726,21 @@ def _shape(
         from backend.moments.formation import replace_moment
 
         shaped = replace_moment(shaped, dead_time_score=dead)
+    if refusal is not None:
+        from backend.moments.formation import replace_moment
+
+        shaped = replace_moment(shaped, explanation=(*shaped.explanation, refusal))
     return shaped
+
+
+def _governing_span(moment: Any):
+    """The span that bounds what a style may do to this moment, or ``None``
+    for a moment that carries no chain (the engine's own bare fixtures)."""
+    from backend.moments.grants import spans_of
+    from backend.timeline.authorization import newest_for
+
+    chain = spans_of(moment)
+    return newest_for(chain, moment.media_id) if chain else None
 
 
 __all__ = [

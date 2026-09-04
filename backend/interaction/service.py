@@ -524,11 +524,25 @@ class InteractionService:
         timeline = repository.load(project_id)
 
         if command.kind is CommandKind.TRIM_CLIP:
+            from backend.config.paths import build_paths
+            from backend.gaming.exclusions import exclusions_for_media
+            from backend.timeline.authorization import Granter
+
             edited = operations.trim(
                 timeline,
                 target.id,
                 start_delta=command.start_delta or 0.0,
                 end_delta=command.end_delta or 0.0,
+                # P0.3: the person asking is the granter; their grant is cut
+                # back at the recording's exclusions like anyone else's.
+                granted_by=Granter.HUMAN,
+                reason=(
+                    f"trimmed by hand (chat): start {command.start_delta or 0.0:+.2f} s, "
+                    f"end {command.end_delta or 0.0:+.2f} s"
+                ),
+                exclusions=exclusions_for_media(
+                    self._db, target.media_id, build_paths(self._config).profiles_dir
+                ),
             )
             message = phrases.say(
                 "trimmed_clip",

@@ -122,4 +122,18 @@ def read_exclusions(
     )
 
 
-__all__ = ["Exclusions", "profile_for", "read_exclusions"]
+def exclusions_for_media(
+    database: Any, media_id: str, profiles_dir: Path
+) -> tuple[tuple[float, float], ...]:
+    """The excluded stretches of one recording, for a grant issued outside
+    the pipeline -- a person trimming a clip outward (P0.3)."""
+    row = database.fetch_one("SELECT duration_seconds FROM media WHERE id = ?", (media_id,))
+    duration = float(row["duration_seconds"] or 0.0) if row is not None else 0.0
+    if duration <= 0.0:
+        return ()
+    return read_exclusions(
+        database, media_id, duration_seconds=duration, profiles_dir=profiles_dir
+    ).spans
+
+
+__all__ = ["Exclusions", "exclusions_for_media", "profile_for", "read_exclusions"]
