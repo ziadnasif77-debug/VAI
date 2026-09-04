@@ -189,6 +189,28 @@ class TestWideningsAreGrants:
             grants.require_chain([_moment(config)])
         grants.require_chain([self._granted(config)])
 
+    def test_p0_3_a_merge_carries_the_following_clip_s_own_grants(self, config) -> None:
+        # Two adjacent granted moments merge into one; the merged moment
+        # carries both chains, so the second clip's seconds stay credited to
+        # its own granters and only the seam is refinement's.
+        from backend.narrative import refinement
+
+        first = self._granted(config)
+        second = replace_moment(
+            self._granted(config),
+            start_seconds=first.context_end + 1.0,
+            end_seconds=first.context_end + 5.0,
+            context_start=first.context_end + 0.5,
+            context_end=first.context_end + 8.0,
+        )
+        (joined,), _beats, merges = refinement._merge_adjacent([first, second], ["body", "body"])
+        assert merges == 1
+        chain = joined.metadata[grants.METADATA_KEY]
+        assert len(chain) == len(grants.spans_of(first)) + len(grants.spans_of(second))
+        (granted,) = grants.grant_widenings([joined], {})
+        assert grants.spans_of(granted)[-1].granted_by is Granter.REFINEMENT
+        assert "merged with the following clip" in grants.spans_of(granted)[-1].reason
+
     def test_p0_3_the_optimizer_and_refinement_mark_what_they_widen(self, config) -> None:
         from backend.narrative import optimizer, refinement
 

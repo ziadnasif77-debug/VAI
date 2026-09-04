@@ -395,9 +395,23 @@ def _merge_adjacent(
                 events=(*previous.events, *moment.events),
                 score=max(previous.score, moment.score),
             )
+            # P0.3: the following clip's own grants travel with the merge, so
+            # the seconds it was authorised for stay credited to their
+            # granters and only the seam is refinement's.
+            from backend.moments.grants import METADATA_KEY
+
+            theirs = list(moment.metadata.get(METADATA_KEY) or [])
+            if theirs:
+                joined = replace_moment(
+                    joined,
+                    metadata={
+                        **joined.metadata,
+                        METADATA_KEY: [*(joined.metadata.get(METADATA_KEY) or []), *theirs],
+                    },
+                )
             if joined.context_end > previous.context_end + 1e-6:
-                # P0.3: the seam between two clips is footage neither grant
-                # covered on its own; the merge is a widening by refinement.
+                # The seam between two clips is footage neither grant covered
+                # on its own; the union is a widening by refinement.
                 from backend.moments.grants import note_widening
                 from backend.timeline.authorization import Granter
 
