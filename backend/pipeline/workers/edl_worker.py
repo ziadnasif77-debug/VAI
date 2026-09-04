@@ -641,6 +641,15 @@ class EdlWorker:
             for media_id in timelines
         }
 
+        # P0.6: what a jump cut may not remove -- an event's onset, a
+        # reaction -- beside the words it may not land inside.
+        onsets = {
+            media_id: sorted(start for start, _end in spans) for media_id, spans in events.items()
+        }
+        reactions = {
+            media_id: _reaction_spans(context.database, context.project_id, media_id)
+            for media_id in timelines
+        }
         guarded = guard_clips(
             planned,
             states_by_media=states,
@@ -651,6 +660,8 @@ class EdlWorker:
             no_cut_by_media=no_cut,
             jump_cut_gap=context.config.editorial.pacing.jump_cut_gap_seconds,
             jump_cut_below=context.config.editorial.pacing.bands.normal.max,
+            onsets_by_media=onsets,
+            reactions_by_media=reactions,
             cap_fn=dynamic_cap if timelines else None,
             min_observations=guard.min_observations,
             bridge_interior_seconds=guard.bridge_interior_seconds,
@@ -952,6 +963,37 @@ def _effect_shapes(config) -> dict:
 
 
 __all__ = ["EdlWorker"]
+
+
+def _reaction_spans(database, project_id: str, media_id: str) -> list[tuple[float, float]]:
+    """Every reaction phase the moments stage read on this recording (P0.6).
+
+    A jump cut may not remove one: the beat after the kill is what the kill
+    was for. Phases are stored per moment; the spans are gathered here once.
+    """
+    from json import loads
+
+    spans: list[tuple[float, float]] = []
+    for row in database.fetch_all(
+        "SELECT phases FROM moments WHERE project_id = ? AND media_id = ?",
+        (project_id, media_id),
+    ):
+        if not row["phases"]:
+            continue
+        try:
+            phases = loads(row["phases"])
+        except ValueError:
+            continue
+        for phase in phases if isinstance(phases, list) else ():
+            if not isinstance(phase, dict) or phase.get("name") != "reaction":
+                continue
+            start = phase.get("start_seconds", phase.get("start"))
+            end = phase.get("end_seconds", phase.get("end"))
+            if start is None or end is None or float(end) <= float(start):
+                continue
+            spans.append((float(start), float(end)))
+    spans.sort()
+    return spans
 
 
 def _spoken_words(database, media_id: str) -> list[tuple[float, float]]:

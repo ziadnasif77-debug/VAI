@@ -33,6 +33,7 @@ from typing import Any, Final
 from backend.analysis.frame_state import StateSpan
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import FrameState
+from backend.editorial.jump_cuts import Budget, Evidence, decide
 from backend.timeline.builder import PlannedClip
 
 logger = get_logger("timeline.screen_guard", LogChannel.PIPELINE)
@@ -63,8 +64,20 @@ def guard_clips(
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
     cap_fn=None,
+    onsets_by_media: Mapping[str, Sequence[float]] | None = None,
+    reactions_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
+    jump_cut_min_gap_seconds: float | None = None,
+    jump_cut_budget: Budget | None = None,
 ) -> list[PlannedClip]:
     """Both refinements, in the order that keeps them honest.
+
+    P0.6: every second the guard removes from inside a clip -- a dead
+    interior, the sliver after a hot cut -- is a jump cut, and each one is
+    asked of :func:`backend.editorial.jump_cuts.decide` with the evidence
+    here: the words (``no_cut_by_media``), the event onsets, the reactions,
+    and the dead states. ``jump_cut_min_gap_seconds`` defaults to
+    ``bridge_interior_seconds``: the same line that already said a shorter
+    dead stretch is bridged, not cut.
 
     Openings first -- a slab is split only after its start is real footage --
     and a clip whose remainder falls under ``min_piece_seconds`` is dropped
@@ -83,12 +96,31 @@ def guard_clips(
         pad=dead_state_pad_seconds,
         min_piece=min_piece_seconds,
     )
+    min_gap = (
+        bridge_interior_seconds if jump_cut_min_gap_seconds is None else jump_cut_min_gap_seconds
+    )
+    evidence_by_media = {
+        media_id: Evidence(
+            words=tuple((no_cut_by_media or {}).get(media_id, ())),
+            onsets=tuple((onsets_by_media or {}).get(media_id, ())),
+            reactions=tuple((reactions_by_media or {}).get(media_id, ())),
+            dead=tuple(
+                (span.start_seconds, span.end_seconds)
+                for span in states_by_media.get(media_id, ())
+                if span.state not in _OPENABLE
+            ),
+        )
+        for media_id in {clip.media_id for clip in clips}
+    }
     excised = _excise_dead_interiors(
         opened,
         states_by_media,
         pad=dead_state_pad_seconds,
         min_piece=min_piece_seconds,
         bridge_seconds=bridge_interior_seconds,
+        evidence_by_media=evidence_by_media,
+        min_gap=min_gap,
+        budget=jump_cut_budget,
     )
     return _split_long_clips(
         excised,
@@ -100,6 +132,9 @@ def guard_clips(
         no_cut_by_media=no_cut_by_media or {},
         jump_cut_gap=jump_cut_gap,
         jump_cut_below=jump_cut_below,
+        evidence_by_media=evidence_by_media,
+        min_gap=min_gap,
+        budget=jump_cut_budget,
         max_seconds=max_clip_seconds,
         high_tier_max_seconds=high_tier_max_seconds,
         low_tier_max_seconds=low_tier_max_seconds,
@@ -278,8 +313,16 @@ def _excise_dead_interiors(
     pad: float,
     min_piece: float,
     bridge_seconds: float = 4.0,
+    evidence_by_media: Mapping[str, Evidence] | None = None,
+    min_gap: float = 4.0,
+    budget: Budget | None = None,
 ) -> list[PlannedClip]:
     """Cut the dead stretches out of a clip's middle, not only its opening.
+
+    P0.6: each dead stretch is a jump cut and is asked of ``decide`` --
+    refused when its edges fall inside a word, when an event onset or a
+    reaction lies inside it, or when the budget is spent -- and a refused
+    stretch stays in the clip, logged with its reason.
 
     Found on the second live rerun of the same recording: the opening guard
     moved the first clip to 12.9 s -- past the first OBS visit -- and the
@@ -304,6 +347,25 @@ def _excise_dead_interiors(
             ),
             key=lambda span: span.start_seconds,
         )
+        if dead and evidence_by_media is not None:
+            evidence = evidence_by_media.get(clip.media_id, Evidence())
+            allowed: list[StateSpan] = []
+            for span in dead:
+                lo = max(span.start_seconds, clip.source_start)
+                hi = min(span.end_seconds, clip.source_end)
+                verdict = decide(lo, hi, evidence, min_gap_seconds=min_gap, budget=budget)
+                if verdict:
+                    allowed.append(span)
+                else:
+                    logger.info(
+                        "Kept a dead stretch inside a clip: jump cut refused",
+                        extra={
+                            "media_id": clip.media_id,
+                            "start": round(lo, 2),
+                            "reason": verdict.reason,
+                        },
+                    )
+            dead = allowed
         if not dead:
             refined.append(clip)
             continue
@@ -438,6 +500,9 @@ def _split_long_clips(
     no_cut_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
     jump_cut_gap: float = 0.0,
     jump_cut_below: float = 0.0,
+    evidence_by_media: Mapping[str, Evidence] | None = None,
+    min_gap: float = 4.0,
+    budget: Budget | None = None,
 ) -> list[PlannedClip]:
     refined: list[PlannedClip] = []
     for clip in clips:
@@ -463,6 +528,9 @@ def _split_long_clips(
                     min_piece=min_piece,
                     jump_cut_gap=jump_cut_gap,
                     jump_cut_below=jump_cut_below,
+                    evidence=(evidence_by_media or {}).get(clip.media_id),
+                    min_gap=min_gap,
+                    budget=budget,
                 )
             )
             continue
@@ -568,8 +636,17 @@ def _walk(
     min_piece: float,
     jump_cut_gap: float,
     jump_cut_below: float,
+    evidence: Evidence | None = None,
+    min_gap: float = 4.0,
+    budget: Budget | None = None,
 ) -> list[PlannedClip]:
     """Cut forward through a clip, re-reading the session at every piece.
+
+    P0.6: the sliver skipped after a hot cut (``jump_cut_gap``) is a jump cut
+    and is asked of ``decide`` like any other. Live footage is never dead, so
+    on live footage the pieces resume exactly where they cut and play as one
+    unbroken shot; the skip survives only across a dead stretch. Without
+    evidence (no caller gave any) the old behaviour stands.
 
     The length is not a property of the clip; it is a property of the second
     the cut starts on. Measuring the plan the other way round -- one cap for
@@ -581,6 +658,7 @@ def _walk(
     so a finished video can say why each shot is the length it is (§80).
     """
     pieces: list[PlannedClip] = []
+    refused: list[str] = []
     position = clip.source_start
     end = clip.source_end
     guard = 0
@@ -611,6 +689,19 @@ def _walk(
             close = _before(end, no_cut, floor_at=position + floor)
             pieces.append(_paced(clip, position, close, rules))
             break
+
+        def resume_after(cut: float, *, floor: float = floor, gap: float = gap) -> float:
+            """Where the next piece starts: after the skip, or exactly at the cut."""
+            if gap <= 0.0 or end - (cut + gap) < floor:
+                return cut
+            if evidence is None:
+                return cut + gap
+            verdict = decide(cut, cut + gap, evidence, min_gap_seconds=min_gap, budget=budget)
+            if verdict:
+                return cut + gap
+            refused.append(verdict.reason)
+            return cut
+
         target = position + cap
         # A shot does not span a change of level. Where the session turns
         # calmer or hotter inside this piece, that turn is the piece's end --
@@ -631,14 +722,24 @@ def _walk(
             if remaining / 2 >= floor:
                 middle = position + remaining / 2
                 pieces.append(_paced(clip, position, middle, rules))
-                resumed = middle + gap if end - (middle + gap) >= floor else middle
+                resumed = resume_after(middle)
                 pieces.append(_paced(clip, resumed, end, rules))
             else:
                 pieces.append(_paced(clip, position, end, rules))
             break
         pieces.append(_paced(clip, position, cut, rules))
         previous_length = cut - position
-        position = cut + gap if end - (cut + gap) >= floor else cut
+        position = resume_after(cut)
+    if refused:
+        # Once per clip, not once per piece: the reason is the same sentence
+        # every time on live footage.
+        pieces = [
+            replace(
+                piece,
+                sources=(*piece.sources, f"jump cut refused ({len(refused)}x): {refused[0]}"),
+            )
+            for piece in pieces
+        ]
     if len(pieces) > 1:
         logger.info(
             "Walked a slab at the pace of its own heat",
