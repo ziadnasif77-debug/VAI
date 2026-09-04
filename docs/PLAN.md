@@ -292,6 +292,29 @@ dropped, the second is the `payoff`, and the edit never shows both as one
 story. The owner's own labels for the three spans are in
 `tests/golden/labels/proj-5db1780821a6.csv`.
 
+**P0.5 scope, added by the owner (2026-09-04; recorded now, built in its
+turn after P0.6).** The principle: **repetition is cut, failure is not.** When
+the player repeats the same attempt, the final video shows the successful
+attempt whole and shows of the failed ones only what serves the story. Over a
+run of attempts at one goal: the last successful attempt is `PAYOFF`, whole;
+the first failed attempt is `COMPRESS` (down to the failure itself plus the
+reaction), because the failure is what gives the success its meaning; the
+similar failed attempts in between are `DROP`; a failed attempt that carries a
+qualitatively different event (a different way to fail, a funny beat) is `KEEP`,
+compressed. The P0.5 design report must answer, before anything is built, on
+what evidence two attempts are the *same* attempt -- from what the pipeline
+holds today, each with its strength, nothing invented: the loading screen /
+`MISSION FAILED` / `RESTART` as the boundary between attempts (`ContentState`
+from P0.1, the strongest and cheapest); the same target or place in the vision
+and OCR reads on both sides; a similar starting point after the reload; the
+spoken words ("again", "done"). It must then say plainly what confidence those
+alone can reach and where they will be wrong; if they cannot tell attempts
+apart reliably, say so rather than build a rule that works on the benchmark and
+fails on another game. A mandatory safety rule: dropping an attempt may not
+drop an event the kept attempt does not contain (the same logic as P0.6's fifth
+item). Acceptance on the benchmark: the 20:45 case (reload, then the second
+kill) appears in the result as one attempt, not two events.
+
 **Cost.** 569 s of OCR on an 88-minute session for all 368 frames, 159
 frames with the shipped default -- against 1,605 s for the OCR stage and
 3,168 s for vision. The cache under `.cache/base_frame_reads/` is per frame,
