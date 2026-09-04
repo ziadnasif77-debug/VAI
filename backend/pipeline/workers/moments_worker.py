@@ -55,50 +55,21 @@ class MomentsWorker:
     def _excluded_spans(self, context, media, vision, duration: float):
         """Non-gameplay stretches, from every store that has an opinion.
 
-        Never fatal: a store that will not answer leaves the older, vision-only
-        guard standing rather than stopping the stage (§95). A configuration
-        error is not a store declining to answer -- a missing profiles
-        directory would turn every game generic and look like the feature
-        working -- so that one is allowed through (P0.2.1).
+        One reader for every stage (:mod:`backend.gaming.exclusions`): never
+        fatal for a store that will not answer (§95), and a configuration
+        error is allowed through (P0.2.1).
         """
-        from backend.analysis import frame_state as _fs
-        from backend.core.errors import ConfigurationError
-        from backend.database.repositories.gaming import OcrRepository
-        from backend.gaming import content
-        from backend.gaming.profiles import GENERIC_PROFILE, load_profile
+        from backend.gaming.exclusions import read_exclusions
 
-        try:
-            row = context.database.fetch_one(
-                "SELECT game_profile FROM ocr_results WHERE media_id = ? "
-                "AND game_profile IS NOT NULL LIMIT 1",
-                (media.id,),
-            )
-            name = str(row["game_profile"]) if row is not None else ""
-            profile = (
-                load_profile(name, context.profiles_dir).profile
-                if name
-                else GENERIC_PROFILE
-            )
-            detections = OcrRepository(context.database).list_for_media(media.id)
-            states = content.read(
-                detections=detections,
-                frame_spans=_fs.non_gameplay(
-                    _fs.spans(vision, duration_seconds=duration)
-                ),
-                profile=profile,
+        return list(
+            read_exclusions(
+                context.database,
+                media.id,
                 duration_seconds=duration,
-            )
-        except ConfigurationError:
-            raise
-        except Exception:
-            logger.exception("Content states unavailable; the vision guard stands")
-            return ()
-        return content.excluded_spans(
-            states,
-            observed_at=[d.timestamp for d in detections]
-            + [float(getattr(o, "timestamp", 0.0)) for o in vision],
+                profiles_dir=context.profiles_dir,
+                vision=vision,
+            ).spans
         )
-
     def _reader(self, context: WorkerContext, media, duration: float):
         """The session's lanes, or ``None``.
 

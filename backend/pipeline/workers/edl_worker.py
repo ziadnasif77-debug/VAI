@@ -412,86 +412,49 @@ class EdlWorker:
     ) -> tuple[list[tuple[float, float]], dict[str, list[Any]]]:
         """Source stretches that are not gameplay, across every recording used.
 
-        Read here rather than carried from the moments stage because this is
-        the stage that decides what footage a clip occupies, and the defect
-        being closed was exactly a clip occupying footage no moment claimed.
-        Nothing is re-analysed: OCR, vision and the game profile are all
-        already stored, and reading them costs a query.
-
-        Never fatal. A recording whose evidence will not load is measured
-        without the exclusion rather than skipped -- the same §95 rule the
-        Director and the Critic follow -- and the count is logged so a silent
-        pass-through is visible in the record.
+        Read through the one reader every stage shares
+        (:mod:`backend.gaming.exclusions`); nothing is re-analysed. Never
+        fatal for a store that will not answer (§95); a configuration error
+        passes through (P0.2.1). Returns the spans and, per recording, the
+        states behind them for the refusal tally.
         """
-        from backend.analysis import frame_state
-        from backend.database.repositories.gaming import OcrRepository
-        from backend.database.repositories.vision import VisionRepository
-        from backend.gaming import content
+        from backend.gaming.exclusions import read_exclusions
 
         spans: list[tuple[float, float]] = []
         states_by_media: dict[str, list[Any]] = {}
         for media_id, length in durations.items():
-            try:
-                observations = VisionRepository(context.database).list_for_media(media_id)
-                detections = OcrRepository(context.database).list_for_media(media_id)
-                states = content.read(
-                    detections=detections,
-                    frame_spans=frame_state.non_gameplay(
-                        frame_state.spans(observations, duration_seconds=float(length))
-                    ),
-                    profile=self._profile(context, media_id),
-                    duration_seconds=float(length),
-                )
-            except Exception:
-                logger.exception(
-                    "Content states unavailable; the edit is built without them",
-                    extra={"media_id": media_id},
-                )
-                continue
-            found = content.excluded_spans(
-                states,
-                observed_at=[d.timestamp for d in detections]
-                + [float(getattr(o, "timestamp", 0.0)) for o in observations],
+            found = read_exclusions(
+                context.database,
+                media_id,
+                duration_seconds=float(length),
+                profiles_dir=context.profiles_dir,
             )
-            spans.extend(found)
-            states_by_media[media_id] = [item for item in states if item.excludes]
-            if found:
+            spans.extend(found.spans)
+            states_by_media[media_id] = list(found.states)
+            if found.spans:
                 logger.info(
                     "Refusing footage that is not gameplay",
                     extra={
                         "media_id": media_id,
-                        "spans": len(found),
-                        "seconds": round(sum(b - a for a, b in found), 2),
+                        "spans": len(found.spans),
+                        "seconds": round(found.seconds, 2),
                     },
                 )
         return spans, states_by_media
-
     def _profile(self, context: WorkerContext, media_id: str) -> Any:
-        """The game's profile, or the generic one.
-
-        A recording with no OCR, or a game with no profile, is generic. A
-        profiles directory that is not there is a configuration error and is
-        raised, not swallowed (P0.2.1).
-        """
+        """The game's profile, or the generic one (P0.2.1: a missing
+        profiles directory is raised, not swallowed)."""
         from backend.core.errors import ConfigurationError
-        from backend.gaming.profiles import GENERIC_PROFILE, load_profile
+        from backend.gaming.exclusions import profile_for
+        from backend.gaming.profiles import GENERIC_PROFILE
 
         try:
-            row = context.database.fetch_one(
-                "SELECT game_profile FROM ocr_results WHERE media_id = ? "
-                "AND game_profile IS NOT NULL LIMIT 1",
-                (media_id,),
-            )
-            name = str(row["game_profile"]) if row is not None else ""
-            if not name:
-                return GENERIC_PROFILE
-            return load_profile(name, context.profiles_dir).profile
+            return profile_for(context.database, media_id, context.profiles_dir)
         except ConfigurationError:
             raise
         except Exception:
             logger.exception("Profile unavailable; the generic table stands")
             return GENERIC_PROFILE
-
     def _durations(self, context: WorkerContext) -> dict[str, float]:
         """Source lengths, so a clip cannot be laid out past the end of a file."""
         media = MediaRepository(context.database).list_for_project(context.project_id)
