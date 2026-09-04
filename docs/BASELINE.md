@@ -286,3 +286,18 @@ were live gameplay taken by `menu_tabs`'s fixed margins (named for P0.3).
 QA's score on the accepted render is 54 of 100 with four warnings (4.1 s
 frozen at the weapon selector, 18.2 s of silence, one same-type run of
 three, one clip under 1.2 s); none is about a menu.
+
+## Golden dataset baseline
+
+NOT YET AVAILABLE. The first measurement a person's labels produce
+(`tests/golden/labels/<project>.csv`, scored by `scripts/score_moments.py`)
+is recorded here by hand, one row per project; the script reads this table
+and never writes it. Until a row exists, dataset regression is not an
+acceptance blocker (docs/BRIEF_P0.md, DATASET AVAILABILITY EXCEPTION); once a
+row exists, `--gate` applies the default thresholds: F1 may not fall by more
+than 0.02, leakage may never rise, boundary error may not rise by more than
+0.50 s.
+
+| project | F1 | precision | recall | boundary error (s) | leakage |
+|---|---:|---:|---:|---:|---:|
+
