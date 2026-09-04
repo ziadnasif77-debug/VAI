@@ -1,4 +1,4 @@
-"""The base frames the edit will use, and nobody has looked at (V2-P0.4).
+"""The base frames the edit will use, and nobody has looked at (P0.2.2).
 
 The exclusion layer (:mod:`backend.gaming.content`) refuses what a detector
 saw. OCR and vision read the *candidate* frames -- the cascade's keyframes,

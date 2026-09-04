@@ -485,7 +485,7 @@ class TestScreenGuardWire:
 
 
 class TestPlannedFrameReads:
-    """V2-P0.4: the EDL stage reads the base frames the edit will use.
+    """P0.2.2: the EDL stage reads the base frames the edit will use.
 
     The pass is off in the shared config, for the reason every model is: it
     runs whatever OCR engine is installed. Here it runs with the fake

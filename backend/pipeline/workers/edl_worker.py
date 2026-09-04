@@ -88,14 +88,14 @@ class EdlWorker:
         """
         Args:
             ocr_provider: the engine that reads the planned base frames
-                (V2-P0.4). Injected the way the OCR stage's is, so a test
+                (P0.2.2). Injected the way the OCR stage's is, so a test
                 proves the wire without depending on what is installed.
                 Built from the configuration when absent.
         """
         self._ocr_provider = ocr_provider
 
     def _read_planned_frames(self, context: WorkerContext, planned) -> dict[str, Any]:
-        """OCR the base frames the edit will use and nobody has looked at (V2-P0.4).
+        """OCR the base frames the edit will use and nobody has looked at (P0.2.2).
 
         Reads are appended to ``ocr_results`` -- they are ordinary reads with
         timestamps, and every consumer of the table reads them like any
@@ -262,7 +262,7 @@ class EdlWorker:
                     details={"planned": before_guard, "refused_by": "screen_guard"},
                 )
 
-        # V2-P0.4: before the exclusions are read, read the frames they will
+        # P0.2.2: before the exclusions are read, read the frames they will
         # be read from. The detectors sampled candidate frames; the edit is
         # about to use seconds nobody sampled.
         planned_reads_summary = self._read_planned_frames(context, planned)
@@ -471,7 +471,7 @@ class EdlWorker:
 
         A recording with no OCR, or a game with no profile, is generic. A
         profiles directory that is not there is a configuration error and is
-        raised, not swallowed (V2-P0.3).
+        raised, not swallowed (P0.2.1).
         """
         from backend.core.errors import ConfigurationError
         from backend.gaming.profiles import GENERIC_PROFILE, load_profile

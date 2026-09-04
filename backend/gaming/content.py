@@ -232,7 +232,7 @@ class ContentRule:
     #: mission failed. Above one the rule is a conjunction, and exists for the
     #: words that mean nothing alone -- INVENTORY is a hotbar in Grounded and
     #: a tab in HITMAN's pause menu, and only the company it keeps tells them
-    #: apart (V2-P0.4).
+    #: apart (P0.2.2).
     min_matches: int = 1
 
     def matches(self, text: str, *, region: str | None = None) -> bool:
@@ -351,7 +351,7 @@ GENERIC_CONTENT_RULES: Final[tuple[ContentRule, ...]] = (
     # reads, MAP and OPTIONS are button prompts. Three distinct ones on the
     # same frame have been a menu every time on this machine -- 45 stored
     # frames across every recording, zero exceptions -- and are the reading that
-    # HITMAN's pause screen, which never says PAUSED, gives the OCR (V2-P0.4).
+    # HITMAN's pause screen, which never says PAUSED, gives the OCR (P0.2.2).
     _rule(
         ContentState.PAUSE,
         "menu_tabs",

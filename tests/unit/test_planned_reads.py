@@ -1,4 +1,4 @@
-"""V2-P0.4: which base frames the EDL stage reads, and how the reads are kept.
+"""P0.2.2: which base frames the EDL stage reads, and how the reads are kept.
 
 The selection is pure and owns the rules here. The wire through the worker --
 frames read with the fake engine, reads appended beside the OCR stage's own,

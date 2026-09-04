@@ -1013,7 +1013,7 @@ class PlannedFrameReadsConfig(_Section):
     The exclusion layer refuses what a detector saw, and the detectors read
     candidate frames only. A three-second pause menu that fell between two of
     them reached the acceptance render while the base frame showing it sat on
-    disk unread (V2-P0.4). Reading every base frame would cost the OCR stage
+    disk unread (P0.2.2). Reading every base frame would cost the OCR stage
     again; reading the ones inside the planned clips cost 569 s on the
     88-minute benchmark and refused no gameplay.
     """

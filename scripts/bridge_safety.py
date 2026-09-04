@@ -220,7 +220,7 @@ def _clips(database: Database, project_id: str) -> list[tuple[str, float, float]
 def _profile(database: Database, paths, media_id: str):
     """The game's profile, or the generic table.
 
-    A missing profiles directory raises, as it does in the workers (V2-P0.3):
+    A missing profiles directory raises, as it does in the workers (P0.2.1):
     a measurement taken with every game silently generic is not a measurement
     of the profiles.
     """

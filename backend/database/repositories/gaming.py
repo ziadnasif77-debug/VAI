@@ -63,7 +63,7 @@ class OcrRepository:
         game_profile: str | None = None,
         engine: str | None = None,
     ) -> int:
-        """Append reads without touching the stored ones (V2-P0.4).
+        """Append reads without touching the stored ones (P0.2.2).
 
         The OCR stage replaces; the planned-frame pass adds. The two must not
         share a verb: the pass runs after every stage that consumed the OCR

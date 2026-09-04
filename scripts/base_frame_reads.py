@@ -1,4 +1,4 @@
-"""What the base frames would have said, had anyone asked them (V2-P0.4).
+"""What the base frames would have said, had anyone asked them (P0.2.2).
 
 The exclusion layer refuses what a detector saw. On the acceptance render it
 left a three-second pause menu at 2:43, and it did not miss it -- nothing had

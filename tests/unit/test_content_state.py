@@ -305,7 +305,7 @@ class TestBridgingUnsampledGaps:
 
 
 class TestConfigurationIsNotSwallowed:
-    """V2-P0.3: the workers' catch-alls let a configuration error through.
+    """P0.2.1: the workers' catch-alls let a configuration error through.
 
     Both workers wrap the profile lookup in ``except Exception`` so a store
     that will not answer cannot stop the stage (§95). A missing profiles
@@ -351,7 +351,7 @@ class TestConfigurationIsNotSwallowed:
 
 
 class TestWordsThatMeanNothingAlone:
-    """V2-P0.4: a pause menu's tabs, judged as a set on one frame.
+    """P0.2.2: a pause menu's tabs, judged as a set on one frame.
 
     HITMAN's pause screen never says PAUSED. It says OBJECTIVES, MAP, MISSION
     STORIES, INTEL and INVENTORY, and INVENTORY alone is Grounded's hotbar

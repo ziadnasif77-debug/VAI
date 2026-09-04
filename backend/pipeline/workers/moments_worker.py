@@ -58,7 +58,7 @@ class MomentsWorker:
         guard standing rather than stopping the stage (§95). A configuration
         error is not a store declining to answer -- a missing profiles
         directory would turn every game generic and look like the feature
-        working -- so that one is allowed through (V2-P0.3).
+        working -- so that one is allowed through (P0.2.1).
         """
         from backend.analysis import frame_state as _fs
         from backend.core.errors import ConfigurationError

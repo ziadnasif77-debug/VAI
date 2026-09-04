@@ -172,7 +172,7 @@ class FrameRepository:
         """Forget that a pass looked at these frames.
 
         The OCR stage calls this when it replaces a recording's reads: the
-        planned-frame pass (V2-P0.4) marks the base frames it read, and reads
+        planned-frame pass (P0.2.2) marks the base frames it read, and reads
         that were just deleted must not leave their frames marked as done.
         """
         sql = "UPDATE frames SET analyzed = 0 WHERE media_id = ?"

@@ -146,7 +146,7 @@ class ContentRule(_Model):
     hold_seconds: float = Field(default=8.0, ge=0.0)
     vision_may_raise: bool = True
     #: Distinct patterns that must match on one frame. Above one the rule is
-    #: a conjunction of words that mean nothing alone (V2-P0.4).
+    #: a conjunction of words that mean nothing alone (P0.2.2).
     min_matches: int = Field(default=1, ge=1)
 
     @field_validator("patterns")
@@ -515,7 +515,7 @@ def load_profile(game: str, profiles_dir: Path) -> ProfileResolution:
     base = Path(profiles_dir)
     if not base.is_dir():
         # Two absences that read the same from the outside and are not the
-        # same thing (V2-P0.3). "This game has no profile" is the ordinary
+        # same thing (P0.2.1). "This game has no profile" is the ordinary
         # case §23 promises never to fail on. "The profiles directory is not
         # there" means the install is broken -- every game would silently
         # become generic and the feature would look like it was working.

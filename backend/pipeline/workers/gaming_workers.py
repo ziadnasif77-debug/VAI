@@ -138,7 +138,7 @@ class OcrWorker:
                 game_profile=resolution.id,
                 engine=provider.info().provider,
             )
-            # The planned-frame pass (V2-P0.4) marks the base frames it has
+            # The planned-frame pass (P0.2.2) marks the base frames it has
             # read so a second EDL run does not read them again. Those reads
             # were just deleted with everything else, so the marks go too.
             FrameRepository(context.database).reset_analyzed(media.id, level="base")

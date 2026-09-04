@@ -97,7 +97,7 @@ class TestProfiles:
     def test_a_missing_profiles_directory_is_a_configuration_error(
         self, tmp_path: Path
     ) -> None:
-        # V2-P0.3. "No profile for this game" and "no profiles directory" read
+        # P0.2.1. "No profile for this game" and "no profiles directory" read
         # the same from outside -- both end in the generic table -- and are
         # not the same thing. The second is a broken install, and it was
         # swallowed by a catch-all until a log line gave it away.

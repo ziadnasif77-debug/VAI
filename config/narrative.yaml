@@ -116,7 +116,7 @@ narrative:
     max_clip_seconds: 75.0
     min_piece_seconds: 8.0
 
-  # OCR over the base frames the edit will actually use (V2-P0.4). The
+  # OCR over the base frames the edit will actually use (P0.2.2). The
   # detectors read candidate frames only; a pause menu that fell between two
   # of them reached a finished video while the base frame showing it sat on
   # disk unread. Runs in the EDL stage on the planned clips, so it costs a
