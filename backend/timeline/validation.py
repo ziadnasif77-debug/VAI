@@ -105,6 +105,7 @@ def validate(
     *,
     media_durations: Mapping[str, float] | None = None,
     policy: DurationPolicy | None = None,
+    require_authorization: bool = False,
 ) -> ValidationReport:
     """Check a timeline against everything that would break the render.
 
@@ -126,6 +127,8 @@ def validate(
 
     if policy is not None:
         findings.extend(_check_duration(timeline, policy))
+
+    findings.extend(_check_authorization(timeline, require=require_authorization))
 
     return ValidationReport(tuple(findings))
 
@@ -156,6 +159,59 @@ def require_valid(
 # ---------------------------------------------------------------------------
 # internals
 # ---------------------------------------------------------------------------
+
+
+def _check_authorization(timeline: Timeline, *, require: bool) -> list[Finding]:
+    """P0.3: every video clip lies inside the span its granters authorised.
+
+    A clip that carries spans and reaches outside the newest one for its
+    recording is an error whatever the caller asked for. A clip that carries
+    none is an error only when ``require`` is set -- the EDL stage sets it,
+    because a plan without authorization is a plan nobody vouched for; older
+    stored timelines are read without it, so history stays readable.
+    """
+    from backend.timeline import authorization
+
+    findings: list[Finding] = []
+    for clip in timeline.video_clips(enabled_only=False):
+        try:
+            spans = authorization.spans_from_metadata(clip.metadata)
+        except authorization.AuthorizationError as error:
+            findings.append(
+                Finding(
+                    Severity.ERROR,
+                    "unauthorized_granter",
+                    f"clip {clip.clip_index}: {error}",
+                    clip_id=clip.id,
+                    timeline_seconds=clip.timeline_start,
+                )
+            )
+            continue
+        if not spans:
+            if require:
+                findings.append(
+                    Finding(
+                        Severity.ERROR,
+                        "unauthorized_span",
+                        f"clip {clip.clip_index} carries no authorized span",
+                        clip_id=clip.id,
+                        timeline_seconds=clip.timeline_start,
+                    )
+                )
+            continue
+        for problem in authorization.check_clip(
+            clip.media_id, clip.source_in, clip.source_out, spans, label=f"clip {clip.clip_index}"
+        ):
+            findings.append(
+                Finding(
+                    Severity.ERROR,
+                    "unauthorized_span",
+                    problem,
+                    clip_id=clip.id,
+                    timeline_seconds=clip.timeline_start,
+                )
+            )
+    return findings
 
 
 def _check_track(track, durations: Mapping[str, float] | None) -> list[Finding]:
