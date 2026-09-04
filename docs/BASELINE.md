@@ -262,3 +262,27 @@ in [P0_RESULTS.md](P0_RESULTS.md); the verdict on each is here.
    shots (gaming_fast 0.642 → 0.399, funny 0.611 → 0.492, competitive 0.580 →
    0.473), because the axis divided spread by the mean and shortening shots
    lowers the mean. P1's redefinition brings all five back above 0.81.
+
+## The benchmark across P0.2 → P0.2.2 (2026-09-04)
+
+One recording, the 88.5-minute HITMAN session (`proj-5db1780821a6`), rendered
+at each closure. Read the third row with its caveat.
+
+| | commit | render | length | clips | moments | Critic | QA |
+|---|---|---|---:|---:|---:|---|---|
+| P0.2 | `1e1b118` | `rnd-09d8d81bacf9` | 917.1 s | 298 | 63 | not run (model unavailable) | passed, warnings |
+| P0.2.2, first render | `7eea7cd` | `rnd-0fef262832f5` | 906.4 s | 297 | 63 | skipped: model unavailable | passed, warnings |
+| P0.2.2, Critic live | `ff1cbbb` | `rnd-79cad18fb7f8` | 890.6 s | 297 | 63 | 13 trims, 14.7 s | passed, warnings, **52** |
+| **P0.2.2 accepted** | `457072a` | `rnd-944686d1db2d` | **927.9 s** | **304** | **60** | 21 trims, 20.55 s | passed, warnings, **54** |
+
+**The caveat.** The accepted render re-ran MOMENTS and therefore STORY: the
+plan went from 13 to 18 blocks, so 917.1/298/63 → 927.9/304/60 measures the
+exclusion layer *and* a new selection, not the exclusion alone. The pair
+that isolates the exclusion is the first two rows (same plan, 917.1 → 906.4
+s): three menus refused inside the plan -- the INTEL card at 522–531 s, the
+ESC menu at 2351–2363 s, the MAP tab at 2730.67–2742 s -- of which about 5 s
+were live gameplay taken by `menu_tabs`'s fixed margins (named for P0.3).
+
+QA's score on the accepted render is 54 of 100 with four warnings (4.1 s
+frozen at the weapon selector, 18.2 s of silence, one same-type run of
+three, one clip under 1.2 s); none is about a menu.
