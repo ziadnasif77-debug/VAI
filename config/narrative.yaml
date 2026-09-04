@@ -94,6 +94,11 @@ narrative:
     allow_context_growth: true
     max_context_growth_ratio: 0.4
     max_context_trim_ratio: 0.5
+    # P0.6: two chosen moments never overlap, and a dropped moment that
+    # overlaps a chosen one hands over every event at or above this
+    # importance whose onset no chosen moment contains. The midpoint of the
+    # importance scale, the same line the benchmark measurement drew.
+    situation_min_onset_importance: 0.5
 
   # The last pass over the final cut points (backend/narrative/refinement.py).
   # §29 snaps boundaries and §39's duration trim re-cuts them blind; this runs

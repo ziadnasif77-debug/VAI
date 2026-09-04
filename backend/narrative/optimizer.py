@@ -45,6 +45,12 @@ from backend.core.duration import DurationPolicy, format_duration
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import MomentType
 from backend.moments.formation import Moment
+from backend.narrative.situations import (
+    absorb_onsets,
+    committed_duration,
+    overlaps,
+    overlaps_any,
+)
 
 logger = get_logger("narrative.optimizer", LogChannel.PIPELINE)
 
@@ -145,6 +151,7 @@ def optimise(
     total = sum(moment.context_duration for moment in selected)
     notes: list[str] = []
     trimmed = 0.0
+    onsets_kept = 0
 
     if total < target_seconds - tolerance and len(selected) < len(moments):
         # Under the band with candidates left over: the DP found no exact fit,
@@ -155,6 +162,23 @@ def optimise(
         if added:
             notes.append(f"added {added} moment(s) to reach the target band")
             value = _objective(selected, config)
+
+    # P0.6: a dropped moment that overlaps a chosen one hands its onsets over
+    # before the target is reconciled, so the trim below sees them as core.
+    chosen_keys = {(m.media_id, m.start_seconds, m.end_seconds) for m in selected}
+    dropped = [
+        m for m in moments if (m.media_id, m.start_seconds, m.end_seconds) not in chosen_keys
+    ]
+    selected, absorbed, absorbed_seconds = absorb_onsets(
+        selected, dropped, min_importance=config.situation_min_onset_importance
+    )
+    if absorbed:
+        onsets_kept = sum(len(item.onsets) for item in absorbed)
+        total = sum(moment.context_duration for moment in selected)
+        notes.append(
+            f"situations: kept {onsets_kept} onset(s) from {len(absorbed)} overlapping "
+            f"moment(s) the selection dropped, +{format_duration(absorbed_seconds)}"
+        )
 
     if config.allow_context_trim and total > target_seconds + tolerance:
         # Trimming a few seconds of pre-roll from every clip keeps every moment;
@@ -205,7 +229,11 @@ def optimise(
         trimmed_seconds=trimmed,
         rejected=len(moments) - len(ordered),
         notes=tuple(notes),
-        metadata={"tolerance_seconds": round(tolerance, 2), "candidates": len(moments)},
+        metadata={
+            "tolerance_seconds": round(tolerance, 2),
+            "candidates": len(moments),
+            "onsets_kept": onsets_kept,
+        },
     )
 
     (logger.warning if not within else logger.info)(
@@ -242,6 +270,12 @@ def _knapsack(
     tolerance_buckets = max(round(tolerance / BUCKET_SECONDS), 1)
     ordered = sorted(moments, key=lambda moment: -_base_value(moment, config))
     ordered = ordered[: config.max_iterations] if config.max_iterations else ordered
+    # P0.6: a moment costs what choosing it commits the edit to -- its own
+    # context and the onsets of the overlapping siblings it will drop.
+    committed = [
+        committed_duration(moment, moments, min_importance=config.situation_min_onset_importance)
+        for moment in ordered
+    ]
 
     # (value, indices, type counts) per capacity.
     best: list[tuple[float, tuple[int, ...], dict[MomentType, int]] | None] = [
@@ -249,7 +283,7 @@ def _knapsack(
     ] + [None] * capacity
 
     for index, moment in enumerate(ordered):
-        cost = max(round(moment.context_duration / BUCKET_SECONDS), 1)
+        cost = max(round(committed[index] / BUCKET_SECONDS), 1)
         if cost > capacity:
             continue
         # Descending so each moment is used at most once.
@@ -258,6 +292,10 @@ def _knapsack(
             if previous is None:
                 continue
             prior_value, prior_indices, prior_counts = previous
+            # P0.6: two chosen moments never overlap -- a situation is shown
+            # once, and the sibling's onsets travel with the one chosen.
+            if any(overlaps(moment, ordered[i]) for i in prior_indices):
+                continue
             gain = _value_in_context(moment, prior_counts, config)
             candidate = prior_value + gain
             current = best[size]
@@ -380,13 +418,20 @@ def _fill_up(
         key=lambda moment: -_base_value(moment, config),
     )
 
-    total = sum(moment.context_duration for moment in chosen)
+    def committed(moment: Moment) -> float:
+        return committed_duration(
+            moment, candidates, min_importance=config.situation_min_onset_importance
+        )
+
+    total = sum(committed(moment) for moment in chosen)
     added = 0
     for moment in remaining:
         if total >= target - tolerance:
             break
+        if overlaps_any(moment, chosen):
+            continue
         chosen.append(moment)
-        total += moment.context_duration
+        total += committed(moment)
         added += 1
     return chosen, total, added
 

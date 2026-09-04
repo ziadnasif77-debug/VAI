@@ -39,6 +39,7 @@ from backend.moments.grants import grant_widenings
 from backend.narrative import pacing, refinement
 from backend.narrative.hook import HookSelection, choose_hook
 from backend.narrative.optimizer import OptimisationResult, optimise, repair_sequence
+from backend.narrative.situations import absorb_onsets
 
 logger = get_logger("narrative.story", LogChannel.PIPELINE)
 
@@ -225,6 +226,26 @@ def build_plan(
     else:
         ordered, notes = _best_moments_order(selection.moments, config)
         beats = ()
+
+    # P0.6: the repair, the Director and the variety pass above may drop an
+    # anchor after the optimiser absorbed onsets into it; the onsets of every
+    # dropped, overlapping moment are handed on to what remains -- idempotent
+    # for the anchors that stayed.
+    keys = {(m.media_id, m.start_seconds, m.end_seconds, m.context_start) for m in ordered}
+    left_out = [
+        m
+        for m in moments
+        if (m.media_id, m.start_seconds, m.end_seconds, m.context_start) not in keys
+    ]
+    ordered, absorbed_late, absorbed_seconds = absorb_onsets(
+        ordered, left_out, min_importance=config.optimizer.situation_min_onset_importance
+    )
+    if absorbed_late:
+        notes = [
+            *notes,
+            f"situations: after ordering, kept {sum(len(a.onsets) for a in absorbed_late)} "
+            f"onset(s) from {len(absorbed_late)} dropped moment(s), +{absorbed_seconds:.1f} s",
+        ]
 
     if mode is not VideoMode.STORY:
         # §38's run-breaker swaps a differently-typed clip backwards to break

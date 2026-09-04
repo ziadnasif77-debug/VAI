@@ -870,6 +870,12 @@ class DurationOptimizerConfig(_Section):
     #: How much a clip may grow, as a fraction of its own length. A moment
     #: that doubles is not a moment with more context; it is a different clip.
     max_context_growth_ratio: float = Field(default=0.4, ge=0.0, le=1.0)
+    #: P0.6: an event this important, carried by a dropped moment that
+    #: overlaps a chosen one and whose onset lies inside no chosen moment, is
+    #: absorbed by the chosen one rather than lost. 0.5 is the midpoint of
+    #: the importance scale, the same line the benchmark measurement drew
+    #: (132 of 161 onsets at or above it fell in no clip of the P0.3 gate).
+    situation_min_onset_importance: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class RefinementConfig(_Section):
