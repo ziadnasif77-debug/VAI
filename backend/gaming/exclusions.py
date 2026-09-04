@@ -93,11 +93,12 @@ def read_exclusions(
         else:
             observations = VisionRepository(database).list_for_media(media_id)
         detections = OcrRepository(database).list_for_media(media_id)
+        non_gameplay = frame_state.non_gameplay(
+            frame_state.spans(observations, duration_seconds=float(duration_seconds))
+        )
         states = content.read(
             detections=detections,
-            frame_spans=frame_state.non_gameplay(
-                frame_state.spans(observations, duration_seconds=float(duration_seconds))
-            ),
+            frame_spans=non_gameplay,
             profile=profile,
             duration_seconds=float(duration_seconds),
         )
@@ -113,6 +114,7 @@ def read_exclusions(
         states,
         observed_at=[d.timestamp for d in detections]
         + [float(getattr(o, "timestamp", 0.0)) for o in observations],
+        gameplay_at=content.gameplay_samples(states, detections, observations, non_gameplay),
     )
     return Exclusions(
         media_id=media_id,

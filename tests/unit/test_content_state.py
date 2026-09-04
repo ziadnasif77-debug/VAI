@@ -438,3 +438,41 @@ class TestWordsThatMeanNothingAlone:
         )
         assert alone == []
         assert [s.state for s in both] == [ContentState.MENU]
+
+
+class TestP03AReachStopsAtTheNearestFrameSeenAsGameplay:
+    """P0.3, the owner's named case: an exclusion margin that reaches past the
+    last frame carrying menu evidence is an unauthorised extension."""
+
+    MENU = ("OBJECTIVES", "MAP", "MISSION STORIES", "INTEL", "INVENTORY")
+
+    def _states(self):
+        reads = [_Read(word, at) for at in (519.0, 525.0) for word in self.MENU]
+        reads += [_Read("IL MAIALE", 528.0), _Read("PIZZICHERIA", 512.0)]
+        return reads, content.read(detections=reads, profile=GENERIC_PROFILE)
+
+    def test_p0_3_exclusion_reach_stops_at_the_nearest_frame_seen_as_gameplay(self) -> None:
+        reads, states = self._states()
+        # Before P0.3 the hold reached 531.0 s, past the pizzeria sign at
+        # 528.0 s and the combat frame at 528.87 s.
+        (old,) = content.excluded_spans(states)
+        assert old[1] == pytest.approx(531.0)
+        gameplay = content.gameplay_samples(states, reads, [], [])
+        assert 528.0 in gameplay and 512.0 in gameplay
+        assert 525.0 not in gameplay, "a frame that carried menu evidence is not gameplay"
+        (span,) = content.excluded_spans(states, gameplay_at=[*gameplay, 528.87])
+        assert span[1] <= 528.0, "the reach stops at the first frame read as gameplay"
+        assert span[1] >= 525.0, "and never before the last frame that carried the menu"
+        assert span[0] <= 519.0, "the frame that first read the menu stays inside"
+        assert span[0] >= 512.0, "and the lead stops at the frame read as gameplay before it"
+
+    def test_p0_3_a_state_keeps_every_frame_it_was_read_from(self) -> None:
+        # A gameplay sample *between* two menu reads cannot split the state:
+        # the clamp only moves edges inward from outside the evidence.
+        _reads, states = self._states()
+        (span,) = content.excluded_spans(states, gameplay_at=[522.0])
+        assert span[0] <= 519.0 and span[1] >= 525.0
+
+    def test_p0_3_without_gameplay_samples_the_reach_is_the_rule_s_own(self) -> None:
+        _reads, states = self._states()
+        assert content.excluded_spans(states) == content.excluded_spans(states, gameplay_at=[])

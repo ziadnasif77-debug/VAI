@@ -639,6 +639,7 @@ def excluded_spans(
     *,
     observed_at: Sequence[float] = (),
     bridge_seconds: float = BRIDGE_SECONDS,
+    gameplay_at: Sequence[float] = (),
 ) -> list[tuple[float, float]]:
     """The stretches nothing downstream may select from, merged and ordered.
 
@@ -658,10 +659,24 @@ def excluded_spans(
     :mod:`frame_state`'s own: a gap is bridged **only when no observation
     falls inside it**. Where a detector did look and saw the game, the gap
     stands, however short.
+
+    **A reach stops at the nearest frame seen as gameplay** (P0.3). A rule's
+    ``lead_seconds`` and ``hold_seconds`` describe how long a screen tends to
+    stay up around the frame that proved it; they are not evidence. Where a
+    detector looked on either side of that frame and read the game, the state
+    ends there. On the benchmark the tab conjunction read a pause menu at
+    525.0 s and held to 531.0 s, past a frame at 528.0 s that read the
+    pizzeria's sign and a vision frame at 528.9 s that saw combat: about five
+    seconds of live play refused by a margin. ``gameplay_at`` are those
+    frames -- sampled, and not called non-gameplay by anything. The clamp
+    never crosses a frame that carried menu evidence, so the span always
+    keeps every frame it was read from.
     """
-    spans = sorted((item.start, item.end) for item in states if item.excludes)
-    if not spans:
+    excluding = [item for item in states if item.excludes]
+    if not excluding:
         return []
+    seen_gameplay = sorted(float(at) for at in gameplay_at)
+    spans = sorted(_bounded_by_evidence(item, seen_gameplay) for item in excluding)
     looked = sorted(float(at) for at in observed_at)
     merged = [list(spans[0])]
     for start, end in spans[1:]:
@@ -679,6 +694,61 @@ def excluded_spans(
 def _looked_between(looked: Sequence[float], start: float, end: float) -> bool:
     """Whether any detector sampled a frame strictly inside ``start``-``end``."""
     return any(start < at < end for at in looked)
+
+
+def _bounded_by_evidence(
+    state: GameplayState, seen_gameplay: Sequence[float]
+) -> tuple[float, float]:
+    """The state's span, cut at the nearest gameplay frame beyond its evidence.
+
+    The evidence instants are the frames the state was read from; the clamp
+    moves each edge inward to the closest frame *outside* them that was seen
+    as gameplay, and never past them. A state with no evidence instants
+    (black detection carries the span itself) is left alone.
+    """
+    instants = [e.at for e in state.evidence if e.source in {"ocr", "vision"}]
+    if not instants or not seen_gameplay:
+        return (state.start, state.end)
+    first, last = min(instants), max(instants)
+    start, end = state.start, state.end
+    before = [at for at in seen_gameplay if start < at <= first]
+    if before:
+        start = max(before)
+    after = [at for at in seen_gameplay if last <= at < end]
+    if after:
+        end = min(after)
+    return (start, max(end, start))
+
+
+def gameplay_samples(
+    states: Sequence[GameplayState],
+    detections: Sequence[Any],
+    observations: Sequence[Any],
+    non_gameplay_spans: Sequence[Any],
+) -> list[float]:
+    """The sampled instants nothing called non-gameplay (P0.3).
+
+    An OCR frame counts when no rule matched any of its lines; a vision frame
+    counts when it lies inside no non-gameplay span of :mod:`frame_state`.
+    These are the frames a reach may not cross: a detector looked there and
+    read the game.
+    """
+    menu_instants = {
+        round(e.at, 3) for state in states if state.excludes for e in state.evidence
+    }
+    seen: set[float] = set()
+    for detection in detections:
+        at = float(getattr(detection, "timestamp", 0.0) or 0.0)
+        if round(at, 3) not in menu_instants:
+            seen.add(at)
+    for observation in observations:
+        at = float(getattr(observation, "timestamp", 0.0) or 0.0)
+        if not any(
+            float(span.start_seconds) <= at <= float(span.end_seconds)
+            for span in non_gameplay_spans
+        ):
+            seen.add(at)
+    return sorted(seen)
 
 
 def overlaps(spans: Sequence[tuple[float, float]], start: float, end: float) -> bool:
@@ -699,6 +769,7 @@ __all__ = [
     "Evidence",
     "GameplayState",
     "excluded_spans",
+    "gameplay_samples",
     "overlaps",
     "read",
     "rules_for",
