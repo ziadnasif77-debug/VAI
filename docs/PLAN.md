@@ -236,6 +236,12 @@ same dead end as "no plan".
 
 **Deferred as a known constraint.** STORY answering "no narrative plan" is still a completed skip with the reason in the story result; the Skipped panel shows it and the daily ledger no longer counts it, but the stage does not fail. Left for the brief.
 
+```
+AUTHORIZED: P0.3 — 2026-09-04
+```
+
+(owner's message of 2026-09-04: "ابدأ P0.3 `AuthorizedSpan` وفق `docs/BRIEF_P0.md` قسم PHASE B و AUTHORIZED SPAN IDENTITY حرفياً"; design report first, code after approval, one concern per `[P0.3]` commit, closure requires the DATASET GATE with the owner's own baseline.)
+
 **Rules from here (owner, 2026-09-04).** No phase starts without an `AUTHORIZED: P0.x -- <date>` line in this file, sourced from an owner message. Every commit subject starts with `[P0.x]` or `[chore]`; one concern per commit. New tests are named after the rule they guard (`test_p0_2_context_never_enters_exclusion_...`) so a grep finds them; old names stay.
 
 **Cost.** 569 s of OCR on an 88-minute session for all 368 frames, 159
