@@ -124,7 +124,7 @@ video**, with the deepest point unchanged.
 `AuthorizedSpan`: a recording, two bounds, who granted them and why. The set of
 granters is closed and comes from the plan and the spec — the moment's own
 events, the context expansion, the duration optimizer, refinement, the screen
-guard's rescue, a person, and the J/L planner for sound only. Every grant is
+a person, and the J/L planner for sound only. Every grant is
 cut back at the exclusions, so nobody can authorise a menu, a person
 included. Narrowing needs no one; widening is a new grant; a style cannot
 widen, the Critic cannot widen, and a widening no listed step explains fails

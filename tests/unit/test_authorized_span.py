@@ -85,9 +85,14 @@ class TestTheContract:
 
 
 class TestTheGranterSetIsClosed:
-    @pytest.mark.parametrize("impostor", ["style", "critic", "jump_cut", "context_expansion", ""])
+    @pytest.mark.parametrize(
+        "impostor",
+        ["style", "critic", "jump_cut", "context_expansion", "screen_guard_rescue", ""],
+    )
     def test_p0_3_an_unlisted_granter_is_refused(self, impostor) -> None:
-        # A string -- even one spelling a member's value -- is not a member.
+        # A string -- even one spelling a member's value, or the value of a
+        # member since removed (screen_guard_rescue, 2026-09-04) -- is not a
+        # member.
         with pytest.raises(auth.AuthorizationError, match="not a listed granter"):
             auth.AuthorizedSpan(MEDIA, 0.0, 10.0, impostor, "typed in")  # type: ignore[arg-type]
         with pytest.raises(auth.AuthorizationError, match="not a listed granter"):
@@ -120,10 +125,18 @@ class TestTheGranterSetIsClosed:
             "context_expansion",
             "duration_optimizer",
             "refinement",
-            "screen_guard_rescue",
             "human",
             "jl_cut",
         }
+
+    def test_p0_3_a_removed_granter_is_refused_from_the_store(self) -> None:
+        # screen_guard_rescue was listed, never issued, and removed on the
+        # owner's decision. A chain that still spells it is an injection.
+        with pytest.raises(auth.AuthorizationError, match="not a listed granter"):
+            auth.AuthorizedSpan.from_dict(
+                {"media_id": MEDIA, "start": 0, "end": 5,
+                 "granted_by": "screen_guard_rescue", "reason": "stale"}
+            )
 
     def test_p0_3_a_grant_must_say_why(self) -> None:
         with pytest.raises(auth.AuthorizationError, match="must say why"):

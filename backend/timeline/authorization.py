@@ -44,21 +44,25 @@ class Granter(str, Enum):
     * ``duration_optimizer`` -- §39: context extended towards the target.
     * ``refinement`` -- §29 "adaptive" and PLAN.md 2026-08-14: a cut moved
       out of mid-speech, stretched only in the direction that adds context.
-    * ``screen_guard_rescue`` -- §77 and PLAN.md 2026-08-29 (wave 1): a
-      zero-piece moment widened to the piece floor inside stillness.
     * ``human`` -- §78 and §42: a person editing the timeline.
     * ``jl_cut`` -- PLAN.md 2026-08-27 (the J/L planner): audio only.
 
     Not granters, by the brief: style, the Critic, jump-cut logic, and any
     caller not listed here. The exclusion layer, the clamp and the
     exclusivity guard only narrow and need no grant.
+
+    ``screen_guard_rescue`` (§77, PLAN.md 2026-08-29) was listed at first and
+    removed on the owner's decision (2026-09-04): the rescue never leaves the
+    planned clip's bounds, so nothing ever issued under that name, and a
+    member nobody issues is a latent hole in a closed set. If the rescue ever
+    needs to widen, that is an explicit change with a test, not a name kept
+    in reserve. The string is refused like any other.
     """
 
     MOMENT_CORE = "moment_core"
     CONTEXT_EXPANSION = "context_expansion"
     DURATION_OPTIMIZER = "duration_optimizer"
     REFINEMENT = "refinement"
-    SCREEN_GUARD_RESCUE = "screen_guard_rescue"
     HUMAN = "human"
     JL_CUT = "jl_cut"
 
