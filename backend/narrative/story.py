@@ -35,6 +35,7 @@ from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import MomentType, VideoMode
 from backend.director.models import Blueprint
 from backend.moments.formation import Moment, replace_moment
+from backend.moments.grants import grant_widenings
 from backend.narrative import pacing, refinement
 from backend.narrative.hook import HookSelection, choose_hook
 from backend.narrative.optimizer import OptimisationResult, optimise, repair_sequence
@@ -139,6 +140,7 @@ def build_plan(
     speech: Mapping[str, Sequence[TranscriptSegment]] | None = None,
     media_durations: Mapping[str, float] | None = None,
     director: Callable[[Sequence[Moment]], Blueprint | None] | None = None,
+    exclusions: Mapping[str, Sequence[tuple[float, float]]] | None = None,
 ) -> NarrativePlan:
     """Turn ranked moments into an ordered edit of the requested length (§35-§39).
 
@@ -286,6 +288,11 @@ def build_plan(
             selection,
             total_seconds=sum(moment.context_duration for moment in ordered),
         )
+
+    # P0.3: every widening the steps above recorded becomes a span from its
+    # granter, issued against the exclusions, and a context wider than its
+    # grants with no step to explain it fails here rather than in the EDL.
+    ordered = grant_widenings(ordered, exclusions or {})
 
     plan = NarrativePlan(
         mode=mode,

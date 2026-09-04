@@ -470,6 +470,15 @@ class TestStructure:
         assert result.timeline.notes
 
 
+_AUTH = {
+    "media_id": MEDIA,
+    "start": 12.5,
+    "end": 45.25,
+    "granted_by": "context_expansion",
+    "reason": "test",
+}
+
+
 class TestFromTheStoryResult:
     """§81: the job result is the contract between stages."""
 
@@ -486,6 +495,7 @@ class TestFromTheStoryResult:
                     "score": 0.82,
                     "role": "hook",
                     "beat": "hook",
+                    "authorized": [_AUTH],
                 }
             ]
         }
@@ -495,6 +505,18 @@ class TestFromTheStoryResult:
         assert clips[0].source_start == 12.5
         assert clips[0].moment_type is MomentType.EPIC
         assert clips[0].role == "hook"
+        assert clips[0].authorized[0].granted_by.value == "context_expansion"
+
+    def test_p0_3_a_story_result_without_authorization_is_refused_by_name(self) -> None:
+        from backend.core.errors import ValidationError
+
+        stored = {
+            "clips": [
+                {"media_id": MEDIA, "source_start": 0.0, "source_end": 30.0, "moment_type": "epic"}
+            ]
+        }
+        with pytest.raises(ValidationError, match="story result predates authorization; re-run STORY"):
+            clips_from_story_result(stored)
 
     def test_a_moment_type_the_enum_no_longer_knows_costs_the_type_not_the_clip(
         self,
@@ -506,6 +528,7 @@ class TestFromTheStoryResult:
                     "moment_type": "vintage_1998",
                     "source_start": 0.0,
                     "source_end": 30.0,
+                    "authorized": [{**_AUTH, "start": 0.0, "end": 30.0}],
                 }
             ]
         }

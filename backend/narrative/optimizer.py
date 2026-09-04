@@ -413,7 +413,8 @@ def _grow_context(
     Growth stops when the shortfall is met, so a small gap costs a small
     amount of footage from each clip rather than the maximum from the first.
     """
-    from backend.moments.formation import replace_moment
+    from backend.moments.grants import note_widening
+    from backend.timeline.authorization import Granter
 
     if shortfall <= 0 or not moments or max_ratio <= 0:
         return list(moments), 0.0
@@ -453,11 +454,18 @@ def _grow_context(
             grown.append(moment)
             continue
         total_gain += gain
+        # P0.3: a widening is a grant by the duration optimizer (§39), issued
+        # later against the exclusions; the mark carries the seconds added.
         grown.append(
-            replace_moment(
+            note_widening(
                 moment,
-                context_start=moment.context_start - before,
-                context_end=moment.context_end + after,
+                Granter.DURATION_OPTIMIZER,
+                start=moment.context_start - before,
+                end=moment.context_end + after,
+                reason=(
+                    f"duration optimizer: +{before:.1f} s before / +{after:.1f} s after, "
+                    "towards the target"
+                ),
             )
         )
 

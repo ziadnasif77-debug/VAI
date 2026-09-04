@@ -16,7 +16,7 @@ every other stage reads its input.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from ai.llm import create_llm_provider
@@ -36,6 +36,7 @@ from backend.interaction.models import EditingIntent, MessageRole
 from backend.interaction.service import InteractionService
 from backend.interaction.store import ConversationStore, IntentStore
 from backend.moments.formation import Moment
+from backend.moments.grants import require_chain
 from backend.narrative.story import NarrativePlan, build_plan
 from backend.pipeline.workers.base import WorkerContext
 
@@ -206,6 +207,7 @@ class StoryWorker:
                     speech=speech,
                     media_durations=durations,
                     director=director,
+                    exclusions=self._exclusions(context, durations),
                 ),
                 [],
                 editorial,
@@ -251,6 +253,7 @@ class StoryWorker:
             media_durations=durations,
             director=director,
             selection=editing.selection,
+            exclusions=self._exclusions(context, durations),
         )
         if not proposed:
             raise NarrativeError(
@@ -467,13 +470,35 @@ class StoryWorker:
         return brief if len(brief) <= _BRIEF_CHARACTERS else brief[-_BRIEF_CHARACTERS:]
 
     def _moments(self, context: WorkerContext) -> list[Moment]:
-        """Every scored moment in the project, across all its recordings."""
+        """Every scored moment in the project, across all its recordings.
+
+        P0.3: every one of them must carry its first grants. A project whose
+        MOMENTS ran before authorization existed fails here by name and is
+        not backfilled.
+        """
         repository = MomentRepository(context.database)
         media = MediaRepository(context.database).list_for_project(context.project_id)
         collected: list[Moment] = []
         for item in media:
             collected.extend(repository.list_for_media(item.id))
+        require_chain(collected)
         return collected
+
+    def _exclusions(
+        self, context: WorkerContext, durations: Mapping[str, float]
+    ) -> dict[str, tuple[tuple[float, float], ...]]:
+        """The excluded stretches per recording, for the grants (P0.3)."""
+        from backend.gaming.exclusions import read_exclusions
+
+        return {
+            media_id: read_exclusions(
+                context.database,
+                media_id,
+                duration_seconds=float(length),
+                profiles_dir=context.profiles_dir,
+            ).spans
+            for media_id, length in durations.items()
+        }
 
 
 def _serialise(plan: NarrativePlan) -> dict[str, Any]:
@@ -497,6 +522,9 @@ def _serialise(plan: NarrativePlan) -> dict[str, Any]:
                 "score": round(moment.score, 4),
                 "role": moment.metadata.get("role", "body"),
                 "beat": plan.beats[index] if index < len(plan.beats) else None,
+                # P0.3: the grants behind the span, newest last. The EDL
+                # refuses a clip that arrives without them.
+                "authorized": list(moment.metadata.get("authorized") or []),
             }
             for index, moment in enumerate(plan.moments)
         ],

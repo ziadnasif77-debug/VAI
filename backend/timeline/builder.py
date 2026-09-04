@@ -43,10 +43,13 @@ from typing import Any, Final
 
 from backend.config.schema import TransitionsConfig
 from backend.core.duration import DurationPolicy
+from backend.core.errors import ErrorCode, ValidationError
 from backend.core.ids import derived_id
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import MomentType, TrackKind, TransitionType
+from backend.moments.grants import spans_of
 from backend.narrative.story import NarrativePlan
+from backend.timeline.authorization import AuthorizedSpan
 from backend.timeline.models import Marker, Timeline, TimelineClip, Track
 
 logger = get_logger("timeline.builder", LogChannel.PIPELINE)
@@ -78,6 +81,9 @@ class PlannedClip:
     role: str = "body"
     beat: str | None = None
     sources: tuple[str, ...] = ()
+    #: P0.3: the spans this clip's bounds were granted under, newest last.
+    #: Every narrowing below keeps it; nothing here may widen.
+    authorized: tuple[AuthorizedSpan, ...] = ()
 
     @property
     def seconds(self) -> float:
@@ -112,6 +118,7 @@ def clips_from_plan(plan: NarrativePlan) -> list[PlannedClip]:
             role=str(moment.metadata.get("role", "body")),
             beat=plan.beats[index] if index < len(plan.beats) else None,
             sources=moment.sources,
+            authorized=spans_of(moment),
         )
         for index, moment in enumerate(plan.moments)
     ]
@@ -133,20 +140,35 @@ def clips_from_story_result(result: Mapping[str, Any]) -> list[PlannedClip]:
             "The story result carried no clip list", extra={"type": type(raw).__name__}
         )
         return []
-    return [
-        PlannedClip(
-            media_id=clip["media_id"],
-            source_start=float(clip["source_start"]),
-            source_end=float(clip["source_end"]),
-            moment_id=clip.get("moment_id"),
-            moment_type=_moment_type(clip.get("moment_type")),
-            score=float(clip.get("score", 0.0)),
-            role=str(clip.get("role", "body")),
-            beat=clip.get("beat"),
+    planned: list[PlannedClip] = []
+    for clip in raw:
+        if not isinstance(clip, Mapping):
+            continue
+        chain = clip.get("authorized")
+        if not isinstance(chain, list) or not chain:
+            # P0.3: a plan nobody vouched for is not a plan. A story result
+            # written before authorization existed is refused by name and
+            # never backfilled -- re-running STORY is the only way forward.
+            raise ValidationError(
+                "story result predates authorization; re-run STORY",
+                code=ErrorCode.INVALID_EDL,
+                details={"media_id": clip.get("media_id"), "index": clip.get("index")},
+                recoverable=False,
+            )
+        planned.append(
+            PlannedClip(
+                media_id=clip["media_id"],
+                source_start=float(clip["source_start"]),
+                source_end=float(clip["source_end"]),
+                moment_id=clip.get("moment_id"),
+                moment_type=_moment_type(clip.get("moment_type")),
+                score=float(clip.get("score", 0.0)),
+                role=str(clip.get("role", "body")),
+                beat=clip.get("beat"),
+                authorized=tuple(AuthorizedSpan.from_dict(item) for item in chain),
+            )
         )
-        for clip in raw
-        if isinstance(clip, Mapping)
-    ]
+    return planned
 
 
 def build_timeline(

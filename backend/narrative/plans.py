@@ -107,6 +107,7 @@ def propose(
     # Not `policy`: that name is taken by the duration band, and two meanings
     # of one word in one signature is a trap for whoever reads it next.
     selection: SelectionPolicy = NEUTRAL,
+    exclusions: Mapping[str, Sequence[tuple[float, float]]] | None = None,
 ) -> list[tuple[PlanProfile, NarrativePlan]]:
     """One plan per profile, over the same moments.
 
@@ -127,6 +128,7 @@ def propose(
             speech=speech,
             media_durations=media_durations,
             director=director if index == 0 else None,
+            exclusions=exclusions,
         )
         if plan.is_empty:
             continue

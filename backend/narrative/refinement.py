@@ -334,7 +334,26 @@ def _snap_moment(
 
     if not updates:
         return moment, 0
-    return replace_moment(moment, **updates), snapped
+    result = replace_moment(moment, **updates)
+    # P0.3: a cut moved to add context is a widening by refinement (§29);
+    # the grant is issued later, against the exclusions.
+    earlier = max(moment.context_start - result.context_start, 0.0)
+    later = max(result.context_end - moment.context_end, 0.0)
+    if earlier > 1e-6 or later > 1e-6:
+        from backend.moments.grants import note_widening
+        from backend.timeline.authorization import Granter
+
+        result = note_widening(
+            result,
+            Granter.REFINEMENT,
+            start=result.context_start,
+            end=result.context_end,
+            reason=(
+                f"refinement: cut moved out of speech, start -{earlier:.1f} s / "
+                f"end +{later:.1f} s"
+            ),
+        )
+    return result, snapped
 
 
 def _merge_adjacent(
@@ -369,13 +388,30 @@ def _merge_adjacent(
             and moment.context_start >= previous.context_start - ADJACENCY_SECONDS
             and moment.context_end >= previous.context_end - ADJACENCY_SECONDS
         ):
-            merged[-1] = replace_moment(
+            joined = replace_moment(
                 previous,
                 end_seconds=max(previous.end_seconds, moment.end_seconds),
                 context_end=max(previous.context_end, moment.context_end),
                 events=(*previous.events, *moment.events),
                 score=max(previous.score, moment.score),
             )
+            if joined.context_end > previous.context_end + 1e-6:
+                # P0.3: the seam between two clips is footage neither grant
+                # covered on its own; the merge is a widening by refinement.
+                from backend.moments.grants import note_widening
+                from backend.timeline.authorization import Granter
+
+                joined = note_widening(
+                    joined,
+                    Granter.REFINEMENT,
+                    start=joined.context_start,
+                    end=joined.context_end,
+                    reason=(
+                        f"refinement: merged with the following clip, "
+                        f"+{joined.context_end - previous.context_end:.1f} s"
+                    ),
+                )
+            merged[-1] = joined
             merges += 1
             continue
         merged.append(moment)

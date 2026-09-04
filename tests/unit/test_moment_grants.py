@@ -8,7 +8,7 @@ from backend.core.models.enums import GameEventType
 from backend.gaming.correlation import GameEvent
 from backend.moments import grants
 from backend.moments.formation import form_moments, replace_moment
-from backend.timeline.authorization import Granter
+from backend.timeline.authorization import AuthorizationError, Granter
 
 pytestmark = pytest.mark.unit
 
@@ -117,3 +117,65 @@ class TestTheChainSurvivesTheTable:
         )
         (stored,) = MomentRepository(database).list_for_project("proj-1")
         assert grants.spans_of(stored) == ()
+
+
+class TestWideningsAreGrants:
+    def _granted(self, config, **context):
+        (moment,) = grants.grant_first_spans([_moment(config)])
+        return replace_moment(moment, **context) if context else moment
+
+    def test_p0_3_a_marked_widening_becomes_a_new_span_by_its_granter(self, config) -> None:
+        moment = self._granted(config)
+        widened = grants.note_widening(
+            moment, Granter.DURATION_OPTIMIZER, start=moment.context_start - 5.0,
+            end=moment.context_end + 5.0, reason="duration optimizer: +5.0 s before / +5.0 s after",
+        )
+        (result,) = grants.grant_widenings([widened], {})
+        chain = grants.spans_of(result)
+        assert chain[-1].granted_by is Granter.DURATION_OPTIMIZER
+        assert (chain[-1].start, chain[-1].end) == (result.context_start, result.context_end)
+        assert "+5.0 s before" in chain[-1].reason
+        assert grants.WIDENED_KEY not in result.metadata, "the mark is spent"
+        assert len(chain) == 3, "the earlier grants are kept, immutable"
+
+    def test_p0_3_an_unmarked_widening_fails_hard(self, config) -> None:
+        moment = self._granted(config)
+        widened = replace_moment(moment, context_end=moment.context_end + 10.0)
+        with pytest.raises(AuthorizationError, match="no listed step widened it"):
+            grants.grant_widenings([widened], {})
+
+    def test_p0_3_a_widening_into_an_exclusion_is_cut_at_the_grant(self, config) -> None:
+        moment = self._granted(config)
+        menu = (moment.context_end + 3.0, moment.context_end + 60.0)
+        widened = grants.note_widening(
+            moment, Granter.REFINEMENT, start=moment.context_start,
+            end=moment.context_end + 20.0, reason="refinement: end +20.0 s",
+        )
+        (result,) = grants.grant_widenings([widened], {"media-1": [menu]})
+        assert result.context_end <= menu[0]
+        assert grants.spans_of(result)[-1].end <= menu[0]
+
+    def test_p0_3_narrowing_needs_no_grant(self, config) -> None:
+        moment = self._granted(config)
+        narrowed = replace_moment(moment, context_end=moment.context_end - 1.0)
+        (result,) = grants.grant_widenings([narrowed], {})
+        assert len(grants.spans_of(result)) == 2
+
+    def test_p0_3_moments_without_a_chain_are_refused_by_the_pipeline(self, config) -> None:
+        with pytest.raises(grants.AuthorizationChainMissingError, match="re-run MOMENTS"):
+            grants.require_chain([_moment(config)])
+        grants.require_chain([self._granted(config)])
+
+    def test_p0_3_the_optimizer_and_refinement_mark_what_they_widen(self, config) -> None:
+        from backend.narrative import optimizer, refinement
+
+        moment = self._granted(config)
+        grown, gain = optimizer._grow_context([moment], 10.0, 0.5, {"media-1": 600.0})
+        assert gain > 0
+        marks = grown[0].metadata[grants.WIDENED_KEY]
+        assert marks[-1]["granted_by"] == "duration_optimizer"
+        assert "towards the target" in marks[-1]["reason"]
+
+        index = refinement.SpeechIndex([], 0.35)
+        untouched, snapped = refinement._snap_moment(moment, index, 2.5)
+        assert snapped == 0 and grants.WIDENED_KEY not in untouched.metadata
