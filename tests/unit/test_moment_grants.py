@@ -200,7 +200,7 @@ class TestWideningsAreGrants:
             self._granted(config),
             start_seconds=first.context_end + 1.0,
             end_seconds=first.context_end + 5.0,
-            context_start=first.context_end + 0.5,
+            context_start=first.context_end,
             context_end=first.context_end + 8.0,
         )
         (joined,), _beats, merges = refinement._merge_adjacent([first, second], ["body", "body"])
