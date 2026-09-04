@@ -128,9 +128,21 @@ class Baseline:
 
 
 def read_labels(path: Path) -> list[Span]:
-    """The spans in one CSV, validated. An empty file (header only) is fine."""
+    """The labelled spans in one CSV, validated. An empty file (header only) is fine."""
+    return read_sheet(path)[0]
+
+
+def read_sheet(path: Path) -> tuple[list[Span], list[Span]]:
+    """The labelled spans and the note lines of one CSV, validated.
+
+    A line whose label is empty is a note, not a label (the brief: "if
+    uncertain, use ``note`` and do not force a label"). It is kept apart,
+    counted in the report, and enters no metric. A line with no label *and*
+    no note says nothing and is refused by line, like every other bad line.
+    """
     problems: list[str] = []
     spans: list[Span] = []
+    notes: list[Span] = []
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         expected = ["start", "end", "label", "note"]
@@ -151,7 +163,11 @@ def read_labels(path: Path) -> list[Span]:
                 problems.append(f"line {number}: start and end must be seconds as numbers")
                 continue
             label = (row["label"] or "").strip()
-            if label not in LABELS:
+            note = (row.get("note") or "").strip()
+            if not label and not note:
+                problems.append(f"line {number}: a line with no label needs a note")
+                continue
+            if label and label not in LABELS:
                 problems.append(
                     f"line {number}: label {label!r} is not one of {', '.join(LABELS)}"
                 )
@@ -165,10 +181,13 @@ def read_labels(path: Path) -> list[Span]:
                     f"({end - start:.2f} s given)"
                 )
                 continue
-            spans.append(Span(start, end, label, (row.get("note") or "").strip()))
+            (spans if label else notes).append(Span(start, end, label, note))
     if problems:
         raise LabelError(f"{path.name}: " + "; ".join(problems))
-    return sorted(spans, key=lambda span: span.start)
+    return (
+        sorted(spans, key=lambda span: span.start),
+        sorted(notes, key=lambda span: span.start),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -347,9 +366,11 @@ def _fmt(value: float | None, places: int = 3, suffix: str = "") -> str:
     return "—" if value is None else f"{value:.{places}f}{suffix}"
 
 
-def report(project: str, metrics: Metrics, baseline: Baseline | None) -> list[str]:
+def report(
+    project: str, metrics: Metrics, baseline: Baseline | None, *, notes: int = 0
+) -> list[str]:
     lines = [
-        f"{project}: {metrics.labelled} labelled spans",
+        f"{project}: {metrics.labelled} labelled spans, {notes} note line(s) not scored",
         f"  best_moment   precision {_fmt(metrics.precision)}  recall {_fmt(metrics.recall)}"
         f"  F1 {_fmt(metrics.f1)}",
         f"  event_start   boundary error mean {_fmt(metrics.boundary_error_mean, 2, ' s')}"
@@ -407,12 +428,14 @@ def main(argv: list[str] | None = None) -> int:
     for path in files:
         project = path.stem
         try:
-            labels = read_labels(path)
+            labels, notes = read_sheet(path)
         except LabelError as error:
             print(f"{project}: {error}")
             return 2
         if not labels:
             print(f"{project}: {NO_LABELS_MESSAGE}")
+            if notes:
+                print(f"{project}: {len(notes)} note line(s), not scored")
             said += 1
             continue
         if arguments.predictions_json is not None:
@@ -428,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
             predictions = load_predictions(project)
         metrics = score(labels, predictions)
         baseline = read_baseline(baseline_text, project)
-        print("\n".join(report(project, metrics, baseline)))
+        print("\n".join(report(project, metrics, baseline, notes=len(notes))))
         scored += 1
         if arguments.gate:
             if baseline is None:

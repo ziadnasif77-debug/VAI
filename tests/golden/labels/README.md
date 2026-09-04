@@ -42,7 +42,10 @@ non_gameplay
 
 * labels are spans, not individual frames
 * minimum span = 2 seconds
-* if uncertain for more than 5 seconds, use `note` and do not force a label
+* if uncertain for more than 5 seconds, use `note` and do not force a label:
+  a line with an empty `label` and a non-empty `note` is a note line -- read,
+  counted apart in the report, and part of no metric; a line with neither is
+  refused by line number
 * target approximately 60–100 spans per session
 * do not create more labels than necessary
 

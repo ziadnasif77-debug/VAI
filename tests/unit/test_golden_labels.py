@@ -52,6 +52,41 @@ class TestP0DatasetLabelsAreAPersonsAndValidated:
         with pytest.raises(sm.LabelError, match="at least 2 s"):
             sm.read_labels(path)
 
+    def test_p0_dataset_a_line_with_no_label_and_a_note_is_a_note_not_a_span(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        # The brief: "if uncertain, use note and do not force a label". Such a
+        # line is counted apart and enters no metric.
+        path = _csv(
+            tmp_path,
+            "proj-x",
+            "10,20,best_moment,\n1524.0,1529.6,,red room walk - gameplay or transition?\n",
+        )
+        labels, notes = sm.read_sheet(path)
+        assert [s.label for s in labels] == ["best_moment"]
+        assert [s.note for s in notes] == ["red room walk - gameplay or transition?"]
+        assert sm.read_labels(path) == labels
+        predictions = tmp_path / "p.json"
+        predictions.write_text('{"moments": [[10, 20]], "clips": [[1520, 1530]]}', encoding="utf-8")
+        code = sm.main(
+            [
+                "--labels-dir", str(tmp_path),
+                "--baseline", str(tmp_path / "none.md"),
+                "--predictions-json", str(predictions),
+            ]
+        )
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "1 labelled spans, 1 note line(s) not scored" in out
+        assert "leakage —" in out, "a note line is not a non_gameplay label"
+
+    def test_p0_dataset_a_line_with_no_label_and_no_note_is_refused_by_line(
+        self, tmp_path: Path
+    ) -> None:
+        path = _csv(tmp_path, "proj-x", "10,20,best_moment,\n30,40,,\n")
+        with pytest.raises(sm.LabelError, match="line 3: a line with no label needs a note"):
+            sm.read_labels(path)
+
     def test_p0_dataset_end_before_start_is_refused(self, tmp_path: Path) -> None:
         path = _csv(tmp_path, "proj-x", "20,10,best_moment,\n")
         with pytest.raises(sm.LabelError, match="after start"):
