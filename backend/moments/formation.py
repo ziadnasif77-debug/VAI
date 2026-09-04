@@ -368,7 +368,6 @@ def _respect_exclusions(
     ordered = sorted(spans)
     kept: list[Moment] = []
     refused = 0
-    pulled = 0
     for moment in moments:
         if any(
             moment.start_seconds < hi and lo < moment.end_seconds for lo, hi in ordered
@@ -382,6 +381,31 @@ def _respect_exclusions(
                 },
             )
             continue
+        kept.append(moment)
+    kept, pulled = pull_back_contexts(kept, ordered)
+    return kept, refused, pulled
+
+
+def pull_back_contexts(
+    moments: Sequence[Moment], spans: Sequence[tuple[float, float]]
+) -> tuple[list[Moment], int]:
+    """Stop every context short of an excluded stretch; the core is untouched.
+
+    Called twice on purpose. Once inside :func:`form_moments`, and once more
+    by the worker after :func:`backend.moments.context.expand`, because
+    expansion widens the context from scenes, speech and silence and knows
+    nothing of exclusions: measured on the 88-minute benchmark, seven of 63
+    stored contexts reached 24.5 s into stretches the formation step had just
+    pulled them out of (P0.2 gate, item 6, 2026-09-04). The timeline trimmed
+    every one of those clips, so no video carried them -- but a moment is the
+    record the person reads, and it must not claim seconds of a menu.
+    """
+    if not spans:
+        return list(moments), 0
+    ordered = sorted(spans)
+    kept: list[Moment] = []
+    pulled = 0
+    for moment in moments:
         start, end = moment.context_start, moment.context_end
         for lo, hi in ordered:
             if hi <= start or lo >= end:
@@ -397,7 +421,7 @@ def _respect_exclusions(
             kept.append(replace_moment(moment, context_start=start, context_end=end))
         else:
             kept.append(moment)
-    return kept, refused, pulled
+    return kept, pulled
 
 
 def _build(group: list[GameEvent], config: FormationConfig, media_id: str) -> list[Moment]:
@@ -483,5 +507,6 @@ __all__ = [
     "Moment",
     "form_moments",
     "moment_type_for",
+    "pull_back_contexts",
     "replace_moment",
 ]

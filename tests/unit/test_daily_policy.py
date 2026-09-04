@@ -44,6 +44,26 @@ def _producer(
     )
 
 
+def _rendered(database, project_id: str, tmp_path: Path) -> Path:
+    """A completed render row whose file is really on disk."""
+    from backend.database.repositories.renders import RenderRepository
+
+    output = tmp_path / f"{project_id}-final.mp4"
+    output.write_bytes(b"mp4")
+    renders = RenderRepository(database)
+    render_id = renders.start(project_id, resolution=1080, fps=60, encoder="h264_nvenc")
+    renders.complete(
+        render_id,
+        output_path=str(output),
+        duration_seconds=600.0,
+        size_bytes=3,
+        video_codec="h264",
+        audio_codec="aac",
+        render_seconds=12.0,
+    )
+    return output
+
+
 def _recording(vault: Path, name: str, sample_video: Path, *, mtime: float) -> Path:
     vault.mkdir(parents=True, exist_ok=True)
     target = vault / name
@@ -279,6 +299,7 @@ class TestScheduledPublication:
             "max_attempts, created_at, result) VALUES (?, ?, 'qa', 'completed', 1, 3, ?, ?)",
             ("job-qa-x", project_id, "2026-08-29T00:30:00Z", json.dumps({"quality_score": 88})),
         )
+        _rendered(database, project_id, tmp_path)
 
         producer.advance(datetime(2026, 8, 29, 3, 0, tzinfo=OSLO))  # -> edited
         producer.advance(datetime(2026, 8, 29, 3, 1, tzinfo=OSLO))  # -> ready
@@ -292,6 +313,58 @@ class TestScheduledPublication:
         payload = json.loads(publish["payload"])
         assert payload["publish_at_utc"] == "2026-08-29T08:00:00+00:00"  # 10:00 CEST
         assert publish["status"] == "queued"
+
+    def test_a_finished_pipeline_with_no_render_file_is_a_failure_not_a_video(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        # [P0.2.2] Every stage row says completed and there is no file: a
+        # skipped plan, a refused edit, a render with nothing to render.
+        # Before this the ledger moved to EDITED and counted the recording in
+        # produced_long -- the number the caps and the report are built on.
+        vault = tmp_path / "vault"
+        _recording(vault, "one.mkv", sample_video, mtime=1_000)
+        producer = _producer(database, paths, config, vault=vault)
+        day = "2026-08-29"
+        producer.discover(day)
+        producer.produce(day)
+        project_id = database.fetch_one("SELECT project_id FROM production_ledger", ())[
+            "project_id"
+        ]
+        database.execute(
+            "INSERT INTO analysis_jobs (id, project_id, stage, status, attempt, "
+            "max_attempts, created_at, result) VALUES (?, ?, 'qa', 'completed', 1, 3, ?, ?)",
+            ("job-qa-z", project_id, "2026-08-29T00:30:00Z", json.dumps({"skipped": True})),
+        )
+
+        producer.advance(datetime(2026, 8, 29, 3, 0, tzinfo=OSLO))
+
+        ledger = database.fetch_one("SELECT * FROM production_ledger", ())
+        assert ledger["state"] == "failed"
+        assert "without a render file" in ledger["note"]
+        assert producer.counts_for(day)[0] == 0, "not counted as a long video"
+
+    def test_a_render_row_whose_file_vanished_counts_for_nothing_either(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        _recording(vault, "one.mkv", sample_video, mtime=1_000)
+        producer = _producer(database, paths, config, vault=vault)
+        day = "2026-08-29"
+        producer.discover(day)
+        producer.produce(day)
+        project_id = database.fetch_one("SELECT project_id FROM production_ledger", ())[
+            "project_id"
+        ]
+        database.execute(
+            "INSERT INTO analysis_jobs (id, project_id, stage, status, attempt, "
+            "max_attempts, created_at, result) VALUES (?, ?, 'qa', 'completed', 1, 3, ?, ?)",
+            ("job-qa-w", project_id, "2026-08-29T00:30:00Z", json.dumps({"quality_score": 90})),
+        )
+        _rendered(database, project_id, tmp_path).unlink()
+
+        producer.advance(datetime(2026, 8, 29, 3, 0, tzinfo=OSLO))
+
+        assert database.fetch_one("SELECT state FROM production_ledger", ())["state"] == "failed"
 
     def test_below_the_floor_the_day_holds_and_says_why(
         self, database, paths, config, sample_video, tmp_path
@@ -310,6 +383,7 @@ class TestScheduledPublication:
             "max_attempts, created_at, result) VALUES (?, ?, 'qa', 'completed', 1, 3, ?, ?)",
             ("job-qa-y", project_id, "2026-08-29T00:30:00Z", json.dumps({"quality_score": 30})),
         )
+        _rendered(database, project_id, tmp_path)
 
         producer.advance(datetime(2026, 8, 29, 3, 0, tzinfo=OSLO))
         producer.advance(datetime(2026, 8, 29, 3, 1, tzinfo=OSLO))

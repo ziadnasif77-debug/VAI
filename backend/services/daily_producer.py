@@ -462,6 +462,20 @@ class DailyProducer:
                 )
                 return
             if qa == JobStatus.COMPLETED.value:
+                # [P0.2.2] A recording is produced when a render file exists on
+                # disk, not when every stage row says "completed". Stages skip
+                # -- an empty plan, a refused edit, a render with no timeline --
+                # and each skip completes, so a project with no video could
+                # reach EDITED and be counted in produced_long. That count is
+                # what the caps, the report and the owner's trust are built on.
+                render = self._render_file(project_id)
+                if render is None:
+                    self._set_state(
+                        source,
+                        _FAILED,
+                        note="the pipeline finished without a render file on disk",
+                    )
+                    return
                 reels = self._reels_count(project_id)
                 self._set_state(source, _EDITED, reels_produced=reels)
             return
@@ -474,6 +488,18 @@ class DailyProducer:
             self._publish_reels(row, now)
             self._confirm_published(row, now)
             return
+
+    def _render_file(self, project_id: str) -> Path | None:
+        """The newest completed render's file, if it is really on disk."""
+        row = self._db.fetch_one(
+            "SELECT output_path FROM renders WHERE project_id = ? AND status = 'completed' "
+            "AND output_path IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+            (project_id,),
+        )
+        if row is None or not row["output_path"]:
+            return None
+        path = Path(str(row["output_path"]))
+        return path if path.is_file() else None
 
     def _reels_count(self, project_id: str) -> int:
         row = self._db.fetch_one(

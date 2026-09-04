@@ -15,6 +15,7 @@ intact (§78). The arithmetic of laying clips out is ``test_timeline.py``.
 
 from __future__ import annotations
 
+import re
 from itertools import pairwise
 from pathlib import Path
 
@@ -22,7 +23,8 @@ import pytest
 
 from ai.ocr.fake_provider import FakeOcrProvider
 from ai.speech.fake_provider import FakeSpeechProvider
-from backend.core.models.enums import JobStage, VideoMode
+from backend.core.errors import ErrorCode
+from backend.core.models.enums import JobStage, JobStatus, VideoMode
 from backend.core.models.media import MediaImport
 from backend.core.models.project import ProjectCreate
 from backend.database.repositories.jobs import JobRepository
@@ -467,9 +469,10 @@ class TestScreenGuardWire:
         outcomes = {o.job.stage: o for o in runner.run_project(project.id)}
 
         assert JobStage.EDL in outcomes
-        result = outcomes[JobStage.EDL].job.result
-        if result.get("skipped"):
-            assert "dead screen" in result["reason"]
+        if not outcomes[JobStage.EDL].succeeded:
+            # [P0.2.2] the guard refusing everything is a failure that says so
+            assert outcomes[JobStage.EDL].error_code is ErrorCode.INVALID_EDL
+            assert "dead screen time" in (outcomes[JobStage.EDL].job.error_message or "")
             return
         clips = TimelineRepository(database).list_clips(project.id)
         assert clips
@@ -554,14 +557,16 @@ class TestPlannedFrameReads:
         assert outcome.job.result["planned_frame_reads"]["frames"] == 0
         assert len(planned.read_paths) == first, "the marked frames were not read again"
 
-    def test_every_clip_refused_is_a_dead_end_not_a_broken_timeline(
+    def test_every_clip_refused_fails_the_stage_by_name(
         self, media_service, project_manager, database, paths, config, speech_provider,
         vision_provider, reaction_clip: Path
     ) -> None:
-        # The pass reads RESUME off every base frame: the whole recording is
-        # a pause menu and every planned clip is refused. The stage skips and
-        # says so -- it does not raise INVALID_EDL over "no clips" and bury
-        # the reason. This is how the first run of the wire test failed.
+        # [P0.2.2] The pass reads RESUME off every base frame: the whole
+        # recording is a pause menu and every planned clip is refused. The
+        # stage FAILS with INVALID_EDL and a message that carries the tally
+        # and the builder's notes. The first cut returned a "skipped" result
+        # instead, every later stage completed on nothing, and the interface
+        # showed a green pipeline with no video behind it.
         reads = config.narrative.planned_frame_reads.model_copy(
             update={"enabled": True, "margin_seconds": 3.0, "min_gap_seconds": 0.0}
         )
@@ -577,7 +582,41 @@ class TestPlannedFrameReads:
         project, _ = _project_with(media_service, project_manager, reaction_clip)
         outcomes = {o.job.stage: o for o in runner.run_project(project.id)}
         edl = outcomes[JobStage.EDL]
-        assert edl.succeeded, edl.job.error_message
-        assert edl.job.result["skipped"] is True
-        assert "refused" in edl.job.result["reason"]
-        assert edl.job.result["planned_frame_reads"]["frames"] > 0
+        assert not edl.succeeded
+        assert edl.error_code is ErrorCode.INVALID_EDL
+        message = edl.job.error_message or ""
+        assert re.search(r"Every one of the \d+ planned clips was refused", message), message
+        assert "pause: " in message, "the tally names what was on screen"
+        # Nothing after the EDL ran: the dependents are not completed.
+        later = [
+            job
+            for job in runner.jobs.list_jobs(project.id)
+            if job.stage in (JobStage.CRITIQUE, JobStage.RENDER, JobStage.QA)
+        ]
+        assert all(job.status is not JobStatus.COMPLETED for job in later)
+
+    def test_a_guard_that_keeps_nothing_fails_the_stage_by_name(
+        self, media_service, project_manager, database, paths, config, speech_provider,
+        vision_provider, ocr_provider, reaction_clip: Path
+    ) -> None:
+        # [P0.2.2] A recording-start guard longer than the recording: every
+        # planned clip opens inside it and the guard keeps nothing. Same
+        # failure, same visibility, its own wording.
+        guard = config.narrative.screen_guard.model_copy(
+            update={"enabled": True, "recording_start_guard_seconds": 100000.0}
+        )
+        narrative = config.narrative.model_copy(update={"screen_guard": guard})
+        guarded = config.model_copy(update={"narrative": narrative})
+        workers = workers_through("edl")
+        workers[JobStage.TRANSCRIPT] = TranscriptWorker(speech_provider)
+        workers[JobStage.VISION] = VisionWorker(vision_provider)
+        workers[JobStage.OCR] = OcrWorker(ocr_provider)
+        runner = PipelineRunner(database, paths, guarded, workers=workers)
+
+        project, _ = _project_with(media_service, project_manager, reaction_clip)
+        outcomes = {o.job.stage: o for o in runner.run_project(project.id)}
+        edl = outcomes[JobStage.EDL]
+        assert not edl.succeeded
+        assert edl.error_code is ErrorCode.INVALID_EDL
+        assert "dead screen time" in (edl.job.error_message or "")
+        assert "recording-start guard" in (edl.job.error_message or "")

@@ -26,6 +26,7 @@ stage in milliseconds and never re-analyses the source.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,33 @@ from backend.timeline.builder import build_timeline, clips_from_story_result
 from backend.timeline.models import Timeline
 
 logger = get_logger("pipeline.workers.edl", LogChannel.PIPELINE)
+
+
+def _refusal_tally(planned: Sequence[Any], states_by_media: Mapping[str, Sequence[Any]]) -> str:
+    """How many planned clips each kind of exclusion touched, as one sentence.
+
+    A clip touched by two kinds is counted under both: the sentence answers
+    "what was on screen where the story chose to cut", not "which rule won".
+    A clip no stored state touches was refused by the builder's own floor --
+    the surviving gameplay piece was shorter than a shot -- and is counted
+    under that name.
+    """
+    counts: dict[str, int] = {}
+    for clip in planned:
+        touched = {
+            str(getattr(state.state, "value", state.state))
+            for state in states_by_media.get(clip.media_id, ())
+            if state.covers(clip.source_start, clip.source_end)
+        }
+        if not touched:
+            touched = {"trimmed below the minimum surviving length"}
+        for name in touched:
+            counts[name] = counts.get(name, 0) + 1
+    if not counts:
+        return "no exclusion recorded"
+    return ", ".join(
+        f"{name}: {count}" for name, count in sorted(counts.items(), key=lambda item: -item[1])
+    )
 
 
 class EdlWorker:
@@ -215,14 +243,24 @@ class EdlWorker:
 
         guard = context.config.narrative.screen_guard
         if guard.enabled:
+            before_guard = len(planned)
             planned = self._guarded(context, planned, durations, guard, style)
             if not planned:
-                context.report(1.0, "Every planned clip was a dead opening")
-                return {
-                    "skipped": True,
-                    "reason": "every planned clip fell inside dead screen time",
-                    "clips": 0,
-                }
+                # [P0.2.2] A failure, not a skip. A skip left every later stage
+                # "completed" with nothing to render, the interface showing a
+                # green pipeline, and the daily ledger counting a recording
+                # with no video as produced.
+                raise ValidationError(
+                    f"Every one of the {before_guard} planned clips opened inside dead "
+                    "screen time -- menus, loading screens, black or frozen stretches "
+                    "the source probe measured, or the "
+                    f"{guard.recording_start_guard_seconds:.0f} s recording-start guard "
+                    "-- and nothing survived the piece floor. The story chose clips "
+                    "the screen guard could not keep; re-run the story stage or lower "
+                    "narrative.screen_guard.min_piece_seconds.",
+                    code=ErrorCode.INVALID_EDL,
+                    details={"planned": before_guard, "refused_by": "screen_guard"},
+                )
 
         # V2-P0.4: before the exclusions are read, read the frames they will
         # be read from. The detectors sampled candidate frames; the edit is
@@ -230,6 +268,7 @@ class EdlWorker:
         planned_reads_summary = self._read_planned_frames(context, planned)
 
         context.report(0.2, f"Laying out {len(planned)} clips")
+        excluded_spans, exclusion_states = self._excluded(context, durations)
         built = build_timeline(
             planned,
             project_id=context.project_id,
@@ -238,7 +277,7 @@ class EdlWorker:
             media_durations=durations,
             transitions=context.config.narrative.transitions,
             notes=story.get("notes", ()),
-            excluded_spans=self._excluded(context, durations),
+            excluded_spans=excluded_spans,
             metadata={
                 "mode": story.get("mode"),
                 "within_target": story.get("within_target"),
@@ -247,21 +286,30 @@ class EdlWorker:
         )
         timeline = built.timeline
         if not timeline.video_clips():
-            # Every planned clip was refused -- by the exclusions, the source
-            # probes or the duration band -- and the builder said why in its
-            # notes. That is a dead end the way "no plan" is, not a broken
-            # timeline: a validation error here would report "no clips" and
-            # bury the reason (§95). Seen first when a fake read RESUME off
-            # every base frame (V2-P0.4) and the whole fixture became a menu.
-            context.report(1.0, "Every planned clip was refused")
-            return {
-                "skipped": True,
-                "reason": "every planned clip was refused: "
-                + ("; ".join(str(note) for note in built.notes[-3:]) or "no reason recorded"),
-                "clips": 0,
-                "notes": [str(note) for note in built.notes],
-                "planned_frame_reads": planned_reads_summary,
-            }
+            # [P0.2.2] Every planned clip was refused, and the stage fails and
+            # says by what. The first cut of this returned a "skipped" result
+            # with the reason in a JSON field nobody displayed: every later
+            # stage then completed on an empty timeline, the interface showed
+            # a green pipeline with no video, and the daily ledger counted the
+            # recording as produced. A validation error carrying the tally
+            # and the builder's own notes is the loud version.
+            tally = _refusal_tally(planned, exclusion_states)
+            notes = [str(note) for note in built.notes[-3:]]
+            raise ValidationError(
+                f"Every one of the {len(planned)} planned clips was refused as not "
+                f"gameplay: {tally}. "
+                + (" ".join(notes) if notes else "The builder recorded no note.")
+                + " The story chose clips the exclusion layer could not keep; re-run the "
+                "story stage, or look at the recording where these clips were planned.",
+                code=ErrorCode.INVALID_EDL,
+                details={
+                    "planned": len(planned),
+                    "refused_by": "exclusions",
+                    "tally": tally,
+                    "notes": [str(note) for note in built.notes],
+                    "planned_frame_reads": planned_reads_summary,
+                },
+            )
 
         context.report(0.4, "Checking the timeline")
         report = validation.validate(timeline, media_durations=durations, policy=policy)
@@ -361,7 +409,7 @@ class EdlWorker:
 
     def _excluded(
         self, context: WorkerContext, durations: dict[str, float]
-    ) -> list[tuple[float, float]]:
+    ) -> tuple[list[tuple[float, float]], dict[str, list[Any]]]:
         """Source stretches that are not gameplay, across every recording used.
 
         Read here rather than carried from the moments stage because this is
@@ -381,6 +429,7 @@ class EdlWorker:
         from backend.gaming import content
 
         spans: list[tuple[float, float]] = []
+        states_by_media: dict[str, list[Any]] = {}
         for media_id, length in durations.items():
             try:
                 observations = VisionRepository(context.database).list_for_media(media_id)
@@ -405,6 +454,7 @@ class EdlWorker:
                 + [float(getattr(o, "timestamp", 0.0)) for o in observations],
             )
             spans.extend(found)
+            states_by_media[media_id] = [item for item in states if item.excludes]
             if found:
                 logger.info(
                     "Refusing footage that is not gameplay",
@@ -414,7 +464,7 @@ class EdlWorker:
                         "seconds": round(sum(b - a for a, b in found), 2),
                     },
                 )
-        return spans
+        return spans, states_by_media
 
     def _profile(self, context: WorkerContext, media_id: str) -> Any:
         """The game's profile, or the generic one.

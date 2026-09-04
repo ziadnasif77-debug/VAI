@@ -34,7 +34,7 @@ from backend.database.repositories.transcript import TranscriptRepository
 from backend.database.repositories.vision import VisionRepository
 from backend.moments.context import ExpansionSources, expand
 from backend.moments.dead_time import dead_time_ratio, detect_dead_time
-from backend.moments.formation import form_moments
+from backend.moments.formation import form_moments, pull_back_contexts
 from backend.moments.repetition import (
     detect_repetition,
     saturation_penalties,
@@ -153,12 +153,13 @@ class MomentsWorker:
         # Measured on one 88-minute session, the two refuse ten and sixteen
         # clips of a shipped render and share only four, so neither alone was
         # ever going to be enough.
+        excluded = self._excluded_spans(context, media, vision, duration)
         moments = form_moments(
             events,
             config.formation,
             media_id=media.id,
             non_gameplay=frame_state.non_gameplay(screen_states),
-            excluded_spans=self._excluded_spans(context, media, vision, duration),
+            excluded_spans=excluded,
         )
         if not moments:
             context.report(1.0, "No moments formed")
@@ -176,6 +177,16 @@ class MomentsWorker:
                 reader=reader,
             ),
         )
+
+        # Expansion widened the contexts without knowing the exclusions, so
+        # the pull-back runs once more (P0.2 gate, item 6). The core is never
+        # touched here; only where the viewing span may reach.
+        moments, pulled_after_expansion = pull_back_contexts(moments, excluded)
+        if pulled_after_expansion:
+            logger.info(
+                "Contexts pulled back out of excluded stretches after expansion",
+                extra={"media_id": media.id, "moments": pulled_after_expansion},
+            )
 
         context.report(0.6, "Measuring dead time and repetition")
         dead_segments = detect_dead_time(

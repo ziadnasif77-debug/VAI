@@ -853,6 +853,37 @@ class TestExclusionsReachFormation:
         assert moment.context_end <= 112.0
         assert moment.start_seconds == pytest.approx(100.0), "the core is untouched"
 
+    def test_expansion_cannot_carry_a_context_back_into_a_menu(self, config) -> None:
+        # P0.2 gate, item 6. Formation pulled the context to the menu's edge;
+        # expansion then widened it from scenes and speech without knowing
+        # the menu, and seven stored contexts on the benchmark reached 24.5 s
+        # into exclusions. The pull-back runs again after expansion.
+        from backend.moments.formation import form_moments, pull_back_contexts, replace_moment
+
+        (moment,) = form_moments(
+            [_event(GameEventType.KILL, 100.0, duration=4.0)],
+            config.moments.formation,
+            media_id="m",
+            excluded_spans=[(112.0, 140.0)],
+        )
+        widened = replace_moment(moment, context_start=80.0, context_end=130.0)
+
+        (pulled,), count = pull_back_contexts([widened], [(112.0, 140.0)])
+
+        assert count == 1
+        assert pulled.context_end <= 112.0
+        assert pulled.context_start == pytest.approx(80.0), "the far side is left alone"
+        assert pulled.start_seconds == pytest.approx(100.0), "the core is untouched"
+
+    def test_the_pull_back_is_a_no_op_without_exclusions(self, config) -> None:
+        from backend.moments.formation import form_moments, pull_back_contexts
+
+        moments = form_moments(
+            [_event(GameEventType.KILL, 100.0, duration=4.0)], config.moments.formation, media_id="m"
+        )
+        same, count = pull_back_contexts(moments, [])
+        assert count == 0 and same == list(moments)
+
     def test_a_clean_recording_forms_exactly_what_it_formed_before(
         self, config
     ) -> None:

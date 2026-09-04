@@ -110,6 +110,11 @@ export function AnalysisScreen({project, onDone}: {project: Project; onDone: () 
 
   const byStage = new Map((status.data?.stages ?? []).map((stage) => [stage.stage, stage]));
   const failed = (jobs.data?.items ?? []).filter((job) => job.status === 'failed');
+  // A stage that completed by doing nothing, and said why. Without this row
+  // a pipeline could show every mark green and no video behind it.
+  const skipped = (jobs.data?.items ?? []).filter(
+    (job) => job.status === 'completed' && job.result?.skipped === true,
+  );
   const running = (jobs.data?.items ?? []).find((job) => job.status === 'running');
   const momentsDone = byStage.get('moments')?.status === 'completed';
 
@@ -175,6 +180,24 @@ export function AnalysisScreen({project, onDone}: {project: Project; onDone: () 
           </button>
         </div>
       </section>
+
+      {skipped.length > 0 && (
+        <section className="panel">
+          <h2>Skipped</h2>
+          <ul className="list">
+            {skipped.map((job) => (
+              <li key={job.id} className="list-row">
+                <span className="list-title">{job.stage}</span>
+                <span className="muted">
+                  {typeof job.result?.reason === 'string'
+                    ? job.result.reason
+                    : 'skipped without a recorded reason'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {failed.length > 0 && (
         <section className="panel">
