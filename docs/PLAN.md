@@ -9,7 +9,7 @@
 | Brief | [`docs/BRIEF_P0.md`](BRIEF_P0.md) — the P0 → P1 contract, verbatim. Its CURRENT COMMAND section describes the state before P0.2 closed and is kept as history; this file carries the running state |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
 | Last updated | 2026-09-04, P0.3 gate passed |
-| Current phase | **P0.3 (AuthorizedSpan)** -- code complete, gate passed on `rnd-661fbf1f172a` / `c6d1904`; **closure awaits the DATASET GATE** (NOT YET AVAILABLE -- the owner's labels are not yet recorded). Next: **P0.6 (jump-cut decision + word timestamps)** -- order P0.6 → P0.5 → P0.4 → P0.7 → P0.8 (owner, 2026-09-04); not started; starts only on an `AUTHORIZED: P0.6 -- <date>` line below, sourced from the owner |
+| Current phase | **P0.3 (AuthorizedSpan)** -- code complete, gate passed on `rnd-661fbf1f172a` / `c6d1904`; **closure awaits the DATASET GATE** (NOT YET AVAILABLE -- the owner's labels are not yet recorded). **P0.6 (jump-cut decision + word timestamps) authorised 2026-09-04**, in progress; order P0.6 → P0.5 → P0.4 → P0.7 → P0.8 (owner, 2026-09-04) |
 | Tests | 2861 passing, 5 skipped (opt-in model tests) — full run 2026-09-04, 48m43s |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
@@ -256,6 +256,12 @@ same dead end as "no plan".
 ```
 AUTHORIZED: P0.3 — 2026-09-04
 ```
+```
+AUTHORIZED: P0.6 — 2026-09-04
+```
+
+(owner's message of 2026-09-04: "موافق على التقرير. AUTHORIZED: P0.6 — 2026-09-04 بالبنود الخمسة كما كتبتها، مع ثلاثة تعديلات"; the design report's five items stand, with three changes: **(1)** item 5 -- situations in the selection -- is P0.6's priority and its first code commit, not its appendix: the jump-cut decision explains 21 lost onsets on the benchmark, the selection 132; 8 → 0 is the acceptance and the 132 gets its own number, and if it stays above 60 the cause is the duration target and is recorded as P0.8's with its numbers. **(2)** the density budget's values are derived, not invented: the current cuts per band on the benchmark and the density that gives a median shot ≥ 4 s, shown as a table before any YAML, and recorded as derived from one session like the vision threshold 0.60. **(3)** an explicit, final minimum shot length, applied after everything -- after the tiers and after the Critic: a piece under the floor is merged with its neighbour or dropped, never shown; the floor derived the same way; `test_p0_6_no_clip_is_shorter_than_the_floor` on the benchmark, 130 → 0. Final acceptance: the length distribution after the rebuild (median, under two seconds, count), 8 → 0, 21 → 0, the 132's number, and the owner watches the whole render -- if they cannot finish it, the gate is not passed.)
+
 
 (owner's message of 2026-09-04: "ابدأ P0.3 `AuthorizedSpan` وفق `docs/BRIEF_P0.md` قسم PHASE B و AUTHORIZED SPAN IDENTITY حرفياً"; design report first, code after approval, one concern per `[P0.3]` commit, closure requires the DATASET GATE with the owner's own baseline.)
 
