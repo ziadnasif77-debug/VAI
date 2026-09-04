@@ -242,6 +242,16 @@ AUTHORIZED: P0.3 — 2026-09-04
 
 (owner's message of 2026-09-04: "ابدأ P0.3 `AuthorizedSpan` وفق `docs/BRIEF_P0.md` قسم PHASE B و AUTHORIZED SPAN IDENTITY حرفياً"; design report first, code after approval, one concern per `[P0.3]` commit, closure requires the DATASET GATE with the owner's own baseline.)
 
+**P0.3 and the seventeen stored projects (recorded before the store changes).** The
+story result gains an `authorized` chain per clip and `clips_from_story_result`
+refuses a result without one: **the EDL stage on any project whose STORY ran
+before P0.3 fails with** `story result predates authorization; re-run STORY`
+**and nothing is backfilled.** Moments gain a persisted `authorized` column
+(migration 0017); a moment stored before it carries an empty chain and the
+story stage refuses to plan from it with the same sentence. Re-running STORY
+(and MOMENTS for the chain) is the only way forward for those projects, by
+design: a grant nobody issued is not a grant.
+
 **Rules from here (owner, 2026-09-04).** No phase starts without an `AUTHORIZED: P0.x -- <date>` line in this file, sourced from an owner message. Every commit subject starts with `[P0.x]` or `[chore]`; one concern per commit. New tests are named after the rule they guard (`test_p0_2_context_never_enters_exclusion_...`) so a grep finds them; old names stay.
 
 **Cost.** 569 s of OCR on an 88-minute session for all 368 frames, 159
