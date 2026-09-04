@@ -49,7 +49,7 @@ _COLUMNS = (
     "id, project_id, media_id, moment_type, start_seconds, end_seconds, context_start, "
     "context_end, score, confidence, dead_time_score, repetition_score, score_breakdown, "
     "explanation, event_ids, needs_review, user_state, thumbnail_path, analysis_version, "
-    "created_at, phases"
+    "created_at, phases, authorized"
 )
 
 
@@ -109,6 +109,8 @@ class MomentRepository:
                     "thumbnail_path": moment.metadata.get("thumbnail_path"),
                     "analysis_version": ANALYSIS_VERSION,
                     "created_at": now,
+                    # P0.3: the grants this moment carries, as issued.
+                    "authorized": dumps(list(moment.metadata.get("authorized") or [])),
                 }
             )
 
@@ -120,7 +122,7 @@ class MomentRepository:
                 ":context_start, :context_end, :score, :confidence, :dead_time_score, "
                 ":repetition_score, :score_breakdown, :explanation, :event_ids, "
                 ":needs_review, :user_state, :thumbnail_path, :analysis_version, "
-                ":created_at, :phases)",
+                ":created_at, :phases, :authorized)",
                 rows,
             )
         return len(rows)
@@ -354,8 +356,21 @@ def _from_row(row: sqlite3.Row, stored: Sequence[GameEvent] | None = None) -> Mo
             "user_state": row["user_state"],
             "thumbnail_path": row["thumbnail_path"],
             "phases": _phases(row),
+            "authorized": _authorized(row),
         },
     )
+
+
+def _authorized(row) -> list[dict]:
+    """The stored grant chain, or none for a moment written before P0.3."""
+    try:
+        stored = row["authorized"]
+    except (IndexError, KeyError):
+        return []
+    if not stored:
+        return []
+    parsed = loads(stored)
+    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
 
 
 def _phases(row) -> list[dict]:

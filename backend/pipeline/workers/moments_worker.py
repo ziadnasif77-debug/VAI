@@ -35,6 +35,7 @@ from backend.database.repositories.vision import VisionRepository
 from backend.moments.context import ExpansionSources, expand
 from backend.moments.dead_time import dead_time_ratio, detect_dead_time
 from backend.moments.formation import form_moments, pull_back_contexts
+from backend.moments.grants import grant_first_spans
 from backend.moments.repetition import (
     detect_repetition,
     saturation_penalties,
@@ -182,6 +183,9 @@ class MomentsWorker:
         # the pull-back runs once more (P0.2 gate, item 6). The core is never
         # touched here; only where the viewing span may reach.
         moments, pulled_after_expansion = pull_back_contexts(moments, excluded)
+        # P0.3: the first grants -- core and context -- issued here, against
+        # the same exclusions, and carried to the store.
+        moments = grant_first_spans(moments, excluded)
         if pulled_after_expansion:
             logger.info(
                 "Contexts pulled back out of excluded stretches after expansion",
