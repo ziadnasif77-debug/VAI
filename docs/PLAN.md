@@ -6,6 +6,7 @@
 | --- | --- |
 | Product | AI Gaming Video Editor — local-first |
 | Specification | [`docs/SPEC.md`](SPEC.md) — every `§N` reference in the code points there |
+| Brief | [`docs/BRIEF_P0.md`](BRIEF_P0.md) — the P0 → P1 contract, verbatim. Its CURRENT COMMAND section describes the state before P0.2 closed and is kept as history; this file carries the running state |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
 | Last updated | 2026-09-04, P0.2.2 accepted |
 | Current phase | **P0.2 closed** on `1e1b118` / `rnd-09d8d81bacf9`; **P0.2.1** executed (`f3452ef`, before authorisation); **P0.2.2 accepted 2026-09-04** on `rnd-944686d1db2d` / `457072a`. Next: **P0.3 (AuthorizedSpan)** -- not started; starts only on an `AUTHORIZED: P0.3 -- <date>` line below, sourced from the owner |
@@ -132,6 +133,42 @@ Development order follows SPEC §126.
 | V2-P2 | **Moment understanding** | phases measured from the session's own lanes (setup · anticipation · escalation · payoff · reaction · dead · unknown) with a confidence anchored to the refusal threshold; context expansion reads them instead of a per-type constant; `unexpected_event` → `unknown_event`. Gate: 78% of moments carry a named arc above 0.5 confidence (bar 60%), the rest say unknown | ✅ **done** |
 | V2-P1b | **Semantic spine** | the lanes become a stage of their own between GAME_EVENTS and MOMENTS, stored in `semantic_timelines` under a digest of their inputs' *values*; nine lanes behind `SemanticReader`; `frames.motion_score` measured at last (it had never been written, at weight 0.35) | ✅ **done** |
 | V2-P1 | **Semantic Timeline + Dynamic Pacing** | 2Hz fused heat lanes per session; the guard walks each clip and re-reads the level at every cut; chronology constitution (`ensure_chronological`, hook-at-0 the sole exception). Gate on a 31-minute session: 95/95 clips inside their band's cap, hot/cold shot-length ratio 0.37 (target ≤ 0.50), QA 78 | ✅ **done** |
+
+#### P0.2 ACCEPTANCE GATE — copied verbatim from `docs/BRIEF_P0.md`
+
+```text
+P0.2 ACCEPTANCE GATE
+P0.2 is CLOSED only when all are true:
+
+* final render contains zero excluded non-gameplay spans
+* no accidental gameplay loss caused by the bridge (proven by the BRIDGE SAFETY MEASUREMENT numbers, not by inspection alone)
+* zero EDL/excluded-span intersections
+* regression test proves the bridge is necessary
+* full pytest passes
+* `ruff check .` passes
+* PLAN.md records closure
+* baseline movement, if any, is documented in docs/BASELINE.md
+* commit is clean and reproducible
+
+Dataset regression is NOT a P0.2 blocker (see DATASET AVAILABILITY EXCEPTION).
+```
+
+Each line of the gate, and the measurement that answers it (accepted 2026-09-04 on `rnd-944686d1db2d`; P0.2 itself closed on `rnd-09d8d81bacf9`):
+
+| gate line | answered by | P0.2 (`1e1b118`) | P0.2.2 (`457072a`) |
+|---|---|---|---|
+| final render contains zero excluded non-gameplay spans | render read frame by frame at one frame every 2 s; `content.excluded_spans` against every stored clip | 459 frames; MISSION FAILED / restart / loading at 1:47 gone; a 3 s pause menu at 2:43 remained (no detector had sampled it) | 453 frames, no menu |
+| no accidental gameplay loss caused by the bridge (numbers, not inspection) | `scripts/bridge_safety.py`, ±10 s around each unbridged span, observed = a detector within 3.5 s | 596.90 s neighbouring, 51.15 / 51.15 s retained, **0.00 s removed** | 635.40 s neighbouring, 56.50 / 56.50 s retained, **0.00 s removed**; 11 bridged gaps = 34.21 s, 0.00 s inside the plan, each read |
+| zero EDL/excluded-span intersections | every enabled `timeline_clips` row against the spans | 0 of 298 | 0 of 304 |
+| regression test proves the bridge is necessary | `tests/unit/test_content_state.py::TestBridgingUnsampledGaps` (`test_an_unsampled_island_between_two_refusals_is_closed`, `test_the_exact_island_that_leaked_three_frames_of_loading`) | present | present |
+| full pytest passes | the whole suite, exit code read directly | 2739 passed (run of 2026-09-03) | 2781 passed, 5 skipped, exit 0 |
+| `ruff check .` passes | repository-wide | clean | clean |
+| PLAN.md records closure | this file, §2 | the entry below, corrected 2026-09-04 | the P0.2.2 entry below |
+| baseline movement, if any, is documented in docs/BASELINE.md | `docs/BASELINE.md` → *The benchmark across P0.2 → P0.2.2* | 74 → 63 moments, 336 → 298 clips recorded | 917.1/298/63 → 927.9/304/60 with the STORY caveat |
+| commit is clean and reproducible | pushed commit, ruff clean, tests green at that commit | `1e1b118` (ruff cleared in `ad121a4` before it) | `457072a` |
+
+Also confirmed, from PHASE A item 5: zero accepted moments with a core inside excluded content (0 of 63 at P0.2, 0 of 60 at P0.2.2) and context not crossing excluded content (7 of 63 crossed at P0.2 — 24.5 s — because expansion ran after the pull-back; 0 of 60 after `457072a`).
+
 
 ### P0.2.2 — the seconds nobody sampled (2026-09-03, accepted 2026-09-04)
 
