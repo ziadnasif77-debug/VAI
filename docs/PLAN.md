@@ -9,7 +9,7 @@
 | Brief | [`docs/BRIEF_P0.md`](BRIEF_P0.md) — the P0 → P1 contract, verbatim. Its CURRENT COMMAND section describes the state before P0.2 closed and is kept as history; this file carries the running state |
 | Branch | `claude/local-ai-youtube-editor-ixsrt8` |
 | Last updated | 2026-09-04, P0.3 gate passed |
-| Current phase | **P0.3 (AuthorizedSpan)** -- code complete, gate passed on `rnd-661fbf1f172a` / `c6d1904`; **closure awaits the DATASET GATE** (NOT YET AVAILABLE -- the owner's labels are not yet recorded). Next: **P0.4 (hook / ending gates)** -- not started; starts only on an `AUTHORIZED: P0.4 -- <date>` line below, sourced from the owner |
+| Current phase | **P0.3 (AuthorizedSpan)** -- code complete, gate passed on `rnd-661fbf1f172a` / `c6d1904`; **closure awaits the DATASET GATE** (NOT YET AVAILABLE -- the owner's labels are not yet recorded). Next: **P0.6 (jump-cut decision + word timestamps)** -- order P0.6 → P0.5 → P0.4 → P0.7 → P0.8 (owner, 2026-09-04); not started; starts only on an `AUTHORIZED: P0.6 -- <date>` line below, sourced from the owner |
 | Tests | 2861 passing, 5 skipped (opt-in model tests) — full run 2026-09-04, 48m43s |
 | Backend code | ~38,000 lines across `backend/` and `ai/`, plus the `remotion/` project |
 
@@ -270,6 +270,15 @@ story stage refuses to plan from it with the same sentence. Re-running STORY
 design: a grant nobody issued is not a grant.
 
 **Rules from here (owner, 2026-09-04).** No phase starts without an `AUTHORIZED: P0.x -- <date>` line in this file, sourced from an owner message. Every commit subject starts with `[P0.x]` or `[chore]`; one concern per commit. New tests are named after the rule they guard (`test_p0_2_context_never_enters_exclusion_...`) so a grep finds them; old names stay.
+
+**Phase order (owner, 2026-09-04): P0.6 → P0.5 → P0.4 → P0.7 → P0.8.** The
+first human viewing of the P0.3 gate render (`rnd-661fbf1f172a`) could not be
+finished: 288 clips in 15 minutes, median 2.1 s, 130 under two seconds, 42 cuts
+inside continuous footage -- an edit that reads as a dropped connection -- and
+a kill shown without its cause. The jump-cut decision (P0.6) is the largest
+cause of that, the attempt structure (P0.5) the second, and the hook and ending
+(P0.4) are the last thing to tune on an edit nobody can watch through. P0.7 and
+P0.8 keep their places. Each still starts only on its own `AUTHORIZED` line.
 
 **Cost.** 569 s of OCR on an 88-minute session for all 368 frames, 159
 frames with the shipped default -- against 1,605 s for the OCR stage and
