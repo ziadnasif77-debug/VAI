@@ -218,6 +218,8 @@ class RenderWorker:
             "video_codec": final.video_codec,
             "audio_codec": final.audio_codec,
             "has_overlay": final.has_overlay,
+            # P0.3: the audio-only spans the J/L offsets were granted.
+            "jl_grants": list(getattr(self, "_jl_grants", [])),
             "clips": programme.clips,
             "reused_segments": programme.reused_segments,
             "segments_removed": removed,
@@ -529,6 +531,7 @@ class RenderWorker:
                 work_dir / "duck_music.wav",
             )
 
+        self._jl_grants: list[dict[str, Any]] = []
         game_audio = self._programme_audio(context, timeline, sources, work_dir)
         if game_audio is None:
             return None
@@ -903,9 +906,28 @@ class RenderWorker:
             )
             if item.metadata.duration_seconds
         }
+        # P0.3: every offset reads source seconds outside its clip, and is
+        # granted as audio by jl_cut against the recording's exclusions.
+        from backend.gaming.exclusions import read_exclusions
+
+        exclusions_by_media = {
+            media_id: read_exclusions(
+                context.database,
+                media_id,
+                duration_seconds=durations.get(media_id, 0.0),
+                profiles_dir=context.profiles_dir,
+            ).spans
+            for media_id in timeline.media_ids()
+            if durations.get(media_id)
+        }
         boundaries = jl.plan_boundaries(
-            timeline, transcript_by_media, jl_config, source_durations=durations
+            timeline,
+            transcript_by_media,
+            jl_config,
+            source_durations=durations,
+            exclusions_by_media=exclusions_by_media,
         )
+        self._jl_grants = [plan.grant.to_dict() for plan in boundaries if plan.grant is not None]
         if all(plan.is_hard for plan in boundaries):
             return None
 
@@ -924,6 +946,9 @@ class RenderWorker:
                 "boundaries": len(boundaries),
                 "j_cuts": sum(1 for plan in boundaries if plan.kind == "j"),
                 "l_cuts": sum(1 for plan in boundaries if plan.kind == "l"),
+                "audio_seconds_granted": round(
+                    sum(plan.dt for plan in boundaries if plan.grant is not None), 2
+                ),
             },
         )
         context.ffmpeg.run(

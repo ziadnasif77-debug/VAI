@@ -58,6 +58,7 @@ from typing import Final, Literal
 
 from backend.config.schema import JLCutsConfig
 from backend.rendering.audio_mix import MIX_FORMAT, warped_clip_audio
+from backend.timeline.authorization import AuthorizationError, AuthorizedSpan, Granter, issue
 from backend.timeline.models import Timeline, TimelineClip
 from backend.timeline.retime import clip_retime, is_retimed
 
@@ -87,6 +88,13 @@ class BoundaryPlan:
     index: int
     kind: BoundaryKind
     dt: float = 0.0
+    #: P0.3: the audio-only span that authorises the seconds this offset
+    #: reads outside its clip -- ``[source_in - dt, source_in]`` for a J,
+    #: ``[source_out, source_out + dt]`` for an L. Granted by ``jl_cut``,
+    #: capped by ``render.jl_cuts.max_lead_seconds``, never into an
+    #: exclusion, and never a change to the picture's bounds. ``None`` on a
+    #: hard boundary.
+    grant: AuthorizedSpan | None = None
 
     @property
     def is_hard(self) -> bool:
@@ -99,6 +107,7 @@ def plan_boundaries(
     config: JLCutsConfig,
     *,
     source_durations: Mapping[str, float] | None = None,
+    exclusions_by_media: Mapping[str, Sequence[tuple[float, float]]] | None = None,
 ) -> list[BoundaryPlan]:
     """Decide J, L or hard for every internal boundary. Pure; no I/O.
 
@@ -118,6 +127,11 @@ def plan_boundaries(
             L-cut reads past ``source_out``, and a recording's end is the one
             clamp planning cannot infer from the timeline; unknown means the
             trail is allowed and the extraction simply runs out of file.
+        exclusions_by_media: the excluded stretches per recording (P0.3). An
+            offset reads source seconds outside its clip, so each one is an
+            audio-only grant by ``jl_cut``; a lead that would read a menu is
+            cut back to the menu's edge, and a lead with nothing left stays a
+            hard cut.
     """
     clips = timeline.video_clips()
     plans: list[BoundaryPlan] = []
@@ -131,6 +145,7 @@ def plan_boundaries(
                 transcript_by_media,
                 config,
                 source_durations or {},
+                exclusions_by_media or {},
             )
         )
     return plans
@@ -246,6 +261,7 @@ def _plan_one(
     transcript_by_media: Mapping[str, Sequence[tuple[float, float]]],
     config: JLCutsConfig,
     source_durations: Mapping[str, float],
+    exclusions_by_media: Mapping[str, Sequence[tuple[float, float]]],
 ) -> BoundaryPlan:
     """One boundary's verdict."""
     hard = BoundaryPlan(index=index, kind="hard")
@@ -274,9 +290,23 @@ def _plan_one(
         # lead plays source material from before the in-point, so there must
         # be that much recording to play.
         dt = min(room, incoming.source_in)
-        if dt >= _MIN_OFFSET_SECONDS:
-            return BoundaryPlan(index=index, kind="j", dt=dt)
-        return hard
+        if dt < _MIN_OFFSET_SECONDS:
+            return hard
+        grant = _audio_grant(
+            incoming.media_id,
+            incoming.source_in - dt,
+            incoming.source_in,
+            exclusions_by_media.get(incoming.media_id, ()),
+            f"J-cut lead of {dt:.2f} s into clip {incoming.clip_index}",
+        )
+        # The lead must end at the in-point: a grant cut back on the near
+        # side is a lead that would skip, not a shorter lead.
+        if grant is None or abs(grant.end - incoming.source_in) > 1e-6:
+            return hard
+        dt = incoming.source_in - grant.start
+        if dt < _MIN_OFFSET_SECONDS:
+            return hard
+        return BoundaryPlan(index=index, kind="j", dt=dt, grant=grant)
 
     if _speech_overlaps(
         transcript_by_media.get(outgoing.media_id, ()),
@@ -290,11 +320,43 @@ def _plan_one(
         known = source_durations.get(outgoing.media_id)
         if known is not None:
             dt = min(dt, max(known - outgoing.source_out, 0.0))
-        if dt >= _MIN_OFFSET_SECONDS:
-            return BoundaryPlan(index=index, kind="l", dt=dt)
-        return hard
+        if dt < _MIN_OFFSET_SECONDS:
+            return hard
+        grant = _audio_grant(
+            outgoing.media_id,
+            outgoing.source_out,
+            outgoing.source_out + dt,
+            exclusions_by_media.get(outgoing.media_id, ()),
+            f"L-cut trail of {dt:.2f} s out of clip {outgoing.clip_index}",
+        )
+        if grant is None or abs(grant.start - outgoing.source_out) > 1e-6:
+            return hard
+        dt = grant.end - outgoing.source_out
+        if dt < _MIN_OFFSET_SECONDS:
+            return hard
+        return BoundaryPlan(index=index, kind="l", dt=dt, grant=grant)
 
     return hard
+
+
+def _audio_grant(
+    media_id: str,
+    start: float,
+    end: float,
+    exclusions: Sequence[tuple[float, float]],
+    reason: str,
+) -> AuthorizedSpan | None:
+    """The audio-only span for an offset, or ``None`` when none is grantable.
+
+    Issued like every other grant, against the recording's exclusions: the
+    largest piece outside them, and nothing when the whole stretch is a
+    menu. What is granted is sound; the picture's bounds are untouched.
+    """
+    try:
+        return issue(media_id, start, end, Granter.JL_CUT, reason, exclusions=exclusions,
+                     audio_only=True)
+    except AuthorizationError:
+        return None
 
 
 def _speech_overlaps(

@@ -361,3 +361,56 @@ class TestTheAssemblyGraph:
         assert "concat=n=2:v=0:a=1" in graph
         assert "adelay=8000|8000" in graph, "the body is still placed at its own start"
         assert "[c1]" in graph, "the warped chain feeds the same mixer slot"
+
+
+class TestP03OffsetsAreAudioGrants:
+    """P0.3: an offset reads outside its clip, so it is an audio-only grant."""
+
+    def test_p0_3_a_j_lead_is_an_audio_only_grant_by_jl_cut(self, two_clips) -> None:
+        from backend.timeline.authorization import Granter
+
+        (plan,) = plan_boundaries(two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config())
+        assert plan.kind == "j"
+        assert plan.grant is not None
+        assert plan.grant.granted_by is Granter.JL_CUT
+        assert plan.grant.audio_only
+        assert (plan.grant.start, plan.grant.end) == (30.0 - plan.dt, 30.0)
+        assert plan.dt <= _config().max_lead_seconds + 1e-9
+
+    def test_p0_3_an_l_trail_is_granted_the_same_way(self, two_clips) -> None:
+        (plan,) = plan_boundaries(two_clips, {MEDIA_A: [(16.5, 17.8)]}, _config())
+        assert plan.kind == "l"
+        assert plan.grant is not None and plan.grant.audio_only
+        assert (plan.grant.start, plan.grant.end) == (18.0, 18.0 + plan.dt)
+
+    def test_p0_3_a_lead_that_would_read_a_menu_stays_hard(self, two_clips) -> None:
+        (plan,) = plan_boundaries(
+            two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config(),
+            exclusions_by_media={MEDIA_B: [(29.0, 30.0)]},
+        )
+        assert plan.is_hard and plan.grant is None
+
+    def test_p0_3_a_lead_is_cut_back_to_the_exclusion_edge(self, two_clips) -> None:
+        # Room is 0.6 s: the lead wants [29.4, 30.0]; a menu ends at 29.8, so
+        # the grant is [29.8, 30.0] and the lead is 0.2 s.
+        (plan,) = plan_boundaries(
+            two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config(max_lead_seconds=0.6),
+            exclusions_by_media={MEDIA_B: [(29.0, 29.8)]},
+        )
+        assert plan.kind == "j"
+        assert plan.dt == pytest.approx(0.2)
+        assert (plan.grant.start, plan.grant.end) == (29.8, 30.0)
+
+    def test_p0_3_a_lead_cut_on_the_near_side_stays_hard(self, two_clips) -> None:
+        # A menu right at the in-point: what is left of the lead does not
+        # touch the boundary, and a lead that would skip is not a lead.
+        (plan,) = plan_boundaries(
+            two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config(max_lead_seconds=0.6),
+            exclusions_by_media={MEDIA_B: [(29.9, 30.0)]},
+        )
+        assert plan.is_hard
+
+    def test_p0_3_the_picture_bounds_are_never_touched(self, two_clips) -> None:
+        before = [(c.source_in, c.source_out) for c in two_clips.video_clips()]
+        plan_boundaries(two_clips, {MEDIA_B: [(30.2, 32.0)]}, _config())
+        assert [(c.source_in, c.source_out) for c in two_clips.video_clips()] == before
