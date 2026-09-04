@@ -299,6 +299,16 @@ row exists, `--gate` applies the default thresholds: F1 may not fall by more
 than 0.02, leakage may never rise, boundary error may not rise by more than
 0.50 s.
 
+**Baseline recorded at P0.3; P0.2 state unmeasured** (owner's decision,
+2026-09-04). The dataset was not ready before P0.3, so the first baseline is
+taken from the pipeline's stored output at the P0.3 gate --
+`rnd-661fbf1f172a` / the P0.3 HEAD -- once the owner's labels for
+`proj-5db1780821a6` exist. The DATASET GATE for P0.3 passes on it by
+definition (delta zero), and that is what closes P0.3. P0.4 and everything
+after are measured against this row. The moment finder's proposals under
+P0.2 were never scored against labels, and no number for them will be
+invented after the fact.
+
 | project | F1 | precision | recall | boundary error (s) | leakage |
 |---|---:|---:|---:|---:|---:|
 
