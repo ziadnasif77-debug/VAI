@@ -146,6 +146,16 @@ class PacingBands(_Section):
     climax: PacingBand = Field(default_factory=lambda: PacingBand(min=0.8, max=1.8))
 
 
+class JumpCutBudget(_Section):
+    """Cuts a minute each band may spend (P0.6). Derived, see the YAML."""
+
+    calm: float = Field(default=6.0, gt=0)
+    normal: float = Field(default=8.0, gt=0)
+    tension: float = Field(default=10.0, gt=0)
+    high: float = Field(default=12.0, gt=0)
+    climax: float = Field(default=14.0, gt=0)
+
+
 class EditorialPacingConfig(_Section):
     dynamic: bool = True
     bands: PacingBands = Field(default_factory=PacingBands)
@@ -154,6 +164,8 @@ class EditorialPacingConfig(_Section):
     #: after the tiers, after the exclusions and after the Critic. A piece
     #: under this joins a neighbour or is not shown.
     min_shot_seconds: float = Field(default=3.0, gt=0)
+    #: P0.6, the owner's second item: how fast each band may cut.
+    jump_cut_budget_per_minute: JumpCutBudget = Field(default_factory=JumpCutBudget)
     #: Source seconds dropped between the pieces of a hot slab (a stretch cut
     #: below the normal band's cap). Contiguous pieces replay as one shot; the
     #: skip is what makes the cut a felt jump-cut, and it tightens the action.

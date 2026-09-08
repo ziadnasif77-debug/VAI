@@ -95,3 +95,48 @@ class TestP06TheShotFloor:
         kept, notes = shot_floor.apply_to_clips(clips, floor=0.0)
         assert kept == clips and notes == []
 
+
+class TestP06TheJumpCutBudget:
+    @staticmethod
+    def _band_of(_media_id, start, _end):
+        return "climax" if start >= 200.0 else "calm"
+
+    def test_p0_6_a_band_over_its_ceiling_is_paced_back_into_it(self) -> None:
+        # Sixty seconds of calm cut every four seconds: 15 cuts a minute
+        # against a ceiling of 6.
+        clips = _run(100.0, 4.0, 15)
+        kept, notes = shot_floor.apply_to_clips(
+            clips, ceilings={"calm": 6.0}, band_of=self._band_of
+        )
+        seconds = sum(clip.seconds for clip in kept)
+        assert 60.0 * len(kept) / seconds <= 6.0
+        assert any("budget" in note for note in notes)
+        assert seconds == pytest.approx(60.0), "pacing joins shots, it never drops footage"
+
+    def test_p0_6_a_band_inside_its_ceiling_is_left_alone(self) -> None:
+        clips = _run(100.0, 12.0, 5)
+        kept, notes = shot_floor.apply_to_clips(
+            clips, ceilings={"calm": 6.0}, band_of=self._band_of
+        )
+        assert kept == clips and notes == []
+
+    def test_p0_6_each_band_answers_to_its_own_ceiling(self) -> None:
+        clips = [*_run(100.0, 4.0, 15), *_run(200.0, 2.0, 30, moment="mom-2")]
+        kept, _ = shot_floor.apply_to_clips(
+            clips, ceilings={"calm": 6.0, "climax": 14.0}, band_of=self._band_of
+        )
+        for band, ceiling in (("calm", 6.0), ("climax", 14.0)):
+            mine = [c for c in kept if self._band_of(c.media_id, c.source_start, c.source_end) == band]
+            seconds = sum(c.seconds for c in mine)
+            assert 60.0 * len(mine) / seconds <= ceiling, band
+        # And the gradient survives: the hot band still cuts faster.
+        assert len([c for c in kept if c.source_start >= 200.0]) > len(
+            [c for c in kept if c.source_start < 200.0]
+        )
+
+    def test_p0_6_a_band_with_no_ceiling_is_not_paced(self) -> None:
+        clips = _run(200.0, 1.0, 40, moment="mom-2")
+        kept, notes = shot_floor.apply_to_clips(
+            clips, ceilings={"calm": 6.0}, band_of=self._band_of
+        )
+        assert kept == clips and notes == []

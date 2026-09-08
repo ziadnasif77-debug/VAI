@@ -241,6 +241,8 @@ class EdlWorker:
             database=context.database,
         )
 
+        # P0.6: what the jump-cut budget did, for the stage's own notes.
+        self._budget_notes: list[str] = []
         guard = context.config.narrative.screen_guard
         if guard.enabled:
             before_guard = len(planned)
@@ -276,7 +278,7 @@ class EdlWorker:
             target_seconds=float(story.get("target_seconds", 0.0)),
             media_durations=durations,
             transitions=context.config.narrative.transitions,
-            notes=story.get("notes", ()),
+            notes=[*story.get("notes", ()), *self._budget_notes],
             excluded_spans=excluded_spans,
             shot_floor_seconds=context.config.editorial.pacing.min_shot_seconds,
             metadata={
@@ -673,6 +675,24 @@ class EdlWorker:
             low_tier_max_seconds=guard.low_tier_max_seconds,
             min_piece_seconds=guard.min_piece_seconds,
         )
+        # P0.6: the jump-cut budget, where the bands are read. Over its
+        # ceiling a band's shortest shots join their neighbours until it is
+        # inside it; the shot floor itself runs last, in `build_timeline`.
+        budget = context.config.editorial.pacing.jump_cut_budget_per_minute
+
+        def band_of(media_id: str, start: float, end: float) -> str | None:
+            reader = timelines.get(media_id)
+            return None if reader is None else reader.level_for(start, end)
+
+        if timelines and context.config.editorial.pacing.dynamic:
+            from backend.timeline.shot_floor import apply_to_clips
+
+            guarded, self._budget_notes = apply_to_clips(
+                guarded, ceilings=budget.model_dump(), band_of=band_of
+            )
+            for note in self._budget_notes:
+                logger.info("Paced the edit to its budget", extra={"note": note})
+
         # The constitution is checked in `build_timeline`, on the selection
         # after overlapping context spans have been resolved -- here it
         # refused plans that were about to become legal one pass later.

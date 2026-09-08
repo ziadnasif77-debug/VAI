@@ -53,6 +53,16 @@ editorial:
     # The last word on shot length -- after the tiers, after the exclusions,
     # after the Critic. Below it a piece joins a neighbour or is not shown.
     min_shot_seconds: 3.0
+    # And how fast each band may cut. Measured on the benchmark: with the
+    # floor alone the gradient inverts (the hot bands collect the short
+    # pieces and come out LONGER than tension); these ceilings restore it --
+    # calm ~9.0s median down to climax ~4.7s -- with no band under the floor.
+    jump_cut_budget_per_minute:
+      calm: 6
+      normal: 8
+      tension: 10
+      high: 12
+      climax: 14
     # Source seconds skipped between the pieces of a hot slab: the skip is
     # what makes the cut a felt jump-cut, and it tightens continuous action.
     jump_cut_gap_seconds: 0.35
