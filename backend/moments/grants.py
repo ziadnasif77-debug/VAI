@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from backend.core.logging import LogChannel, get_logger
 from backend.moments.formation import Moment, replace_moment
 from backend.timeline.authorization import (
     MIN_SPAN_SECONDS,
@@ -27,6 +28,8 @@ from backend.timeline.authorization import (
     issue,
     newest_for,
 )
+
+logger = get_logger("moments.grants", LogChannel.PIPELINE)
 
 METADATA_KEY = "authorized"
 
@@ -202,19 +205,59 @@ def grant_widenings(
                 )
             # A grant cut back at an exclusion: the context follows the grant.
             start, end = max(start, governing.start), min(end, governing.end)
-        if not governing.covers(moment.start_seconds, moment.end_seconds):
-            raise AuthorizationError(
-                f"moment {moment.metadata.get('id', '?')}: its core "
-                f"[{moment.start_seconds:.3f}, {moment.end_seconds:.3f}] is outside the span "
-                f"[{governing.start:.3f}, {governing.end:.3f}] granted by "
-                f"{governing.granted_by.value}",
-                details={"moment": moment.metadata.get("id")},
-                recoverable=False,
+        core_start, core_end = moment.start_seconds, moment.end_seconds
+        explanation = moment.explanation
+        if not governing.covers(core_start, core_end):
+            # The core follows the grant too, for the same reason the context
+            # does. A widening is issued against the exclusions as they read
+            # *now*, and the first grants were issued against the exclusions as
+            # they read when MOMENTS ran -- P0.2.2's planned base-frame reads
+            # append OCR to that recording, so a menu can be known here that
+            # was not known there. When the newest grant comes back cut across
+            # the core, the part of the core inside the grant is what may be
+            # shown, and the rest is footage the exclusion layer has since
+            # refused. Nothing is widened by this; it only ever narrows.
+            inside_start = max(core_start, governing.start)
+            inside_end = min(core_end, governing.end)
+            if inside_end - inside_start < MIN_SPAN_SECONDS:
+                raise AuthorizationError(
+                    f"moment {moment.metadata.get('id', '?')}: its core "
+                    f"[{core_start:.3f}, {core_end:.3f}] is outside the span "
+                    f"[{governing.start:.3f}, {governing.end:.3f}] granted by "
+                    f"{governing.granted_by.value}",
+                    details={"moment": moment.metadata.get("id")},
+                    recoverable=False,
+                )
+            logger.info(
+                "A grant cut at an exclusion narrowed a moment's core",
+                extra={
+                    "moment": moment.metadata.get("id"),
+                    "core": [round(core_start, 3), round(core_end, 3)],
+                    "kept": [round(inside_start, 3), round(inside_end, 3)],
+                },
             )
+            explanation = (
+                *explanation,
+                f"the core [{core_start:.1f}, {core_end:.1f}] follows the span "
+                f"[{governing.start:.1f}, {governing.end:.1f}] granted by "
+                f"{governing.granted_by.value}: the rest is not gameplay",
+            )
+            # The context was clamped to the grant just above and the core
+            # lies inside the context, so the narrowed core needs no further
+            # arithmetic to stay inside both.
+            core_start, core_end = inside_start, inside_end
         metadata = {key: value for key, value in moment.metadata.items() if key != WIDENED_KEY}
         metadata[METADATA_KEY] = [span.to_dict() for span in spans]
         granted.append(
-            replace_moment(moment, context_start=start, context_end=end, metadata=metadata)
+            replace_moment(
+                moment,
+                start_seconds=core_start,
+                end_seconds=core_end,
+                context_start=start,
+                context_end=end,
+                explanation=explanation,
+                metadata=metadata,
+            )
         )
     return granted
 

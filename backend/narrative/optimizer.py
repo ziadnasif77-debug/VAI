@@ -517,6 +517,20 @@ def _grow_context(
     return grown, round(total_gain, 3)
 
 
+def _absorbed_bounds(moment: Moment) -> tuple[float | None, float | None]:
+    """The outermost onsets this moment absorbed from a dropped sibling (P0.6)."""
+    from backend.narrative.situations import SITUATION_KEY
+
+    onsets = [
+        float(onset)
+        for record in moment.metadata.get(SITUATION_KEY) or []
+        for onset in record.get("onsets", ())
+    ]
+    if not onsets:
+        return None, None
+    return min(onsets), max(onsets)
+
+
 def _trim_context(
     moments: Sequence[Moment], excess: float, max_ratio: float
 ) -> tuple[list[Moment], float]:
@@ -548,6 +562,14 @@ def _trim_context(
         post = moment.context_end - moment.end_seconds
         take_pre = pre * max_ratio * share
         take_post = post * max_ratio * share
+        # P0.6: a clip that absorbed a dropped sibling's onset shows an event
+        # outside its own core, and the roll it sits in is not spare. The trim
+        # stops at the outermost absorbed onset rather than shaving it away.
+        first, last = _absorbed_bounds(moment)
+        if first is not None:
+            take_pre = min(take_pre, max(first - moment.context_start, 0.0))
+        if last is not None:
+            take_post = min(take_post, max(moment.context_end - last, 0.0))
         trimmed_total += take_pre + take_post
         result.append(
             replace_moment(

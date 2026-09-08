@@ -86,10 +86,30 @@ class TestP06ASituationKeepsItsOnsets:
         assert kill in anchor.events
         assert any("kept the onset" in line for line in anchor.explanation)
 
-    def test_p0_6_an_absorbed_onset_becomes_core_the_trim_cannot_take(self) -> None:
+    def test_p0_6_the_absorbed_onset_is_not_roll_the_duration_trim_may_shave(self) -> None:
+        # The core is NOT grown to the absorbed event -- a widening comes back
+        # cut where it reached into a menu, and a core grown to the uncut span
+        # would sit outside its own grant (rule 5). So the roll is protected
+        # instead: the trim stops at the outermost absorbed onset.
+        from backend.narrative.optimizer import _trim_context
+
         strong, weak, surprise, _kill = _benchmark_shape()
         chosen, _, _ = situations.absorb_onsets([strong, surprise], [weak], min_importance=0.5)
-        assert chosen[0].end_seconds == pytest.approx(1008.9)
+        anchor = chosen[0]
+        assert anchor.end_seconds == pytest.approx(983.7), "the core is the moment's own events"
+
+        (trimmed,), taken = _trim_context([anchor], 1000.0, 0.5)
+        assert trimmed.context_end == pytest.approx(999.5), "it stops at the absorbed onset"
+        assert trimmed.context_start > anchor.context_start, "the pre-roll is still spare"
+        assert taken > 0.0
+
+    def test_p0_6_a_moment_that_absorbed_nothing_trims_as_before(self) -> None:
+        from backend.narrative.optimizer import _trim_context
+
+        strong, _weak, _surprise, _kill = _benchmark_shape()
+        (trimmed,), _ = _trim_context([strong], 1000.0, 0.5)
+        assert trimmed.context_end == pytest.approx(983.7 - (983.7 - 983.7))
+        assert trimmed.context_start == pytest.approx(892.2 + (917.2 - 892.2) * 0.5)
 
     def test_p0_6_the_absorbed_span_is_a_marked_widening_carrying_the_siblings_chain(self) -> None:
         strong, weak, surprise, _kill = _benchmark_shape()

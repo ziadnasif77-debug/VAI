@@ -21,12 +21,19 @@ The rule, in two halves:
   ``min_importance`` and whose onset lies inside no chosen moment is absorbed:
   the anchor's context grows to cover the event's own span (the event, not the
   sibling's whole core -- a chaos core runs to 150 s and is not "the
-  event-carrying part"), its core grows the same way so the duration trim
-  cannot take it back, the sibling's own grants travel with it (P0.3: the
+  event-carrying part"), the sibling's own grants travel with it (P0.3: the
   seconds it was authorised for stay credited), and the seam is a widening by
   refinement, marked with its seconds. What was absorbed is written into the
   moment's metadata and its explanation, so the story result can say why a
-  clip is longer than its moment.
+  clip is longer than its moment -- and the duration trim reads that record
+  and stops at an absorbed onset instead of shaving it away.
+
+The **core** is deliberately left alone. A widening is issued against the
+exclusions and comes back cut where it reached into a menu; a core grown to
+the uncut span would then sit outside its own grant, which is what the full
+suite caught on a style the benchmark never exercised ("its core
+[3145.250, 3255.750] is outside the span [3145.250, 3223.955] granted by
+refinement"). The context follows the grant; the core stays the events.
 
 Nothing here invents a second: an anchor only ever grows into footage a
 sibling was already authorised to show.
@@ -139,16 +146,7 @@ def absorb_onsets(
         high = max(anchor.context_end, event_high)
         seconds = (high - low) - anchor.context_duration
         onsets = [float(e.start_seconds) for e in kept]
-        anchors[index] = _grow(
-            anchor,
-            sibling,
-            kept,
-            low=low,
-            high=high,
-            event_low=event_low,
-            event_high=event_high,
-            seconds=seconds,
-        )
+        anchors[index] = _grow(anchor, sibling, kept, low=low, high=high, seconds=seconds)
         absorbed.append(Absorbed(sibling.id, tuple(round(o, 3) for o in onsets), round(seconds, 3)))
         added += seconds
     return anchors, absorbed, round(added, 3)
@@ -165,8 +163,6 @@ def _grow(
     *,
     low: float,
     high: float,
-    event_low: float,
-    event_high: float,
     seconds: float,
 ) -> Moment:
     onsets = [float(e.start_seconds) for e in kept]
@@ -188,10 +184,14 @@ def _grow(
     onset_text = ", ".join(f"{o:.1f} s" for o in onsets)
     grown = replace_moment(
         anchor,
-        # The absorbed event is content now, not context: the duration trim
-        # shaves pre-roll and post-roll and never crosses the core.
-        start_seconds=min(anchor.start_seconds, event_low),
-        end_seconds=max(anchor.end_seconds, event_high),
+        # The core is NOT grown to the absorbed event, and the full suite is
+        # why: a widening is issued against the exclusions and comes back cut
+        # where it reached into a menu, while a core grown to the uncut span
+        # then sits outside its own grant -- "its core [3145.250, 3255.750] is
+        # outside the span [3145.250, 3223.955] granted by refinement", raised
+        # by rule 5 on a style the benchmark never exercised. The context
+        # follows the grant, the core stays the moment's own events, and the
+        # duration trim is told to stop at an absorbed onset instead.
         events=events,
         explanation=(
             *anchor.explanation,
