@@ -39,6 +39,7 @@ from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.database.repositories.transcript import TranscriptRepository
+from backend.editorial import jump_cuts
 from backend.effects.models import EffectInstance, EffectPlan
 from backend.effects.planner import EffectPlanner, PlannedMoment
 from backend.interaction.service import InteractionService
@@ -639,20 +640,18 @@ class EdlWorker:
         # shot, so the rule protected nothing and could not have. Words are
         # the granularity that makes "do not cut mid-speech" an achievable
         # sentence rather than a slogan.
-        no_cut = {
-            media_id: _spoken_words(context.database, media_id)
+        seen = {
+            media_id: jump_cuts.read_evidence(context.database, context.project_id, media_id)
             for media_id in timelines
         }
+        no_cut = {media_id: list(e.words) for media_id, e in seen.items()}
 
         # P0.6: what a jump cut may not remove -- an event's onset, a
         # reaction -- beside the words it may not land inside.
         onsets = {
             media_id: sorted(start for start, _end in spans) for media_id, spans in events.items()
         }
-        reactions = {
-            media_id: _reaction_spans(context.database, context.project_id, media_id)
-            for media_id in timelines
-        }
+        reactions = {media_id: list(e.reactions) for media_id, e in seen.items()}
         guarded = guard_clips(
             planned,
             states_by_media=states,
@@ -1011,35 +1010,6 @@ def _reaction_spans(database, project_id: str, media_id: str) -> list[tuple[floa
             start = phase.get("start_seconds", phase.get("start"))
             end = phase.get("end_seconds", phase.get("end"))
             if start is None or end is None or float(end) <= float(start):
-                continue
-            spans.append((float(start), float(end)))
-    spans.sort()
-    return spans
-
-
-def _spoken_words(database, media_id: str) -> list[tuple[float, float]]:
-    """Every word's span, so a cut never lands inside one.
-
-    §14 stored these from the first transcript and nothing had read them for
-    this purpose. They are the only speech boundary fine enough to protect:
-    the segments around them are minutes long on real gameplay.
-    """
-    from json import loads
-
-    spans: list[tuple[float, float]] = []
-    for row in database.fetch_all(
-        "SELECT words FROM transcript_segments WHERE media_id = ? ORDER BY start_seconds",
-        (media_id,),
-    ):
-        if not row["words"]:
-            continue
-        try:
-            words = loads(row["words"])
-        except ValueError:
-            continue
-        for word in words if isinstance(words, list) else ():
-            start, end = word.get("start"), word.get("end")
-            if start is None or end is None or end <= start:
                 continue
             spans.append((float(start), float(end)))
     spans.sort()

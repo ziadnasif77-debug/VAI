@@ -82,6 +82,7 @@ def apply(
     target_seconds: float,
     allow_drops: bool = True,
     clip_floor=None,
+    refuse_removal=None,
 ) -> Revision:
     """Apply what the critique asked for, as far as the duration allows.
 
@@ -98,6 +99,12 @@ def apply(
             and a trim that takes a 1.3s climax shot down to half a second
             leaves a flash where a shot was. Absent, the generic operation
             floor applies, which is what happened before V2.
+        refuse_removal: ``(clip, start, end) -> reason | None``, P0.6. The
+            seconds a trim takes are gone from the edit exactly as a skipped
+            stretch is, and the brief's conditions on a jump cut do not stop
+            being true because it was the Critic that asked. Measured on the
+            benchmark: the Critic's trims removed an event onset at 696.17 s
+            while every other cut in the edit had been held to the rule.
     """
     if critique.is_empty:
         return Revision(timeline=timeline)
@@ -129,6 +136,16 @@ def apply(
                     f"{row.seconds - note.seconds:.2f}s shot where the pace asks "
                     f"for at least {shortest:.2f}s"
                 )
+                continue
+        if refuse_removal is not None and note.action in {Action.TRIM_START, Action.TRIM_END}:
+            clip = row.clip
+            if note.action is Action.TRIM_START:
+                start, end = clip.source_in, clip.source_in + note.seconds
+            else:
+                start, end = clip.source_out - note.seconds, clip.source_out
+            reason = refuse_removal(clip, start, end)
+            if reason is not None:
+                refused.append(f"clip {note.clip}: {_describe(note)} -- {reason}")
                 continue
 
         try:

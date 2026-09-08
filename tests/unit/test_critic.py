@@ -450,3 +450,61 @@ class TestP03TheCriticCannotWiden:
             operations.trim(
                 timeline, clip.id, end_delta=2.0, granted_by=Granter.DURATION_OPTIMIZER
             )
+
+
+class TestP06TheCriticsTrimsAnswerToTheSameConditions:
+    """P0.6: the seconds a trim takes are gone from the edit exactly as a
+    skipped stretch is, and the brief's conditions do not stop being true
+    because it was the Critic that asked. Found on the benchmark: its trims
+    removed an event onset at 696.17 s while every other cut was held."""
+
+    def _apply(self, evidence, **kwargs):
+        from backend.editorial import jump_cuts
+
+        timeline = _timeline()
+        gathered = gather(timeline, target_seconds=240.0)
+
+        def refuse_removal(_clip, start, end):
+            return jump_cuts.removal_refused(evidence, start, end)
+
+        return apply(
+            timeline,
+            Critique(notes=(Note(clip=1, action=Action.TRIM_START, seconds=4.0),)),
+            gathered,
+            policy=POLICY,
+            target_seconds=240.0,
+            refuse_removal=refuse_removal,
+            **kwargs,
+        )
+
+    def test_p0_6_the_critic_may_not_trim_away_an_event_onset(self) -> None:
+        from backend.editorial import jump_cuts
+
+        # Clip 1 runs from source 200 s; a 4 s trim takes [200, 204].
+        revision = self._apply(jump_cuts.Evidence(onsets=(202.5,)))
+        assert not revision.applied
+        assert any("event onset at 202.50" in note for note in revision.refused)
+        assert revision.timeline.video_clips()[1].source_in == pytest.approx(200.0)
+
+    def test_p0_6_the_critic_may_not_trim_away_a_reaction(self) -> None:
+        from backend.editorial import jump_cuts
+
+        revision = self._apply(jump_cuts.Evidence(reactions=((203.0, 210.0),)))
+        assert not revision.applied
+        assert any("remove a reaction" in note for note in revision.refused)
+
+    def test_p0_6_the_critic_may_not_land_a_cut_inside_a_word(self) -> None:
+        from backend.editorial import jump_cuts
+
+        revision = self._apply(jump_cuts.Evidence(words=((203.8, 204.4),)))
+        assert not revision.applied
+        assert any("inside a word" in note for note in revision.refused)
+
+    def test_p0_6_a_trim_over_clean_footage_still_applies(self) -> None:
+        from backend.editorial import jump_cuts
+
+        revision = self._apply(
+            jump_cuts.Evidence(onsets=(500.0,), reactions=((300.0, 310.0),), words=((190.0, 195.0),))
+        )
+        assert revision.applied and not revision.refused
+        assert revision.timeline.video_clips()[1].source_in == pytest.approx(204.0)

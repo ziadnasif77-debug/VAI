@@ -34,6 +34,7 @@ from backend.database.repositories.projects import ProjectRepository
 from backend.database.repositories.timeline import TimelineRepository
 from backend.database.repositories.transcript import TranscriptRepository
 from backend.database.repositories.vision import VisionRepository
+from backend.editorial import jump_cuts
 from backend.interaction.service import InteractionService
 from backend.pipeline.workers.base import WorkerContext
 
@@ -95,6 +96,19 @@ class CritiqueWorker:
             timeline,
             config=context.config,
         )
+        # P0.6: the Critic's trims answer to the same conditions as any
+        # other cut -- not inside a word, and removing no event onset and no
+        # reaction. The dead-footage and budget conditions are the screen
+        # guard's, where a skip sits between two pieces.
+        seen = {
+            media_id: jump_cuts.read_evidence(context.database, context.project_id, media_id)
+            for media_id in timeline.media_ids()
+        }
+
+        def refuse_removal(clip, start: float, end: float) -> str | None:
+            evidence = seen.get(clip.media_id)
+            return None if evidence is None else jump_cuts.removal_refused(evidence, start, end)
+
         revision = edit_revision.apply(
             timeline,
             outcome,
@@ -103,6 +117,7 @@ class CritiqueWorker:
             target_seconds=target,
             allow_drops=config.allow_drops,
             clip_floor=lambda index: floor_for(levels.get(index), context.config),
+            refuse_removal=refuse_removal,
         )
         if revision.changed and config.apply:
             # P0.3, brief rule 4: the Critic may not widen an authorized span.

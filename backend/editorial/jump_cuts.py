@@ -143,4 +143,117 @@ def _inside(at: float, spans: Sequence[tuple[float, float]]) -> tuple[float, flo
     return None
 
 
-__all__ = ["Budget", "Evidence", "Verdict", "decide"]
+def read_evidence(database, project_id: str, media_id: str) -> Evidence:
+    """What a cut in this recording may not remove, read once from the store.
+
+    The words (§14 stored them from the first transcript), the event onsets,
+    and the reaction phases the moments stage named. ``dead`` is left empty:
+    only the EDL knows the content states, and it fills that half itself.
+    Two callers ask -- the screen guard through the EDL, and the Critic --
+    and two copies of one query is how the copies drift.
+    """
+    return Evidence(
+        words=tuple(_spoken_words(database, media_id)),
+        onsets=tuple(_event_onsets(database, media_id)),
+        reactions=tuple(_reaction_spans(database, project_id, media_id)),
+    )
+
+
+def _spoken_words(database, media_id: str) -> list[tuple[float, float]]:
+    """Every word's span, so a cut never lands inside one."""
+    from json import loads
+
+    spans: list[tuple[float, float]] = []
+    for row in database.fetch_all(
+        "SELECT words FROM transcript_segments WHERE media_id = ? ORDER BY start_seconds",
+        (media_id,),
+    ):
+        if not row["words"]:
+            continue
+        try:
+            words = loads(row["words"])
+        except ValueError:
+            continue
+        for word in words if isinstance(words, list) else ():
+            start, end = word.get("start"), word.get("end")
+            if start is None or end is None or end <= start:
+                continue
+            spans.append((float(start), float(end)))
+    spans.sort()
+    return spans
+
+
+def _event_onsets(database, media_id: str) -> list[float]:
+    """Where each detected event begins: a cut may not remove one."""
+    return sorted(
+        float(row["start_seconds"])
+        for row in database.fetch_all(
+            "SELECT start_seconds FROM game_events WHERE media_id = ?", (media_id,)
+        )
+    )
+
+
+def _reaction_spans(database, project_id: str, media_id: str) -> list[tuple[float, float]]:
+    """Every reaction phase the moments stage read on this recording.
+
+    A cut may not remove one: the beat after the kill is what the kill was
+    for. Phases are stored per moment; the spans are gathered here once.
+    """
+    from json import loads
+
+    spans: list[tuple[float, float]] = []
+    for row in database.fetch_all(
+        "SELECT phases FROM moments WHERE project_id = ? AND media_id = ?",
+        (project_id, media_id),
+    ):
+        if not row["phases"]:
+            continue
+        try:
+            phases = loads(row["phases"])
+        except ValueError:
+            continue
+        for phase in phases if isinstance(phases, list) else ():
+            if not isinstance(phase, dict) or phase.get("name") != "reaction":
+                continue
+            start = phase.get("start_seconds", phase.get("start"))
+            end = phase.get("end_seconds", phase.get("end"))
+            if start is None or end is None or float(end) <= float(start):
+                continue
+            spans.append((float(start), float(end)))
+    spans.sort()
+    return spans
+
+
+def removal_refused(evidence: Evidence, start: float, end: float) -> str | None:
+    """Why the footage in ``[start, end)`` may not simply be removed, or None.
+
+    The three conditions of :func:`decide` that hold however the footage is
+    taken away -- a cut inside a word, an event's first frames, a reaction --
+    without the ones that only make sense for a skip between two pieces (the
+    stretch being dead, and the budget). This is what the Critic's trims are
+    held to: it tightens a shot by moving its own boundary, and the seconds it
+    takes are gone from the edit exactly as a skipped stretch is.
+    """
+    if end <= start:
+        return None
+    for edge in (start, end):
+        word = _inside(edge, evidence.words)
+        if word is not None:
+            return f"the cut at {edge:.2f} s lands inside a word ({word[0]:.2f}-{word[1]:.2f} s)"
+    lost = [onset for onset in evidence.onsets if start <= onset < end]
+    if lost:
+        return f"it would remove an event onset at {lost[0]:.2f} s"
+    for r_start, r_end in evidence.reactions:
+        if r_start < end and r_end > start:
+            return f"it would remove a reaction ({r_start:.2f}-{r_end:.2f} s)"
+    return None
+
+
+__all__ = [
+    "Budget",
+    "Evidence",
+    "Verdict",
+    "decide",
+    "read_evidence",
+    "removal_refused",
+]
