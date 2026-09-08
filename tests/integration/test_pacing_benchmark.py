@@ -123,9 +123,9 @@ def test_p0_6_no_benchmark_skip_removes_an_event_onset(benchmark) -> None:
     for (_a, end, media), (start, _b, next_media) in pairwise(clips):
         if media != next_media or not 0.0 < start - end <= SKIP_SECONDS:
             continue
-        lost.extend(
-            round(onset, 2) for onset, _e, _i in events if end <= onset <= start
-        )
+        # ``start`` is the next clip's first frame, so an onset there is
+        # shown, not removed -- the same convention jump_cuts.decide uses.
+        lost.extend(round(onset, 2) for onset, _e, _i in events if end <= onset < start)
     assert not lost, f"{len(lost)} onset(s) removed by a skip: {lost[:5]}"
 
 
