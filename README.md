@@ -120,6 +120,19 @@ peak now travels with the span and the depth is interpolated: the configured
 4,035-second recording that changes the music level under **24.6 % of the
 video**, with the deepest point unchanged.
 
+**It cuts when there is a reason to cut.** A jump cut — footage skipped
+between two shots that play back to back — is allowed only where the skipped
+stretch is evidenced dead screen, is long enough to matter, lands inside no
+spoken word, removes no event's first frames and no reaction, and the
+sequence has not spent its cuts for that minute; every refusal names the
+condition it failed, and refused footage stays. Under that, no shot is
+shorter than the floor: a piece below it joins a neighbour of its own moment
+or is not shown, applied last — after the pacing tiers, the exclusions, the
+duration clamp, and the Critic is held to the same number. And overlapping
+moments are one situation: the edit shows it once, and the moments it does
+not show hand over any event the survivor would otherwise have lost — which
+is how a kill stopped being shown as a body falling with no cause.
+
 **Every second it shows was granted, by name.** A clip's source bounds are an
 `AuthorizedSpan`: a recording, two bounds, who granted them and why. The set of
 granters is closed and comes from the plan and the spec — the moment's own
