@@ -179,6 +179,7 @@ def build_timeline(
     target_seconds: float = 0.0,
     media_durations: Mapping[str, float] | None = None,
     notes: Sequence[str] = (),
+    shot_floor_seconds: float = 0.0,
     metadata: Mapping[str, Any] | None = None,
     transitions: TransitionsConfig | None = None,
     excluded_spans: Sequence[tuple[float, float]] = (),
@@ -229,7 +230,15 @@ def build_timeline(
 
     ensure_chronological(bounded)
     bounded, clamped, clamp_notes = _apply_duration_band(bounded, policy)
-    clamp_notes = [*excluded_notes, *exclusivity_notes, *clamp_notes]
+    # P0.6: the shot floor is last, after everything that can shorten a clip
+    # -- the pacing tiers upstream, the exclusions and the clamp above. A
+    # piece under it joins a neighbour of the same moment or is not shown.
+    floor_notes: list[str] = []
+    if shot_floor_seconds > 0.0:
+        from backend.timeline.shot_floor import apply_to_clips
+
+        bounded, floor_notes = apply_to_clips(bounded, floor=shot_floor_seconds)
+    clamp_notes = [*excluded_notes, *exclusivity_notes, *clamp_notes, *floor_notes]
     if not bounded:
         return BuildResult(
             timeline=Timeline(

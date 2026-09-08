@@ -278,6 +278,7 @@ class EdlWorker:
             transitions=context.config.narrative.transitions,
             notes=story.get("notes", ()),
             excluded_spans=excluded_spans,
+            shot_floor_seconds=context.config.editorial.pacing.min_shot_seconds,
             metadata={
                 "mode": story.get("mode"),
                 "within_target": story.get("within_target"),

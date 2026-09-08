@@ -44,6 +44,15 @@ editorial:
     # Splitting a hot clip needs real scene seams; a piece may not fall
     # below this even at CLIMAX (readability floor).
     min_piece_seconds: 0.8
+    # P0.6. The two numbers below were DERIVED, not chosen: the benchmark's
+    # own EDL was re-measured under five candidate settings and the owner
+    # picked from the table (docs/PLAN.md, 2026-09-08). They come from a
+    # simulation over ONE session and are to be reviewed once the owner has
+    # watched a render built with them.
+    #
+    # The last word on shot length -- after the tiers, after the exclusions,
+    # after the Critic. Below it a piece joins a neighbour or is not shown.
+    min_shot_seconds: 3.0
     # Source seconds skipped between the pieces of a hot slab: the skip is
     # what makes the cut a felt jump-cut, and it tightens continuous action.
     jump_cut_gap_seconds: 0.35

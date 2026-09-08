@@ -427,11 +427,21 @@ class TestTheCriticTightensButDoesNotErase:
     def test_a_trim_that_would_leave_a_flash_is_refused(self, config) -> None:
         from backend.semantic.levels import floor_for
 
-        # A climax shot's band starts at 0.8s; half of that is the readability
-        # floor, which is where the Critic must stop.
-        assert floor_for("climax", config) == pytest.approx(0.8)
+        # A climax shot's band starts at 0.8s and half of that used to be
+        # where the Critic stopped. P0.6 put a floor under every shot in the
+        # edit, and the Critic trims after the EDL applied it: a trim under
+        # the floor would put back exactly what the floor removed.
+        floor = config.editorial.pacing.min_shot_seconds
+        assert floor_for("climax", config) == pytest.approx(floor)
         assert floor_for("calm", config) == pytest.approx(4.0)
-        assert floor_for(None, config) == pytest.approx(0.8), "no level, no licence"
+        assert floor_for(None, config) == pytest.approx(floor), "no level, no licence"
+
+    def test_p0_6_the_critic_may_not_trim_a_shot_under_the_floor(self, config) -> None:
+        from backend.semantic.levels import floor_for
+
+        floor = config.editorial.pacing.min_shot_seconds
+        for level in ("calm", "normal", "tension", "high", "climax", None):
+            assert floor_for(level, config) >= floor
 
     def test_the_floor_is_read_from_the_configured_bands(self, config) -> None:
         from backend.semantic.levels import floor_for
@@ -440,6 +450,7 @@ class TestTheCriticTightensButDoesNotErase:
         for level in ("calm", "normal", "tension", "high", "climax"):
             expected = max(
                 config.editorial.pacing.min_piece_seconds,
+                config.editorial.pacing.min_shot_seconds,
                 getattr(bands, level).min * 0.5,
             )
             assert floor_for(level, config) == pytest.approx(expected)

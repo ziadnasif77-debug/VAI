@@ -60,7 +60,13 @@ def clip_levels(
 def floor_for(level: str | None, config: Any) -> float:
     """The shortest a shot at ``level`` may be and still read (§V2 bands)."""
     bands = config.editorial.pacing.bands
-    readability = float(config.editorial.pacing.min_piece_seconds)
+    # P0.6: the shot floor is the last word on length and the Critic is held
+    # to it too -- it trims after the EDL applied the floor, and a trim that
+    # took a shot under it would put back exactly what the floor removed.
+    readability = max(
+        float(config.editorial.pacing.min_piece_seconds),
+        float(getattr(config.editorial.pacing, "min_shot_seconds", 0.0)),
+    )
     if level is None:
         return readability
     band = getattr(bands, level, None)
