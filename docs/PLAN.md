@@ -262,6 +262,35 @@ AUTHORIZED: P0.6 — 2026-09-04
 
 (owner's message of 2026-09-04: "موافق على التقرير. AUTHORIZED: P0.6 — 2026-09-04 بالبنود الخمسة كما كتبتها، مع ثلاثة تعديلات"; the design report's five items stand, with three changes: **(1)** item 5 -- situations in the selection -- is P0.6's priority and its first code commit, not its appendix: the jump-cut decision explains 21 lost onsets on the benchmark, the selection 132; 8 → 0 is the acceptance and the 132 gets its own number, and if it stays above 60 the cause is the duration target and is recorded as P0.8's with its numbers. **(2)** the density budget's values are derived, not invented: the current cuts per band on the benchmark and the density that gives a median shot ≥ 4 s, shown as a table before any YAML, and recorded as derived from one session like the vision threshold 0.60. **(3)** an explicit, final minimum shot length, applied after everything -- after the tiers and after the Critic: a piece under the floor is merged with its neighbour or dropped, never shown; the floor derived the same way; `test_p0_6_no_clip_is_shorter_than_the_floor` on the benchmark, 130 → 0. Final acceptance: the length distribution after the rebuild (median, under two seconds, count), 8 → 0, 21 → 0, the 132's number, and the owner watches the whole render -- if they cannot finish it, the gate is not passed.)
 
+**The two pacing numbers were derived, not chosen (2026-09-08).** The owner
+asked for the table before any value entered the YAML, and picked from it. The
+benchmark's own EDL after the first two P0.6 commits -- 422 clips, median
+2.00 s, 304 under three seconds -- was re-measured under five settings, the
+merge rule being "the shortest shot joins the shorter of its contiguous
+neighbours, then start again":
+
+| setting | clips | cuts/min | median | under 3 s | calm median → climax median |
+| --- | ---: | ---: | ---: | ---: | --- |
+| **A** as it stood | 422 | 20.7 | 2.00 s | 304 | 4.00 → 1.80 |
+| **B** floor 3.0 s only | 224 | 11.0 | 5.00 s | 0 | 7.52 → 4.67 |
+| **C** B + ceilings 6/8/10/12/14 | 189 | 9.3 | 5.77 s | 0 | 9.00 → 4.73 |
+| **D** B + ceilings 5/7/9/11/12 | 172 | 8.4 | 6.00 s | 0 | 12.50 → 4.73 |
+| **E** B + ceilings 4/6/8/10/10 | 145 | 7.1 | 7.40 s | 0 | 16.00 → 5.48 |
+
+**C** was chosen (owner, 2026-09-08): "التدرّج فيه محسوس (9.0 هدوء ← 4.7 ذروة)
+والوسيط 5.77 ث معقول. D وE يعطيان `calm` وسيطاً 12.5–16 ث، أي قفز من التقطّع إلى
+الجمود قبل أن أرى النتيجة بعيني." The floor was his too: 2.0 s was refused
+because half the shots would pass unchanged and the stutter would remain --
+"3.0 هو أدنى ما يريح العين في مونتاج جيمنج". Both numbers come from a
+simulation over **one session** and are to be reviewed once he has watched a
+render built with them, the way the vision threshold 0.60 was.
+
+The measured result differs slightly from the table's C, and honestly so: the
+budget runs at the pacing stage while the exclusions, the exclusivity guard and
+the duration clamp run after it, and the two passes read a band from different
+places (the semantic reader against the story's session shape). It lands at
+214 clips, median 5.06 s, 0 under three seconds.
+
 
 (owner's message of 2026-09-04: "ابدأ P0.3 `AuthorizedSpan` وفق `docs/BRIEF_P0.md` قسم PHASE B و AUTHORIZED SPAN IDENTITY حرفياً"; design report first, code after approval, one concern per `[P0.3]` commit, closure requires the DATASET GATE with the owner's own baseline.)
 
