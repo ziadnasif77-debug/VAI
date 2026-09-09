@@ -136,24 +136,24 @@ def test_p0_6_every_overlapping_moment_the_selection_dropped_kept_its_onsets(ben
     piece with no neighbour of its own moment is dropped, and that could. The
     owner asked for this checked on the finished clips, not on the plan.
     """
-    database, _config = benchmark
+    from backend.database.repositories.moments import MomentRepository
+
+    database, config = benchmark
     clips = _clips(database)
-    events = _events(database)
     story = database.fetch_one(
         "SELECT result FROM analysis_jobs WHERE project_id = ? AND stage = 'story'", (BENCHMARK,)
     )
     if story is None or not story["result"]:
         pytest.skip("the benchmark has no story result")
     kept_ids = {clip["moment_id"] for clip in json.loads(story["result"])["clips"]}
-    moments = [
-        dict(row)
-        for row in database.fetch_all(
-            "SELECT id, start_seconds, end_seconds, context_start, context_end "
-            "FROM moments WHERE project_id = ?",
-            (BENCHMARK,),
-        )
-    ]
-    kept = [m for m in moments if m["id"] in kept_ids]
+    # The moments as the pipeline itself loads them: a moment whose stored
+    # event references cannot be matched back to game_events carries named
+    # placeholders instead, and the absorption can only ever act on what it
+    # is given. Reading game_events directly here would measure a rule
+    # nothing implements.
+    moments = MomentRepository(database).list_for_project(BENCHMARK)
+    line = float(config.narrative.optimizer.situation_min_onset_importance)
+    kept = [m for m in moments if m.id in kept_ids]
 
     def overlaps(a, b, x, y):
         return min(b, y) - max(a, x) > 0
@@ -163,18 +163,16 @@ def test_p0_6_every_overlapping_moment_the_selection_dropped_kept_its_onsets(ben
 
     orphans = []
     for moment in moments:
-        if moment["id"] in kept_ids:
+        if moment.id in kept_ids:
             continue
         if not any(
-            overlaps(moment["context_start"], moment["context_end"], k["context_start"], k["context_end"])
+            overlaps(moment.context_start, moment.context_end, k.context_start, k.context_end)
             for k in kept
         ):
             continue
-        for onset, end, importance in events:
-            if (
-                importance >= 0.5
-                and overlaps(onset, end, moment["start_seconds"], moment["end_seconds"])
-                and not shown(onset)
-            ):
-                orphans.append((moment["id"], round(onset, 2)))
+        orphans.extend(
+            (moment.id, round(event.start_seconds, 2))
+            for event in moment.events
+            if event.importance >= line and not shown(event.start_seconds)
+        )
     assert not orphans, f"{len(orphans)} onset(s) of a dropped overlapping moment: {orphans[:5]}"

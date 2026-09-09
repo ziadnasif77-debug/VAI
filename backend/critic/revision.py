@@ -130,11 +130,18 @@ def apply(
             continue
         if clip_floor is not None and note.action in {Action.TRIM_START, Action.TRIM_END}:
             shortest = float(clip_floor(row.clip.clip_index))
-            if row.seconds - note.seconds < shortest:
+            # The clip's own footage, not the row's screen time. A retimed
+            # clip plays longer than its source -- a speed ramp's extra
+            # seconds -- and the trim re-lays it without the warp, so the
+            # shot that survives is the source span. Measured on the
+            # benchmark: a 3.63 s clip with a ramp read as 4.69 s of screen
+            # time, passed a 3.0 s floor by that margin, and came out a
+            # 2.63 s shot.
+            left = (row.clip.source_out - row.clip.source_in) - note.seconds
+            if left < shortest:
                 refused.append(
                     f"clip {note.clip}: {_describe(note)} -- it would leave a "
-                    f"{row.seconds - note.seconds:.2f}s shot where the pace asks "
-                    f"for at least {shortest:.2f}s"
+                    f"{left:.2f}s shot where the pace asks for at least {shortest:.2f}s"
                 )
                 continue
         if refuse_removal is not None and note.action in {Action.TRIM_START, Action.TRIM_END}:
