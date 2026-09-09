@@ -116,6 +116,34 @@ class TestTheStage:
         assert result["applied"] == []
 
 
+
+def _clean_trim(database, project_id: str, clips) -> tuple[int, float]:
+    """A clip and a trim the content rules allow, from this fixture's own edit.
+
+    P0.6 refuses a cut that lands inside a spoken word or removes an event
+    onset or a reaction, and this fixture's doubles are dense: the fake OCR
+    reads the same banner on every frame, so events sit a second apart. That
+    is a property of the double, not of gameplay -- on the 88-minute
+    benchmark the Critic applied ten seconds of trims and was refused
+    fourteen times -- so the trim is chosen rather than written as a round
+    number that used to work.
+    """
+    from backend.critic.service import MAX_TRIM_FRACTION, MIN_TRIM_SECONDS
+    from backend.editorial import jump_cuts
+
+    for index, clip in enumerate(clips):
+        evidence = jump_cuts.read_evidence(database, project_id, clip.media_id)
+        ceiling = clip.duration * MAX_TRIM_FRACTION
+        seconds = MIN_TRIM_SECONDS
+        while seconds <= ceiling + 1e-9:
+            if jump_cuts.removal_refused(
+                evidence, clip.source_in, clip.source_in + seconds
+            ) is None:
+                return index, round(seconds, 3)
+            seconds += 0.05
+    raise AssertionError("this fixture offers no trim the content rules allow")
+
+
 class TestTheEditActuallyChanges:
     def test_a_trim_reaches_the_stored_timeline(
         self, media_service, project_manager, reviewed, database, reaction_clip: Path
@@ -125,9 +153,11 @@ class TestTheEditActuallyChanges:
         reviewed(_model([])).run_project(project.id)
         before = TimelineRepository(database).load(project.id).video_clips()
 
-        # Then again, asking for a second off the front of the first clip.
+        # Then again, asking for a second off the front of a clip whose
+        # opening the content rules let go of (see _clean_trim).
+        index, seconds = _clean_trim(database, project.id, before)
         requeue = reviewed(
-            _model([{"clip": 0, "action": "trim_start", "seconds": 1.0, "reason": "dead air"}])
+            _model([{"clip": index, "action": "trim_start", "seconds": seconds, "reason": "dead air"}])
         )
         job = next(j for j in requeue.jobs.list_jobs(project.id) if j.stage is JobStage.CRITIQUE)
         requeue.jobs.requeue(job.id)
@@ -142,12 +172,12 @@ class TestTheEditActuallyChanges:
         # becomes 0.875s and the note records "asked for 1.0s; capped". The
         # rule is the Critic's, tested in tests/unit/test_critic.py; what this
         # test is about is whether the trim reaches the *stored* timeline.
-        landed = min(1.0, before[0].duration * MAX_TRIM_FRACTION)
-        assert after[0].source_in == pytest.approx(
-            before[0].source_in + landed, abs=0.01
+        landed = min(seconds, before[index].duration * MAX_TRIM_FRACTION)
+        assert after[index].source_in == pytest.approx(
+            before[index].source_in + landed, abs=0.01
         )
         # And only that clip moved.
-        assert after[0].source_out == pytest.approx(before[0].source_out, abs=0.01)
+        assert after[index].source_out == pytest.approx(before[index].source_out, abs=0.01)
 
     def test_reporting_without_applying_leaves_the_edit_alone(
         self, media_service, project_manager, reviewed, database, reaction_clip: Path
@@ -157,8 +187,9 @@ class TestTheEditActuallyChanges:
         reviewed(_model([])).run_project(project.id)
         before = TimelineRepository(database).load(project.id).video_clips()
 
+        index, seconds = _clean_trim(database, project.id, before)
         runner = reviewed(
-            _model([{"clip": 0, "action": "trim_start", "seconds": 1.0}]), apply=False
+            _model([{"clip": index, "action": "trim_start", "seconds": seconds}]), apply=False
         )
         job = next(j for j in runner.jobs.list_jobs(project.id) if j.stage is JobStage.CRITIQUE)
         runner.jobs.requeue(job.id)

@@ -26,6 +26,9 @@ from typing import Final
 
 from ai.providers.base import ModelInfo, TranscriptSegment, TranscriptWord
 
+#: How much of a word's slot is the word; the rest is the pause after it.
+_SPOKEN_SHARE: float = 0.6
+
 #: A small closed vocabulary of gameplay callouts. Recognisable in a failing
 #: test's output, and short enough to keep word timings easy to read.
 _VOCABULARY: Final[tuple[str, ...]] = (
@@ -148,11 +151,18 @@ class FakeSpeechProvider:
         """
         count = self._words_per_segment
         span = (end - start) / count
+        # A pause after each word, not words tiling the segment edge to edge.
+        # Real speech has gaps and two rules depend on them: refinement moves
+        # a cut into the nearest inter-word pause (§29), and P0.6 refuses a
+        # cut inside a word. A double with no silence anywhere makes every
+        # boundary inside a segment illegal, which is not what it is
+        # modelling -- two critique tests failed on exactly that.
+        spoken = span * _SPOKEN_SHARE
         return tuple(
             TranscriptWord(
                 word=_word(seed, index, position),
                 start=start + position * span,
-                end=start + (position + 1) * span,
+                end=start + position * span + spoken,
                 confidence=0.9,
             )
             for position in range(count)
