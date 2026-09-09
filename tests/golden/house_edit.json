@@ -1234,13 +1234,13 @@
       "axes": {
         "audio_density": 0.5,
         "coherence": 0.762,
-        "effect_density": 0.508,
-        "ending": 0.446,
-        "intensity": 0.402,
+        "effect_density": 0.497,
+        "ending": 0.447,
+        "intensity": 0.398,
         "pacing": 0.81,
         "structure": 0.8,
-        "total": 0.615,
-        "variety": 0.477
+        "total": 0.617,
+        "variety": 0.5
       },
       "clips": 22,
       "ending_type": "chaos",
@@ -1301,6 +1301,11 @@
           53.2
         ],
         [
+          "surprise",
+          1622.217,
+          20.941
+        ],
+        [
           "chaos",
           1871.067,
           88.065
@@ -1311,14 +1316,9 @@
           79.473
         ],
         [
-          "chaos",
-          2057.667,
-          173.7
-        ],
-        [
           "surprise",
-          2231.367,
-          68.2
+          2087.1,
+          212.467
         ],
         [
           "surprise",
@@ -1358,8 +1358,8 @@
       ],
       "hook_strength": 0.0,
       "hook_type": "-",
-      "judge_total": 0.6151,
-      "median_shot": 55.8,
+      "judge_total": 0.6167,
+      "median_shot": 51.7,
       "profile": "A",
       "timeline": {
         "boundaries": [
@@ -1415,6 +1415,11 @@
           ],
           [
             "6429c6",
+            1622.217,
+            1643.158
+          ],
+          [
+            "6429c6",
             1871.067,
             1959.132
           ],
@@ -1425,12 +1430,7 @@
           ],
           [
             "6429c6",
-            2057.667,
-            2231.367
-          ],
-          [
-            "6429c6",
-            2231.367,
+            2087.1,
             2299.567
           ],
           [
@@ -1488,14 +1488,14 @@
           "body",
           "body"
         ],
-        "seconds": 1374.47,
+        "seconds": 1365.98,
         "transitions": [
           "cut",
           "dip_to_black",
           "fade"
         ]
       },
-      "total_seconds": 1496.3
+      "total_seconds": 1487.8
     },
     "proj-67d1d971b600": {
       "axes": {
