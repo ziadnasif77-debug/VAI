@@ -187,7 +187,17 @@ Authorised 2026-09-04 after the owner watched the P0.3 gate render and could not
 
 **Two doubles were wrong, not the rule.** The fake speech provider tiled its words edge to edge, so on it no cut inside a segment is ever clean -- real speech has pauses, and both refinement (§29) and this phase depend on them; each word now takes 60 % of its slot. And the critique fixture's fake OCR reads the same banner on every frame, so its events sit a second apart and any trim removes an onset; those tests now pick a trim the rules allow from the fixture's own edit.
 
-**Honest about the ceilings.** Three bands measure over their number on the finished edit (calm 7.7 against 6, normal 9.7 against 8, tension 12.6 against 10; high and climax are inside theirs) because the budget runs at the pacing stage while the exclusions, the exclusivity guard and the clamp run after it and change which band a shot belongs to. The floor is exact because it runs last.
+**Honest about the ceilings (corrected 2026-10-18).** This paragraph first said three bands measure over their number on the finished edit -- calm 7.7 against 6, normal 9.7 against 8, tension 12.6 against 10 -- because the budget runs before the exclusions and the clamp. The numbers were real and the explanation was wrong. They came from giving each shot the band of the **session shape** section its midpoint falls in (`reader.shape()`, runs merged to `min_segment_seconds`), which is not how the budget reads a band: it asks `level_for(start, end)` of each shot. Re-measured on the stored 247-clip timeline both ways, and re-applying the budget last changes nothing (0 joins):
+
+| band | ceiling | by the budget's own reader (`level_for` per shot) | by the session shape |
+| --- | ---: | --- | --- |
+| calm | 6 | 7 shots, **5.3**/min, median 10.53 s | 59 shots, 7.7/min, median 7.50 s |
+| normal | 8 | 19 shots, **7.9**/min, median 7.50 s | 31 shots, 9.7/min, median 6.00 s |
+| tension | 10 | 72 shots, **9.9**/min, median 5.50 s | 62 shots, 12.6/min, median 4.00 s |
+| high | 12 | 89 shots, **11.7**/min, median 4.93 s | 43 shots, 12.0/min, median 5.00 s |
+| climax | 14 | 60 shots, **12.8**/min, median 4.50 s | 52 shots, 13.0/min, median 4.50 s |
+
+Every band is inside its ceiling by the reader the ceiling was written against. The shape reads the edit as far calmer than the shots do (59 calm shots against 7), because a calm section of the recording keeps the tension shots inside it; whether the owner's "calm" means the shot or the section is his to say after watching, and is recorded here as an open question, not changed. The floor is exact because it runs last.
 
 **An environment finding, not a defect of this phase.** The overlay renderer crashed on two of four attempts on this machine -- once in Node during bundling, once as `0xC0000409 STATUS_STACK_BUFFER_OVERRUN` while getting the composition -- and succeeded on a plain retry each time. Unattended daily production would fail on it. Reported, not worked around.
 
