@@ -291,6 +291,11 @@ AUTHORIZED: P0.3 — 2026-09-04
 ```
 AUTHORIZED: P0.6 — 2026-09-04
 ```
+```
+AUTHORIZED: P0.5 — 2026-10-18 (design report only; no code)
+```
+
+(owner's message of 2026-10-18, answering a list of five items whose fifth was "the P0.5 design report -- measurement and a report, no code -- needs an AUTHORIZED line, or say 'the report only'": "قم ب انجاز كل المهام بدون توقف ولاتسئلني ابدا". Read as authorising the report and nothing past it: the brief puts the report before anything is built, and building waits for the owner's answer to it. The report is [`docs/P0_5_DESIGN.md`](P0_5_DESIGN.md).)
 
 (owner's message of 2026-09-04: "موافق على التقرير. AUTHORIZED: P0.6 — 2026-09-04 بالبنود الخمسة كما كتبتها، مع ثلاثة تعديلات"; the design report's five items stand, with three changes: **(1)** item 5 -- situations in the selection -- is P0.6's priority and its first code commit, not its appendix: the jump-cut decision explains 21 lost onsets on the benchmark, the selection 132; 8 → 0 is the acceptance and the 132 gets its own number, and if it stays above 60 the cause is the duration target and is recorded as P0.8's with its numbers. **(2)** the density budget's values are derived, not invented: the current cuts per band on the benchmark and the density that gives a median shot ≥ 4 s, shown as a table before any YAML, and recorded as derived from one session like the vision threshold 0.60. **(3)** an explicit, final minimum shot length, applied after everything -- after the tiers and after the Critic: a piece under the floor is merged with its neighbour or dropped, never shown; the floor derived the same way; `test_p0_6_no_clip_is_shorter_than_the_floor` on the benchmark, 130 → 0. Final acceptance: the length distribution after the rebuild (median, under two seconds, count), 8 → 0, 21 → 0, the 132's number, and the owner watches the whole render -- if they cannot finish it, the gate is not passed.)
 
