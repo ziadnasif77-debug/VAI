@@ -74,6 +74,9 @@ class OverlayResult:
     #: needs this to put them back; ``None`` means the file covers the whole
     #: video, which is what it meant before segments existed.
     plan: OverlayPlan | None = None
+    #: Failures this pass recovered from by retrying, each in Remotion's own
+    #: words. A render that needed a second attempt says so in its result.
+    retries: tuple[str, ...] = ()
 
     @property
     def exists(self) -> bool:
@@ -87,6 +90,7 @@ class OverlayResult:
             "frames": self.frames,
             "render_seconds": round(self.duration_seconds, 2),
             **({"plan": self.plan.summary()} if self.plan is not None else {}),
+            **({"retries": list(self.retries)} if self.retries else {}),
         }
 
 
@@ -212,6 +216,7 @@ def render_overlay(
 
     argv = _render_command(config, composition_path, output_path, directory)
     started = time.perf_counter()
+    retries: list[str] = []
     with log_duration(
         logger,
         "Rendered the overlay",
@@ -226,22 +231,40 @@ def render_overlay(
             # at frame 13,711 of 18,572 on a 32 GB machine. Halving is slower
             # than failing is useless.
             retry = _fewer_pages(config, error)
-            if retry is None:
+            if retry is not None:
+                logger.warning(
+                    "Remotion crashed a page; retrying with fewer at once",
+                    extra={"concurrency": retry, "reason": str(error)[:160]},
+                )
+                if on_progress is not None:
+                    on_progress(0.0, f"Retrying the overlay with {retry} pages at once")
+                argv = _render_command(
+                    config.model_copy(update={"concurrency": retry}),
+                    composition_path,
+                    output_path,
+                    directory,
+                )
+            elif not _failed_before_the_first_frame(error):
                 raise
-            logger.warning(
-                "Remotion crashed a page; retrying with fewer at once",
-                extra={"concurrency": retry, "reason": str(error)[:160]},
-            )
-            if on_progress is not None:
-                on_progress(0.0, f"Retrying the overlay with {retry} pages at once")
-            argv = _render_command(
-                config.model_copy(update={"concurrency": retry}),
-                composition_path,
-                output_path,
-                directory,
-            )
+            else:
+                # Remotion died while bundling, launching the browser or
+                # reading the composition -- before a single frame. On the
+                # benchmark machine that happened on two of four renders (a
+                # Node crash in bundling, 0xC0000409 in "Getting composition")
+                # and a plain second attempt succeeded both times; 25 runs
+                # outside the pipeline never failed. Nothing was drawn, so a
+                # retry repeats no work. Once, and on the record.
+                logger.warning(
+                    "Remotion failed before its first frame; retrying once",
+                    extra={"reason": str(error)[:160]},
+                )
+                if on_progress is not None:
+                    on_progress(0.0, "Retrying the overlay: Remotion failed before drawing")
+            retries.append(str(error)[:200])
             _run(argv, directory, config, on_progress, should_cancel, output_path)
         fields["size_bytes"] = output_path.stat().st_size if output_path.is_file() else 0
+        if retries:
+            fields["retries"] = retries
 
     if not output_path.is_file():
         raise RenderError(
@@ -255,6 +278,7 @@ def render_overlay(
         duration_seconds=time.perf_counter() - started,
         plan=None if plan.is_whole else plan,
         reason=plan.reason if not plan.is_whole else "",
+        retries=tuple(retries),
     )
 
 
@@ -408,6 +432,7 @@ def _run(
         ) from exc
 
     tail: list[str] = []
+    drew = False
     try:
         assert process.stdout is not None
         for line in process.stdout:
@@ -416,6 +441,7 @@ def _run(
                 tail.append(text)
                 del tail[:-40]
                 _relay(text, on_progress)
+                drew = drew or _FIRST_FRAME.search(_ANSI.sub("", text)) is not None
             if should_cancel is not None and should_cancel():
                 process.kill()
                 process.wait(timeout=30)
@@ -446,13 +472,17 @@ def _run(
             if reason
             else f"Remotion exited with code {returncode}.",
             code=ErrorCode.REMOTION_FAILED,
-            details={"returncode": returncode, "tail": tail[-15:]},
+            details={"returncode": returncode, "tail": tail[-15:], "frames_started": drew},
         )
 
 
 #: Remotion colours its output, and a colour code in an error message
 #: is noise wherever that message is read.
 _ANSI: Final = re.compile(r"\[[0-9;]*m")
+
+#: Remotion's progress line once a frame exists: "Rendered 1/112, ...".
+#: "Rendered 0/112" is printed before the first frame and does not count.
+_FIRST_FRAME: Final = re.compile(r"Rendered [1-9][0-9]*/")
 
 #: Chromium losing a renderer process. Remotion reports it as a page crash and
 #: exits 1; the cause is almost always memory, so the remedy is fewer pages.
@@ -573,6 +603,16 @@ def _fewer_pages(config: RemotionConfig, error: RenderError) -> int | None:
     if current <= 1:
         return None
     return max(1, current // 2)
+
+
+def _failed_before_the_first_frame(error: RenderError) -> bool:
+    """Whether Remotion exited before drawing anything.
+
+    Only a non-zero exit carries the flag. A timeout does not: eight hours
+    without a frame is not a hiccup to try again.
+    """
+    details = getattr(error, "details", None) or {}
+    return details.get("frames_started") is False
 
 
 def _relay(line: str, on_progress: ProgressCallback | None) -> None:

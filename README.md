@@ -537,6 +537,15 @@ reports what Windows said.
 not execute — the worker does that, which is why the answer to "make it run
 itself" is the application and not this script.
 
+An unattended night also has to survive the overlay pass dying before it draws.
+On the development machine Remotion failed on two of four benchmark renders —
+once in Node while bundling, once as `0xC0000409` while reading the composition
+— and a second attempt succeeded each time. So a Remotion exit before its first
+frame is retried **once**, and the render's job result carries
+`overlay retried after: …` in its notes. A failure after frames were drawn is not
+retried that way (a Chromium page crash gets its own single retry with fewer
+pages), and a second failure before the first frame fails the render.
+
 ## Requirements
 
 | | |

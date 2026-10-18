@@ -815,3 +815,89 @@ class TestAcceptance:
 
         assert seen, "the render reported no progress at all"
         assert all(0.0 <= fraction <= 1.0 for fraction in seen)
+
+
+class TestAFailureBeforeTheFirstFrame:
+    """Remotion dying before it draws is retried once, and the result says so.
+
+    On the benchmark machine two of four overlay passes died before a frame
+    existed -- once in Node while bundling, once as 0xC0000409 while getting
+    the composition -- and a plain second attempt succeeded both times. A
+    failure after frames were drawn is a different problem and is not retried
+    here; neither is a second failure before the first frame.
+    """
+
+    @staticmethod
+    def _render(composition, config, tmp_path: Path, monkeypatch, outcomes):
+        from backend.core.errors import ErrorCode, RenderError
+        from backend.rendering import remotion as module
+
+        monkeypatch.setattr(module, "is_available", lambda *_: (True, "ready"))
+        monkeypatch.setattr(module, "free_vram_mb", lambda *_, **__: None)
+        monkeypatch.setattr(module, "_render_command", lambda *_args, **_kw: ["remotion"])
+        calls: list[int] = []
+
+        def run(_argv, _directory, _config, _progress, _cancel, output_path):
+            calls.append(1)
+            outcome = outcomes[len(calls) - 1]
+            if outcome == "ok":
+                output_path.write_bytes(b"webm")
+                return
+            raise RenderError(
+                f"Remotion exited with code 3221226505: {outcome}",
+                code=ErrorCode.REMOTION_FAILED,
+                details={"returncode": 3221226505, "frames_started": outcome == "late"},
+            )
+
+        monkeypatch.setattr(module, "_run", run)
+        result = render_overlay(
+            composition,
+            output_path=tmp_path / "overlay.webm",
+            config=config.remotion.model_copy(update={"concurrency": 1}),
+            repo_root=tmp_path,
+        )
+        return result, calls
+
+    def test_a_failure_before_the_first_frame_is_retried_once_and_recorded(
+        self, composition, config, tmp_path: Path, monkeypatch
+    ) -> None:
+        result, calls = self._render(composition, config, tmp_path, monkeypatch, ["early", "ok"])
+
+        assert len(calls) == 2
+        assert result.exists
+        assert len(result.retries) == 1
+        assert "3221226505" in result.retries[0]
+        assert result.summary()["retries"] == list(result.retries)
+
+    def test_a_second_failure_before_the_first_frame_fails_the_pass(
+        self, composition, config, tmp_path: Path, monkeypatch
+    ) -> None:
+        from backend.core.errors import RenderError
+
+        with pytest.raises(RenderError):
+            self._render(composition, config, tmp_path, monkeypatch, ["early", "early", "ok"])
+
+    def test_a_failure_after_frames_were_drawn_is_not_retried(
+        self, composition, config, tmp_path: Path, monkeypatch
+    ) -> None:
+        from backend.core.errors import RenderError
+
+        with pytest.raises(RenderError):
+            self._render(composition, config, tmp_path, monkeypatch, ["late", "ok"])
+
+    def test_a_clean_pass_records_no_retry(
+        self, composition, config, tmp_path: Path, monkeypatch
+    ) -> None:
+        result, calls = self._render(composition, config, tmp_path, monkeypatch, ["ok"])
+
+        assert len(calls) == 1
+        assert result.retries == ()
+        assert "retries" not in result.summary()
+
+    def test_only_a_drawn_frame_counts_as_a_frame(self) -> None:
+        from backend.rendering.remotion import _FIRST_FRAME
+
+        assert _FIRST_FRAME.search("Rendered 1/112, time remaining: 1m 52s")
+        assert _FIRST_FRAME.search("Rendered 40/112")
+        assert not _FIRST_FRAME.search("Rendered 0/112")
+        assert not _FIRST_FRAME.search("Getting composition")

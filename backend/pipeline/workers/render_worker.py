@@ -225,6 +225,10 @@ class RenderWorker:
             "segments_removed": removed,
             "notes": [
                 *programme.notes,
+                *(
+                    f"overlay retried after: {reason}"
+                    for reason in (overlay.retries if overlay is not None else ())
+                ),
                 *final.notes,
                 *([delivery_note] if delivery_note else []),
             ],
