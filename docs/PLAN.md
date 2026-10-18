@@ -40,7 +40,7 @@ git checkout claude/local-ai-youtube-editor-ixsrt8
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"        # Windows: .venv\Scripts\pip
 
-.venv/bin/python -m pytest               # expect 1314 passing (~24 min)
+.venv/bin/python -m pytest               # expect 2911 passing, 5 skipped (~45 min)
 .venv/bin/python -m pytest -m "not slow" # the fast development loop
 .venv/bin/ruff check .                   # expect clean
 .venv/bin/python scripts/doctor.py       # what this machine is missing
@@ -74,9 +74,8 @@ choco install ffmpeg-full -y
 ```
 
 If `pytest` is green and `doctor.py` reports only warnings, the checkout is
-healthy, the checkout is sound. What to do next is in
-[`docs/PHASE_15.md`](PHASE_15.md): the first quality numbers, and what they
-point at.
+sound. What to do next is the **Current phase** row at the top of this file
+and its entry under §2.
 
 ---
 
