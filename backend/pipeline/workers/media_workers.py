@@ -295,6 +295,10 @@ class FramesWorker:
 
         with context.database.transaction():
             stored = frame_repo.add_many(context.project_id, media.id, frames)
+        # The pictures are back: a clearing after production no longer holds.
+        from backend.media.cleanup import mark_frames_present
+
+        mark_frames_present(context.paths)
 
         if plan.was_capped:
             logger.warning(

@@ -328,6 +328,8 @@ class FrameSamplingConfig(_Section):
     max_frames_per_hour: int = Field(default=1800, ge=1)
     max_frames_per_candidate: int = Field(default=40, ge=1)
     jpeg_quality: int = Field(default=4, ge=1, le=31)
+    #: Remove the pictures once the video is produced (backend/media/cleanup.py).
+    clear_after_production: bool = True
     triggers: SamplingTriggers = Field(default_factory=SamplingTriggers)
 
     @model_validator(mode="after")

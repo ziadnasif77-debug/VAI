@@ -171,6 +171,10 @@ class VisionWorker:
         if not analysis.vision.enabled:
             context.report(1.0, "Vision disabled")
             return {"skipped": True, "reason": "vision disabled in configuration"}
+        # The cascade plans from the base frames; after production they are gone.
+        from backend.media.cleanup import require_frames
+
+        require_frames(context.paths, self.stage.value)
 
         source, _ = _visual_source(context, media)
         probe = probe_media(source, context.ffmpeg, require_video=True)

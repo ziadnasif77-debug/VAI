@@ -17,6 +17,11 @@ analysis:
     max_frames_per_hour: 1800
     max_frames_per_candidate: 40
     jpeg_quality: 4
+    # Delete the project's extracted pictures (frames, scene previews, the
+    # post-render critic's frames) once the video is produced, i.e. when
+    # CRITIC2 finishes. The rows and every read taken from them stay; a
+    # re-analysis that needs the pictures says to re-run FRAMES first.
+    clear_after_production: true
 
     # Triggers that promote a region to high-activity sampling (§16).
     triggers:

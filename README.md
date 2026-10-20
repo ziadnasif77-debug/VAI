@@ -597,6 +597,17 @@ several projects on this machine use, and one 6 GB vision model loaded once
 serves all of them — where its files live is the machine's decision, not a
 consumer's. Setting it here once cost 36 GB in duplicate downloads.
 
+**A produced video's pictures are deleted.** When the last automatic stage
+(CRITIC2) finishes, the project's extracted frames, scene previews and the
+post-render critic's frames are removed
+(`analysis.frame_sampling.clear_after_production`, on by default). The videos,
+the thumbnail, the proxy and every read taken from the pictures stay, and so do
+the frame rows in the database. Re-running OCR or vision afterwards fails with
+"re-run the FRAMES stage first" instead of analysing an empty folder, and a
+re-edit says in the timeline's notes that its menu check on unsampled seconds
+did not run. The scene thumbnails in the interface are gone for that project
+too.
+
 One more thing about that variable, learned the hard way: the Ollama desktop
 app keeps its *own* model-location setting, and when the app starts the server
 — at login, or after it updates itself — that setting wins over

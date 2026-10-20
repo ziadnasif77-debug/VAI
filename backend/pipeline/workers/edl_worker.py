@@ -121,6 +121,18 @@ class EdlWorker:
         settings = context.config.narrative.planned_frame_reads
         if not settings.enabled:
             return {"skipped": True, "reason": "disabled in configuration"}
+        from backend.media.cleanup import frames_cleared
+
+        if frames_cleared(context.paths):
+            # A re-edit after production: the pictures were removed, so seconds
+            # nobody sampled stay unread. Said in the timeline's notes, not
+            # only here -- the pass is a menu check, and its absence matters.
+            reason = (
+                "planned frame reads skipped: the frames were removed after "
+                "production; re-run FRAMES to check unsampled seconds for menus"
+            )
+            logger.warning("Planned frames are gone; the edit is built without them")
+            return {"skipped": True, "reason": reason, "frames_cleared": True}
         ocr = context.config.analysis.ocr
         if not ocr.enabled:
             return {"skipped": True, "reason": "ocr disabled in configuration"}
@@ -279,7 +291,15 @@ class EdlWorker:
             target_seconds=float(story.get("target_seconds", 0.0)),
             media_durations=durations,
             transitions=context.config.narrative.transitions,
-            notes=[*story.get("notes", ()), *self._budget_notes],
+            notes=[
+                *story.get("notes", ()),
+                *self._budget_notes,
+                *(
+                    [planned_reads_summary["reason"]]
+                    if planned_reads_summary.get("frames_cleared")
+                    else []
+                ),
+            ],
             excluded_spans=excluded_spans,
             shot_floor_seconds=context.config.editorial.pacing.min_shot_seconds,
             metadata={

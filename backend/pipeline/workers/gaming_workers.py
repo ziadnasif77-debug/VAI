@@ -81,6 +81,11 @@ class OcrWorker:
             context.report(1.0, "OCR disabled")
             return {"skipped": True, "reason": "ocr disabled in configuration"}
 
+        # Pictures removed after production: reading the empty folder would
+        # complete with no reads at all, so the stage says what to run first.
+        from backend.media.cleanup import require_frames
+
+        require_frames(context.paths, self.stage.value)
         resolution = _profile_for(context)
         frames = _candidate_frames(context, media)
 

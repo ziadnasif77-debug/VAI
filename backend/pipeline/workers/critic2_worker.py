@@ -54,6 +54,18 @@ class Critic2Worker:
         self._vision = vision_provider
 
     def run(self, context: WorkerContext) -> dict[str, Any]:
+        result = self._run(context)
+        # The last automatic stage: the video is produced, and nothing after
+        # this reads a picture of the source (owner, 2026-10-20). Cleared on
+        # every way out, a skip included -- a skip still means the pipeline
+        # is done with them.
+        if context.config.analysis.frame_sampling.clear_after_production:
+            from backend.media.cleanup import clear_production_images
+
+            result = {**result, "images_cleared": clear_production_images(context.paths)}
+        return result
+
+    def _run(self, context: WorkerContext) -> dict[str, Any]:
         repository = TimelineRepository(context.database)
         timeline = repository.load(context.project_id)
         clips = timeline.video_clips()
