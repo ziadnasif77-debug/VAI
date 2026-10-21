@@ -155,6 +155,16 @@ class TestSemanticValidation:
         with pytest.raises(ConfigurationError, match="chunk_overlap_seconds"):
             load_config(config_dir, overrides={"analysis": {"chunk_overlap_seconds": 900}})
 
+    def test_a_relative_daily_directory_is_named_by_its_own_key(self, config_dir: Path) -> None:
+        # One validator serves both keys; an archive_directory error used to
+        # say "daily.output_directory", sending the reader to the wrong line.
+        with pytest.raises(ConfigurationError) as exc_info:
+            load_config(config_dir, overrides={"daily": {"archive_directory": "relative/shelf"}})
+
+        message = str(exc_info.value)
+        assert "daily.archive_directory must be an absolute path" in message
+        assert "daily.output_directory must" not in message
+
     def test_frame_sampling_must_get_denser(self, config_dir: Path) -> None:
         with pytest.raises(ConfigurationError, match="denser"):
             load_config(
