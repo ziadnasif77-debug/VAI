@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -226,6 +227,26 @@ class TestSemanticValidation:
     def test_the_system_drive_is_refused_on_any_host(self, config_dir: Path) -> None:
         with pytest.raises(ConfigurationError, match="refuses the system drive"):
             load_config(config_dir, overrides={"daily": {"output_directory": "C:/Out"}})
+
+
+class TestPathsOnAnotherHost:
+    @pytest.mark.skipif(os.name == "nt", reason="a drive path is native on Windows")
+    def test_a_windows_models_folder_takes_the_default_here(
+        self, config_dir: Path, tmp_path: Path
+    ) -> None:
+        """``D:/Models/huggingface`` read on Linux became
+        ``<data root>/D:/Models/huggingface`` and was created there."""
+        from backend.config.paths import build_paths
+
+        config = load_config(
+            config_dir,
+            overrides={"application": {"directories": {"models": "E:/Shelf/hf"}}},
+        )
+        paths = build_paths(config, data_root=tmp_path)
+
+        assert paths.models_dir == tmp_path / "models"
+        paths.create()
+        assert not (tmp_path / "E:").exists()
 
 
 class TestCaching:

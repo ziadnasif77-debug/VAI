@@ -8,11 +8,16 @@ a separate drive.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Final
 
-from backend.config.schema import AppConfig
+from backend.config.schema import AppConfig, DirectoriesConfig
+
+#: Plain stdlib logging: backend.core.logging reads the configuration this
+#: module helps build.
+logger = logging.getLogger("vai.config.paths")
 
 #: Environment variable that overrides the data root.
 ROOT_ENV_VAR: Final[str] = "VAI_ROOT"
@@ -175,10 +180,27 @@ class Paths:
         return self
 
 
-def _resolve(base: Path, value: str) -> Path:
-    """Resolve ``value`` against ``base`` unless it is already absolute."""
+def _resolve(base: Path, value: str, *, default: str | None = None) -> Path:
+    """Resolve ``value`` against ``base`` unless it is already absolute.
+
+    A drive-rooted Windows path read on another host (the shipped
+    ``D:/Models/huggingface``) is another machine's folder: joined to
+    ``base`` it became ``<data root>/D:/Models/huggingface`` and was created
+    there. It takes the key's own ``default`` instead, said out loud.
+    """
     candidate = Path(value).expanduser()
-    return candidate if candidate.is_absolute() else base / candidate
+    if candidate.is_absolute():
+        return candidate
+    if default is not None and PureWindowsPath(value).is_absolute():
+        logger.warning(
+            "%s is a folder on another machine; using %s under %s", value, default, base
+        )
+        return base / default
+    return base / candidate
+
+
+def _default(name: str) -> str:
+    return DirectoriesConfig.model_fields[name].default
 
 
 def build_paths(
@@ -205,19 +227,23 @@ def build_paths(
         resolved_data_root = repository_root
 
     directories = config.application.directories
+
+    def place(name: str) -> Path:
+        return _resolve(resolved_data_root, getattr(directories, name), default=_default(name))
+
     return Paths(
         root=repository_root,
         config_dir=repository_root / "config",
         data_root=resolved_data_root,
-        projects_dir=_resolve(resolved_data_root, directories.projects),
-        models_dir=_resolve(resolved_data_root, directories.models),
+        projects_dir=place("projects"),
+        models_dir=place("models"),
         logs_dir=_resolve(resolved_data_root, config.application.logging.directory),
-        cache_dir=_resolve(resolved_data_root, directories.cache),
+        cache_dir=place("cache"),
         # Game profiles ship with the code, so they resolve against the
         # repository root rather than the (possibly relocated) data root.
         profiles_dir=_resolve(repository_root, directories.profiles),
-        input_dir=_resolve(resolved_data_root, directories.input),
-        output_dir=_resolve(resolved_data_root, directories.output),
+        input_dir=place("input"),
+        output_dir=place("output"),
         database_path=_resolve(resolved_data_root, config.application.database.filename),
     )
 
