@@ -667,6 +667,27 @@ class TestFerdigShelf:
         media = database.fetch_one("SELECT source_path FROM media", ())
         assert media["source_path"] == str(moved.resolve()), "media rows follow the file"
 
+    def test_a_folder_that_is_not_on_this_host_is_never_made_here(
+        self, database, paths, config, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        """A Windows shelf read on Linux is a relative path: the move is
+        refused on the row rather than creating ``./D:`` beside the cwd."""
+        import os
+
+        vault = tmp_path / "vault"
+        producer = _producer(database, paths, config, vault=vault, archive=vault / "Ferdig")
+        clip = self._published(producer, database, vault, sample_video)
+        foreign = "E:/Shelf/Ferdig" if os.name != "nt" else "Ferdig"
+        producer._config.daily.__dict__["archive_directory"] = foreign
+        monkeypatch.chdir(tmp_path)
+
+        producer.archive_published(None)
+
+        assert clip.is_file(), "the recording stays where it is"
+        assert not (tmp_path / foreign.split("/")[0]).exists()
+        ledger = database.fetch_one("SELECT note FROM production_ledger", ())
+        assert "archive move failed" in ledger["note"]
+
     def test_the_sweep_is_idempotent(
         self, database, paths, config, sample_video, tmp_path
     ) -> None:

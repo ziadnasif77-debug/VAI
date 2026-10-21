@@ -200,6 +200,33 @@ class TestSemanticValidation:
                 },
             )
 
+    def test_windows_folders_are_absolute_on_any_host(self, config_dir: Path) -> None:
+        """The shipped YAML names the owner's D: folders; a Linux clone
+        read them as relative and refused to load the configuration."""
+        config = load_config(
+            config_dir,
+            overrides={
+                "application": {"media_source_roots": ["D:/Gaming 2026"]},
+                "daily": {"archive_directory": "D:/Gaming 2026/Ferdig"},
+            },
+        )
+        assert config.application.media_source_roots == ["D:/Gaming 2026"]
+        assert config.daily.archive_directory is not None
+
+    def test_a_relative_root_is_still_refused(self, config_dir: Path) -> None:
+        with pytest.raises(ConfigurationError, match="media_source_roots"):
+            load_config(
+                config_dir, overrides={"application": {"media_source_roots": ["Gaming"]}}
+            )
+
+    def test_the_refusal_names_the_key_that_broke_it(self, config_dir: Path) -> None:
+        with pytest.raises(ConfigurationError, match=r"daily\.archive_directory must be"):
+            load_config(config_dir, overrides={"daily": {"archive_directory": "Ferdig"}})
+
+    def test_the_system_drive_is_refused_on_any_host(self, config_dir: Path) -> None:
+        with pytest.raises(ConfigurationError, match="refuses the system drive"):
+            load_config(config_dir, overrides={"daily": {"output_directory": "C:/Out"}})
+
 
 class TestCaching:
     def test_reset_clears_the_cache(self, config_dir: Path) -> None:

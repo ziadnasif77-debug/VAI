@@ -134,10 +134,15 @@ def _clean_output_directory(value: str | None) -> str | None:
     stripped = value.strip().strip('"')
     if not stripped:
         return ""
-    from pathlib import PureWindowsPath
+    from pathlib import Path, PureWindowsPath
 
     path = PureWindowsPath(stripped)
     if not path.is_absolute():
+        # Drive-rooted is the owner's machine; a POSIX host's own absolute
+        # folder is just as real there, and was refused, so every delivery
+        # on a Linux clone failed validation.
+        if Path(stripped).is_absolute():
+            return stripped
         raise ValueError(f"Output directory must be an absolute path, got {stripped!r}.")
     if str(path.drive).upper() == "C:":
         raise ValueError(

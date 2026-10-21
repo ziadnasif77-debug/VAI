@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -320,6 +321,16 @@ class TestDeliveryChoices:
             ProjectCreate(
                 name="X", target_duration_seconds=900, output_directory="videos\\out"
             )
+
+    @pytest.mark.skipif(os.name == "nt", reason="a rootless path has no drive on Windows")
+    def test_a_posix_absolute_output_directory_is_kept_verbatim(self) -> None:
+        # Only drive-rooted paths passed before, so every Linux clone's
+        # delivery folder was refused -- and turned into backslashes if not.
+        created = ProjectCreate(
+            name="X", target_duration_seconds=900, output_directory="/srv/videos/out"
+        )
+
+        assert created.output_directory == "/srv/videos/out"
 
     def test_a_blank_output_directory_means_none(self) -> None:
         created = ProjectCreate(

@@ -262,6 +262,10 @@ class DailyProducer:
     def _move_to_archive(self, source: Path, directory: Path) -> Path:
         import shutil
 
+        if not directory.is_absolute():
+            # A Windows folder named in the shared YAML, read on another
+            # host: mkdir would make it beside the working directory.
+            raise OSError(f"{directory} is not a folder on this machine")
         directory.mkdir(parents=True, exist_ok=True)
         destination = directory / source.name
         if destination.exists():

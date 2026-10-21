@@ -31,6 +31,20 @@ class _Section(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
+def _absolute_somewhere(value: str) -> bool:
+    """Absolute on this host, or a drive-rooted Windows path.
+
+    The shipped YAML names the owner's Windows folders (``D:/Gaming 2026``),
+    and the same files are loaded by every clone. ``Path`` alone judges by
+    the host, so on Linux ``D:/...`` read as relative and the whole
+    configuration refused to load. The shape is checked here; whether the
+    place exists on this machine is the consumer's question.
+    """
+    from pathlib import Path, PureWindowsPath
+
+    return Path(value).expanduser().is_absolute() or PureWindowsPath(value).is_absolute()
+
+
 # ---------------------------------------------------------------------------
 # application.yaml
 # ---------------------------------------------------------------------------
@@ -91,10 +105,8 @@ class ApplicationConfig(_Section):
     @field_validator("media_source_roots")
     @classmethod
     def _absolute_roots(cls, roots: list[str]) -> list[str]:
-        from pathlib import Path
-
         for root in roots:
-            if not root or not Path(root).expanduser().is_absolute():
+            if not root or not _absolute_somewhere(root):
                 raise ValueError(
                     "application.media_source_roots entries must be absolute paths."
                 )
@@ -240,18 +252,20 @@ class DailyConfig(_Section):
 
     @field_validator("output_directory", "archive_directory")
     @classmethod
-    def _not_the_system_drive(cls, value: str | None) -> str | None:
+    def _not_the_system_drive(cls, value: str | None, info: Any) -> str | None:
         if value is None:
             return None
-        from pathlib import Path
+        from pathlib import Path, PureWindowsPath
 
         path = Path(value).expanduser()
-        if not path.is_absolute():
-            raise ValueError("daily.output_directory must be an absolute path.")
-        drive = path.drive.rstrip(":").upper()
+        if not _absolute_somewhere(value):
+            raise ValueError(f"daily.{info.field_name} must be an absolute path.")
+        # Read the drive the Windows way on every host: on Linux ``Path``
+        # has no drives, and the rule went unchecked there.
+        drive = PureWindowsPath(value).drive.rstrip(":").upper()
         if drive == "C":
             raise ValueError(
-                "daily.output_directory refuses the system drive: this "
+                f"daily.{info.field_name} refuses the system drive: this "
                 "machine's standing rule is that nothing is written to it."
             )
         return str(path)
