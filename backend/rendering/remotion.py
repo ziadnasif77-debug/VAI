@@ -315,6 +315,12 @@ def _render_command(
         # An overlay has no sound. Without this Remotion adds a silent Opus
         # track, which the composite would then have to know to ignore.
         "--muted",
+        # Remotion 4's default converts the RGB frames with the BT.601 matrix
+        # and tags nothing; the composite lays those pixels unconverted on
+        # gameplay that is BT.709, so every coloured caption shifted (the
+        # highlight #FFD400 landed as #FFCA00). White and black do not move,
+        # which is why it went unseen.
+        "--color-space=bt709",
         "--log=info",
         *extra,
     ]

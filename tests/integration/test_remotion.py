@@ -654,6 +654,30 @@ class TestAcceptance:
         )
         assert result.stdout.strip() == f"{WIDTH},{HEIGHT}"
 
+    def test_the_overlay_is_encoded_in_the_gameplays_colour_space(self, overlay: Path) -> None:
+        # Remotion's default is BT.601 and untagged; composited onto BT.709
+        # gameplay, coloured captions shift hue. The matrix is what the
+        # composite depends on; the transfer tag is Remotion's own choice.
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=color_space",
+                "-of",
+                "csv=p=0",
+                str(overlay),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.stdout.strip() == "bt709"
+
     def test_the_alpha_channel_is_transparent_where_nothing_is_drawn(
         self, overlay: Path, tmp_path: Path
     ) -> None:
