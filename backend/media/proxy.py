@@ -485,10 +485,16 @@ def codec_arguments(codec: str, preset: str, quality: int) -> list[str]:
     keeps one ``preset`` and one ``crf`` key; this maps them to whatever the
     chosen encoder actually reads.
     """
+    hardware_preset = preset.startswith("p") and preset[1:].isdigit()
     if "nvenc" in codec:
-        chosen = preset if preset.startswith("p") and preset[1:].isdigit() else "p4"
+        chosen = preset if hardware_preset else "p4"
         return ["-c:v", codec, "-preset", chosen, "-cq", str(quality)]
-    return ["-c:v", codec, "-preset", preset, "-crf", str(quality)]
+    # The other direction is the fallback itself: the shipped config asks
+    # NVENC for p4, and when resolve_codec falls back to libx264 the same p4
+    # reached x264, which refuses it ("invalid preset 'p4'") -- so on a
+    # machine without NVENC every import failed at the proxy.
+    chosen = "veryfast" if hardware_preset else preset
+    return ["-c:v", codec, "-preset", chosen, "-crf", str(quality)]
 
 
 def resolve_codec(config: ProxyConfig, runner: FFmpegRunner) -> str:

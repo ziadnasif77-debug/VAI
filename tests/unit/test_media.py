@@ -432,3 +432,13 @@ class TestProxyCodecArguments:
         arguments = codec_arguments("h264_nvenc", "veryfast", 28)
 
         assert arguments[arguments.index("-preset") + 1] == "p4"
+
+    def test_a_hardware_preset_on_the_software_fallback_is_mapped(self) -> None:
+        # The shipped proxy asks h264_nvenc for p4; when NVENC is unavailable
+        # resolve_codec falls back to libx264, which refuses "p4" outright.
+        from backend.media.proxy import codec_arguments
+
+        arguments = codec_arguments("libx264", "p4", 28)
+
+        assert arguments[arguments.index("-preset") + 1] == "veryfast"
+        assert arguments[arguments.index("-crf") + 1] == "28"
