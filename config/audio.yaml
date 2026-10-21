@@ -29,7 +29,13 @@ audio:
       loudness_range: 11.0
     limiter:
       enabled: true
-      ceiling_db: -0.3
+      # Sample peak, set below the -1 dBTP target because AAC adds overshoot
+      # on decode. Measured 2026-10-21 through plan_mix on four synthetic
+      # programmes (FFmpeg 6.1.1): -1.8 keeps the encoded true peak at or
+      # under -1.3 dBTP at 384k and 128k; -1.5 left one at -0.9. Costs about
+      # 0.4 LU against the old -0.3 that was never applied. See
+      # .ai-mission/reports/2026-10-21_1545_run.md.
+      ceiling_db: -1.8
 
   # Ducking (§74): music drops for speech and for important game audio.
   ducking:

@@ -406,6 +406,60 @@ class TestMixGraph:
         assert f"loudnorm=I={config.audio.mix.normalization.target_lufs}" in plan.filter_complex
         assert "alimiter" in plan.filter_complex
 
+    def _limiter(self, config, tmp_path: Path) -> str:
+        plan = audio_mix.plan_mix(
+            game=tmp_path / "game.wav",
+            microphone=None,
+            music=[],
+            music_envelope=None,
+            game_envelope=None,
+            config=config.audio,
+            duration_seconds=60.0,
+        )
+        chain = next(part for part in plan.filter_complex.split(";") if "alimiter" in part)
+        return chain[chain.index("alimiter") : chain.index("[limited]")]
+
+    @pytest.mark.requires_ffmpeg
+    def test_the_limiter_holds_its_ceiling(self, config, tmp_path: Path) -> None:
+        # alimiter's auto-level is on by default and lifts the limit back to
+        # full scale: the configured ceiling was ignored and peaks sat at 0 dBFS.
+        import re
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-nostats", "-f", "lavfi",
+                "-i", "anoisesrc=colour=pink:d=3:a=1:r=48000",
+                "-af", f"volume=6dB,{self._limiter(config, tmp_path)},astats=measure_perchannel=none",
+                "-f", "null", "-",
+            ],
+            capture_output=True, text=True, timeout=60,
+        )
+        peak = float(re.findall(r"Peak level dB: (-?[\d.]+)", result.stderr)[-1])
+
+        assert peak <= config.audio.mix.limiter.ceiling_db + 0.05, result.stderr[-400:]
+
+    @pytest.mark.requires_ffmpeg
+    def test_the_limiter_does_not_delay_the_programme(self, config, tmp_path: Path) -> None:
+        # Without latency compensation the lookahead shifts every sound by
+        # the attack time against the picture.
+        import struct
+        import subprocess
+
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                "-i", "aevalsrc=0.3*between(n\\,48000\\,48010):d=2:s=48000",
+                "-af", self._limiter(config, tmp_path),
+                "-f", "f32le", "-",
+            ],
+            capture_output=True, timeout=60, check=True,
+        )
+        samples = struct.unpack(f"{len(result.stdout) // 4}f", result.stdout)
+        first = next(index for index, value in enumerate(samples) if abs(value) > 0.01)
+
+        assert first == 48000
+
 
 class TestLocalMusicOnly:
     """§73: nothing is downloaded, ever."""

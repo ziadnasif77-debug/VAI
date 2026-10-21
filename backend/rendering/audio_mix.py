@@ -432,7 +432,14 @@ def plan_mix(
 
     if config.mix.limiter.enabled:
         ceiling = _db_to_gain(config.mix.limiter.ceiling_db)
-        chains.append(f"[{last}]alimiter=limit={ceiling:.4f}[limited]")
+        # level=0: alimiter's auto-level is on by default and scales the
+        # output so the limit lands on full scale -- ceiling_db was ignored and
+        # every peak sat at 0 dBFS. latency=1: without it the lookahead delays
+        # the whole programme by the attack time (5 ms, 240 samples at 48 kHz)
+        # against the picture.
+        chains.append(
+            f"[{last}]alimiter=limit={ceiling:.4f}:level=0:latency=1[limited]"
+        )
         last = "limited"
 
     fades = config.fades

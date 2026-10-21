@@ -1543,7 +1543,7 @@ class MixNormalization(_Section):
 
 class LimiterConfig(_Section):
     enabled: bool = True
-    ceiling_db: float = -0.3
+    ceiling_db: float = -1.8
 
 
 class MixConfig(_Section):
@@ -1705,10 +1705,9 @@ class TechnicalQaThresholds(_Section):
 
     max_av_desync_ms: int = Field(default=80, ge=0)
     min_audio_lufs: float = -30.0
-    #: Above full scale the decoded file clips on playback. 0.0, not the mix's
-    #: -1.0 target: the shipped chain measures -0.6 to -0.2 dBTP after AAC,
-    #: and a check that warns on every render is one people switch off.
-    max_true_peak_dbtp: float = Field(default=0.0, le=3.0)
+    #: The mix's -1 dBTP target, read off the encoded file: AAC adds
+    #: overshoot after the limiter, so this is the only place it shows.
+    max_true_peak_dbtp: float = Field(default=-1.0, le=3.0)
 
 
 class TechnicalQaConfig(_Section):
