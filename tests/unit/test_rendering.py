@@ -406,6 +406,24 @@ class TestMixGraph:
         assert f"loudnorm=I={config.audio.mix.normalization.target_lufs}" in plan.filter_complex
         assert "alimiter" in plan.filter_complex
 
+    def test_the_limiter_does_not_auto_level_past_its_ceiling(
+        self, config, tmp_path: Path
+    ) -> None:
+        # alimiter's auto-level is on by default and lifts the output back to
+        # 0 dBFS; measured, a -0.3 dB ceiling then let peaks reach 0.0 dBFS.
+        plan = audio_mix.plan_mix(
+            game=tmp_path / "game.wav",
+            microphone=None,
+            music=[],
+            music_envelope=None,
+            game_envelope=None,
+            config=config.audio,
+            duration_seconds=60.0,
+        )
+
+        limiter = next(part for part in plan.filter_complex.split(";") if "alimiter" in part)
+        assert ":level=disabled" in limiter
+
 
 class TestLocalMusicOnly:
     """§73: nothing is downloaded, ever."""

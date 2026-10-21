@@ -459,6 +459,37 @@ class TestTruePeak:
 
         assert finding is None
 
+    def test_the_shipped_limiter_holds_its_ceiling(self, qa_config, tmp_path) -> None:
+        # The master limiter exactly as the mix plans it, on a signal that hits
+        # it: with alimiter's default auto-level the peak came out at 0.0 dBFS
+        # against the -0.3 dB ceiling, past the clipping check's threshold.
+        from backend.rendering import audio_mix
+
+        plan = audio_mix.plan_mix(
+            game=tmp_path / "game.wav",
+            microphone=None,
+            music=[],
+            music_envelope=None,
+            game_envelope=None,
+            config=qa_config.audio,
+            duration_seconds=8.0,
+        )
+        limiter = next(part for part in plan.filter_complex.split(";") if "alimiter" in part)
+        chain = limiter.split("]", 1)[1].rsplit("[", 1)[0]
+        hot = "aevalsrc=0.98*sin(440*2*PI*t)*gt(mod(t\\,1)\\,0.9)+0.05*sin(220*2*PI*t):s=48000:d=8"
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-nostdin", "-f", "lavfi", "-i", hot,
+                "-af", f"{chain},ebur128=peak=true", "-f", "null", "-",
+            ],
+            capture_output=True, text=True, timeout=120, check=True,
+        )
+        peak = technical._parse_true_peak(result.stderr)
+
+        assert peak is not None
+        assert peak <= qa_config.audio.mix.limiter.ceiling_db + 0.1
+        assert peak < qa_config.audio.clipping.threshold_db
+
     def test_the_summary_line_is_read_not_the_per_frame_tpk(self) -> None:
         stderr = (
             "t: 2.9  TARGET:-23 LUFS  M: -15.0 S: -15.0  I: -15.0 LUFS  TPK:  3.0 dBFS\n"

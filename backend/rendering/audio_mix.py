@@ -432,7 +432,11 @@ def plan_mix(
 
     if config.mix.limiter.enabled:
         ceiling = _db_to_gain(config.mix.limiter.ceiling_db)
-        chains.append(f"[{last}]alimiter=limit={ceiling:.4f}[limited]")
+        # level=disabled: alimiter's auto-level is on by default and scales the
+        # output back up to 0 dBFS, so the ceiling never held. Measured on a hot
+        # signal: peaks at 0.0 dBFS against a -0.3 dB ceiling, and -0.7 dBFS
+        # after loudnorm's TP=-1 -- the limiter adding the gain it exists to cap.
+        chains.append(f"[{last}]alimiter=limit={ceiling:.4f}:level=disabled[limited]")
         last = "limited"
 
     fades = config.fades
