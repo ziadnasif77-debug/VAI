@@ -137,6 +137,10 @@ def clips(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
         "silent": _make(directory / "silent.mp4", "testsrc", "anullsrc=r=48000:cl=stereo"),
         "no_audio": _make(directory / "no_audio.mp4", "testsrc", None),
         "short": _make(directory / "short.mp4", "testsrc", tone, seconds=2),
+        # A tone driven far past full scale: the samples are clipped flat.
+        "clipped": _make(
+            directory / "clipped.mp4", "testsrc", "aevalsrc=1.5*sin(440*2*PI*t):s=48000"
+        ),
     }
 
 
@@ -418,6 +422,53 @@ class TestWhatWasChecked:
         lines = report.explain()
 
         assert any(line.startswith("    →") for line in lines)
+
+
+class TestTruePeak:
+    """``audio.clipping`` judges the finished mix's true peak (ebur128)."""
+
+    def _peak(self, clips, name, expected, runner, qa_config, clipping):
+        findings = technical.inspect(
+            clips[name], expected, runner=runner, config=qa_config.qa, clipping=clipping
+        )
+        return next((f for f in findings if f.check == "true_peak"), None), findings
+
+    def test_a_clipped_mix_warns_rather_than_blocking(
+        self, clips, expected, runner, qa_config
+    ) -> None:
+        finding, findings = self._peak(
+            clips, "clipped", expected, runner, qa_config, qa_config.audio.clipping
+        )
+
+        assert finding is not None and finding.status is QAStatus.WARNING
+        assert finding.measured["true_peak_db"] >= qa_config.audio.clipping.threshold_db
+        assert finding.remedy
+        assert not build_report(findings, qa_config.qa).blocks_export
+
+    def test_a_mix_below_the_ceiling_passes(self, clips, expected, runner, qa_config) -> None:
+        finding, _ = self._peak(
+            clips, "good", expected, runner, qa_config, qa_config.audio.clipping
+        )
+
+        assert finding is not None and finding.status is QAStatus.PASSED
+        assert finding.measured["true_peak_db"] < qa_config.audio.clipping.threshold_db
+
+    def test_detect_off_does_not_judge_the_peak(self, clips, expected, runner, qa_config) -> None:
+        off = qa_config.audio.clipping.model_copy(update={"detect": False})
+        finding, _ = self._peak(clips, "clipped", expected, runner, qa_config, off)
+
+        assert finding is None
+
+    def test_the_summary_line_is_read_not_the_per_frame_tpk(self) -> None:
+        stderr = (
+            "t: 2.9  TARGET:-23 LUFS  M: -15.0 S: -15.0  I: -15.0 LUFS  TPK:  3.0 dBFS\n"
+            "  True peak:\n    Peak:       -5.5 dBFS\n"
+        )
+        assert technical._parse_true_peak(stderr) == -5.5
+        assert technical._parse_true_peak("  True peak:\n    Peak:       -inf dBFS") == float(
+            "-inf"
+        )
+        assert technical._parse_true_peak("no summary") is None
 
 
 class TestPolicy:

@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from backend.config.schema import QaConfig
+from backend.config.schema import ClippingConfig, QaConfig
 from backend.core.errors import GamingEditorError
 from backend.core.logging import LogChannel, get_logger
 from backend.media.ffmpeg import FFmpegRunner
@@ -58,12 +58,15 @@ CHECKS: Final[tuple[str, ...]] = (
     "frozen_frames",
     "av_sync",
     "loudness",
+    "true_peak",
 )
 
 _BLACK_RE = re.compile(r"black_start:(?P<start>[\d.]+) black_end:(?P<end>[\d.]+)")
 _FREEZE_START_RE = re.compile(r"freeze_start: (?P<start>[\d.]+)")
 _FREEZE_DURATION_RE = re.compile(r"freeze_duration: (?P<duration>[\d.]+)")
 _LOUDNESS_RE = re.compile(r"I:\s*(?P<lufs>-?[\d.]+) LUFS")
+#: ebur128's summary line under "True peak:"; the per-frame lines say TPK.
+_TRUE_PEAK_RE = re.compile(r"Peak:\s*(?P<peak>-?(?:[\d.]+|inf)) dBFS")
 
 #: Seconds of recording read either side of a freeze when checking the source.
 #: A freeze is bounded by the render's own timing; the stillness that explains
@@ -122,6 +125,7 @@ class DecodeMeasurements:
     black_runs: tuple[tuple[float, float], ...] = ()
     freeze_runs: tuple[tuple[float, float], ...] = ()
     integrated_lufs: float | None = None
+    true_peak_db: float | None = None
 
     @property
     def longest_black(self) -> float:
@@ -139,6 +143,7 @@ def inspect(
     runner: FFmpegRunner,
     config: QaConfig,
     sources: Sequence[SourceSpan] = (),
+    clipping: ClippingConfig | None = None,
 ) -> list[Finding]:
     """Run every enabled technical check against a rendered file (§76).
 
@@ -146,8 +151,13 @@ def inspect(
     frozen picture can be checked against the recording and a static menu told
     apart from a stalled render. Without it every freeze is unexplained, which
     is the safe reading but a blunter one.
+
+    ``clipping`` is ``audio.clipping``: the ceiling the programme's true peak
+    is held to. Without it, or with ``detect`` off, the peak is not judged.
     """
     checks = set(enabled_checks(CHECKS, config.technical.checks))
+    if clipping is None or not clipping.detect:
+        checks.discard("true_peak")
     findings: list[Finding] = []
 
     if "file_exists" in checks:
@@ -185,6 +195,8 @@ def inspect(
         findings.extend(
             _decode_findings(measurements, config, checks, runner=runner, sources=sources)
         )
+        if "true_peak" in checks and clipping is not None and measurements.decoded:
+            findings.append(_true_peak(measurements, clipping))
 
     if "av_sync" in checks:
         findings.append(_av_sync(probe, config))
@@ -256,6 +268,7 @@ def decode(
         black_runs=_parse_black(result.stderr),
         freeze_runs=_parse_freeze(result.stderr, total_seconds),
         integrated_lufs=_parse_loudness(result.stderr),
+        true_peak_db=_parse_true_peak(result.stderr),
     )
 
 
@@ -401,6 +414,32 @@ def _decode_findings(
         else:
             findings.append(passed("loudness", f"{lufs:.1f} LUFS"))
     return findings
+
+
+def _true_peak(measurements: DecodeMeasurements, clipping: ClippingConfig) -> Finding:
+    """Whether the finished mix reaches the clipping ceiling (``audio.clipping``).
+
+    loudnorm's TP target and the limiter both aim below it, so a peak at or
+    over the ceiling means one of them did not hold -- the mix is clipping, or
+    will once the platform re-encodes it. A warning, not a failure: the file
+    plays, and the person decides whether to re-render.
+    """
+    peak = measurements.true_peak_db
+    if peak is None:
+        return passed("true_peak", "no true-peak reading (no audio decoded)")
+    if peak >= clipping.threshold_db:
+        return warning(
+            "true_peak",
+            f"the programme's true peak is {peak:.1f} dBFS, at or above the "
+            f"{clipping.threshold_db:.1f} dBFS clipping ceiling",
+            remedy=(
+                "The mix clips. Check that loudnorm and the limiter ran, and "
+                "lower the gain of the loudest track."
+            ),
+            category="technical",
+            true_peak_db=round(peak, 2),
+        )
+    return passed("true_peak", f"{peak:.1f} dBFS true peak", true_peak_db=round(peak, 2))
 
 
 def _black_frames(
@@ -734,7 +773,9 @@ def _av_sync(probe: ProbeResult, config: QaConfig) -> Finding:
 
 
 def _needs_decode(checks: set[str]) -> bool:
-    return bool(checks & {"decodes", "black_frames", "frozen_frames", "loudness"})
+    return bool(
+        checks & {"decodes", "black_frames", "frozen_frames", "loudness", "true_peak"}
+    )
 
 
 def _has_audio(path: Path, runner: FFmpegRunner) -> bool:
@@ -824,6 +865,12 @@ def _join_runs(runs: list[tuple[float, float]]) -> tuple[tuple[float, float], ..
 def _parse_loudness(stderr: str) -> float | None:
     """The last integrated-loudness figure ebur128 printed: its final summary."""
     matches = _LOUDNESS_RE.findall(stderr)
+    return float(matches[-1]) if matches else None
+
+
+def _parse_true_peak(stderr: str) -> float | None:
+    """The programme's true peak in dBFS from ebur128's summary, -inf for silence."""
+    matches = _TRUE_PEAK_RE.findall(stderr)
     return float(matches[-1]) if matches else None
 
 

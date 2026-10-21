@@ -87,6 +87,7 @@ class QaWorker:
             runner=context.ffmpeg,
             config=context.config.qa,
             sources=self._sources(context, timeline),
+            clipping=context.config.audio.clipping,
         )
 
         context.report(0.7, "Checking the edit")
