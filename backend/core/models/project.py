@@ -134,12 +134,17 @@ def _clean_output_directory(value: str | None) -> str | None:
     stripped = value.strip().strip('"')
     if not stripped:
         return ""
-    from pathlib import PureWindowsPath
+    from pathlib import Path, PureWindowsPath
 
-    path = PureWindowsPath(stripped)
+    # Absolute here, or absolute on Windows. Read only as a Windows path, a
+    # real folder on Linux or macOS ("/srv/exports") has no drive and was
+    # refused as relative; a drive path read elsewhere is kept as written and
+    # the delivery skips it by name (render worker, ``usable_here``).
+    native = Path(stripped)
+    path = native if native.is_absolute() else PureWindowsPath(stripped)
     if not path.is_absolute():
         raise ValueError(f"Output directory must be an absolute path, got {stripped!r}.")
-    if str(path.drive).upper() == "C:":
+    if str(PureWindowsPath(stripped).drive).upper() == "C:":
         raise ValueError(
             "Output directory on C: is refused: this machine's standing rule is "
             "that nothing is written to the system drive (it is nearly full)."

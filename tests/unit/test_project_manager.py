@@ -321,6 +321,15 @@ class TestDeliveryChoices:
                 name="X", target_duration_seconds=900, output_directory="videos\\out"
             )
 
+    def test_an_absolute_folder_on_this_machine_is_accepted(self, tmp_path) -> None:
+        # Read only as a Windows path, "/srv/exports" has no drive and was
+        # refused as relative on Linux and macOS.
+        created = ProjectCreate(
+            name="X", target_duration_seconds=900, output_directory=str(tmp_path)
+        )
+
+        assert created.output_directory == str(tmp_path)
+
     def test_a_blank_output_directory_means_none(self) -> None:
         created = ProjectCreate(
             name="X", target_duration_seconds=900, output_directory="  "
