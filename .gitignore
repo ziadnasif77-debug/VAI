@@ -66,3 +66,9 @@ Thumbs.db
 /animation/out/
 /animation/godot/.godot/
 /animation/assets/
+
+# Autonomous mission scratch: the lock, in-progress patches and scratch media
+# are per-run; the reports, map and logs beside them are committed.
+/.ai-mission/tmp/
+/.ai-mission/run.lock
+/.ai-mission/patches/
