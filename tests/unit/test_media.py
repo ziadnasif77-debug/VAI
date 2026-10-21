@@ -432,3 +432,30 @@ class TestProxyCodecArguments:
         arguments = codec_arguments("h264_nvenc", "veryfast", 28)
 
         assert arguments[arguments.index("-preset") + 1] == "p4"
+
+    def test_a_hardware_preset_on_the_software_fallback_is_mapped_not_passed(self) -> None:
+        # The shipped proxy says h264_nvenc at p4; without NVENC it falls back
+        # to libx264, which refuses "p4" and failed every import.
+        from backend.media.proxy import codec_arguments
+
+        arguments = codec_arguments("libx264", "p4", 28)
+
+        assert arguments[arguments.index("-preset") + 1] == "veryfast"
+        assert arguments[arguments.index("-crf") + 1] == "28"
+
+    @pytest.mark.requires_ffmpeg
+    def test_the_fallback_arguments_open_libx264(self, tmp_path) -> None:
+        import subprocess
+
+        from backend.media.proxy import codec_arguments
+
+        out = tmp_path / "fallback.mp4"
+        result = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "testsrc=d=0.2:s=64x64",
+             *codec_arguments("libx264", "p4", 28), str(out)],
+            capture_output=True, text=True, check=False,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert out.stat().st_size > 0

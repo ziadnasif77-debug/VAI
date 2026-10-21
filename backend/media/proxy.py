@@ -49,6 +49,14 @@ logger = get_logger("media.proxy", LogChannel.PIPELINE)
 DEFAULT_SEGMENT_SECONDS: Final[float] = 600.0
 
 #: Directory holding partial segments inside the project's proxy directory.
+#: The presets x264 (and x265) accept; anything else fails to open the encoder.
+_X264_PRESETS: Final[frozenset[str]] = frozenset(
+    {
+        "ultrafast", "superfast", "veryfast", "faster", "fast",
+        "medium", "slow", "slower", "veryslow", "placebo",
+    }
+)
+
 SEGMENT_DIRNAME: Final[str] = "segments"
 SEGMENT_LIST_FILENAME: Final[str] = "segments.txt"
 
@@ -488,7 +496,12 @@ def codec_arguments(codec: str, preset: str, quality: int) -> list[str]:
     if "nvenc" in codec:
         chosen = preset if preset.startswith("p") and preset[1:].isdigit() else "p4"
         return ["-c:v", codec, "-preset", chosen, "-cq", str(quality)]
-    return ["-c:v", codec, "-preset", preset, "-crf", str(quality)]
+    # The other direction matters more: the shipped proxy asks for NVENC at
+    # "p4", and the libx264 fallback a machine without NVENC gets (§95)
+    # refuses that preset outright -- "invalid preset 'p4'", exit 234 -- so
+    # the fallback failed every import it existed to save.
+    chosen = preset if preset in _X264_PRESETS else "veryfast"
+    return ["-c:v", codec, "-preset", chosen, "-crf", str(quality)]
 
 
 def resolve_codec(config: ProxyConfig, runner: FFmpegRunner) -> str:
