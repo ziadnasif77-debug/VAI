@@ -432,7 +432,12 @@ def plan_mix(
 
     if config.mix.limiter.enabled:
         ceiling = _db_to_gain(config.mix.limiter.ceiling_db)
-        chains.append(f"[{last}]alimiter=limit={ceiling:.4f}[limited]")
+        # level=0: the default "auto level" gains the output back up toward
+        # 0 dBFS, undoing loudnorm's target and pushing peaks past its TP.
+        # latency=1: the lookahead otherwise delays the whole programme by the
+        # attack time (5 ms) against the picture and drops its last 5 ms.
+        # Both measured on FFmpeg 6.1: .ai-mission/reports/2026-10-21_1907_run.md.
+        chains.append(f"[{last}]alimiter=limit={ceiling:.4f}:level=0:latency=1[limited]")
         last = "limited"
 
     fades = config.fades
