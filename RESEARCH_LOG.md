@@ -39,3 +39,20 @@ GPU. Report: [2026-10-21_1545_run.md](.ai-mission/reports/2026-10-21_1545_run.md
 No new web sources: the evidence this run is the local FFmpeg 6.1.1 filter
 help (`ffmpeg -h filter=alimiter`: `level` default true, `latency` default
 false) and reproducible local measurements recorded in the report.
+
+## 2026-10-21 21:07 UTC — run-20261021-2107
+
+**Outcome:** consolidated the five parallel mission branches onto one
+(`claude/great-feynman-vsj885`); the caption overlay is now rendered in BT.709
+instead of Remotion 4's untagged BT.601 (BL-014, measured colour error fixed).
+Report: [2026-10-21_2107_run.md](.ai-mission/reports/2026-10-21_2107_run.md).
+
+| Title | URL | Date / version | What it demonstrates | Applicable |
+| --- | --- | --- | --- | --- |
+| YouTube recommended upload encoding settings | https://support.google.com/youtube/answer/1722171 | current (search summary only) | BT.709 for SDR; missing tags assumed BT.709 | Yes — target colour space |
+| Remotion `options/color-space.tsx` | https://github.com/remotion-dev/remotion/blob/v4.0.409/packages/renderer/src/options/color-space.tsx | v4.0.409 (pinned) | v4 default `default`; `bt709` from v5; CLI flag `color-space` | Yes — BL-014 |
+| Remotion `options/color-space.tsx` (main) | https://github.com/remotion-dev/remotion/blob/main/packages/renderer/src/options/color-space.tsx | main, 2026-10 | `bt601` = `default` since 4.0.424; conversion since 4.0.83 | Yes |
+| Remotion `ffmpeg-args.ts` | https://github.com/remotion-dev/remotion/blob/v4.0.409/packages/renderer/src/ffmpeg-args.ts | v4.0.409 | `bt709` → zscale 709 + tags; default emits nothing | Yes — BL-014 |
+| FFmpeg `libavcodec/nvenc.c` | https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/nvenc.c | master, 2026-10 | no read of `scenechange_threshold`; `no_scenecut` only with lookahead; idrPeriod = gopLength | Yes — BL-015 |
+
+ffmpeg.org and remotion.dev did not resolve from this runner; GitHub raw did.
