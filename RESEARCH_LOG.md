@@ -26,3 +26,16 @@ evidence instead. No source below was read in full.
 | FFmpeg trac #9723 ebur128 peak=true broken channels | https://trac.ffmpeg.org/ticket/9723 | 2022, closed fixed | Old regression in peak=true | Low — fixed upstream |
 | FFmpeg-user: loudnorm linear normalization | https://ffmpeg.org/pipermail/ffmpeg-user/2022-March/054422.html | 2022-03 | Linear mode silently falls back to dynamic when the targets cannot be met | Yes — BL-006 experiment design |
 | Fora Soft: true peak and inter-sample overshoot (vendor) | https://www.forasoft.com/learn/audio-for-video/articles-audio/true-peak-dbtp-inter-sample | 2026-06-06 | Lossy codecs add true-peak overshoot; cites AES TD1008 (−1 dBTP at codec input; lower bitrates overshoot more) | Lead only (vendor, secondary) — matches local measurement (128k worse than 384k) |
+
+## 2026-10-21 15:45 UTC — owner follow-up run
+
+**Outcome:** the owner delegated the next actions. Found that FFmpeg's
+`alimiter` defaults to auto-level (ignoring its `limit`) and to no latency
+compensation (5 ms audio delay); the mix now uses `level=0:latency=1` and a
+−1.8 dBFS ceiling chosen by measurement, meeting −1 dBTP after AAC. HUD
+reading no longer depends on undeclared scipy. `slow` suite green without a
+GPU. Report: [2026-10-21_1545_run.md](.ai-mission/reports/2026-10-21_1545_run.md).
+
+No new web sources: the evidence this run is the local FFmpeg 6.1.1 filter
+help (`ffmpeg -h filter=alimiter`: `level` default true, `latency` default
+false) and reproducible local measurements recorded in the report.

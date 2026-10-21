@@ -39,7 +39,7 @@ re-editing re-runs only STORY → EDL → RENDER → QA.
 | Story, plans, judge, Director | `backend/narrative/`, `backend/director/` |
 | EDL / timeline, authorised spans | `backend/timeline/` |
 | Critic (pre-render), CRITIC2 (post-render) | `backend/critic/`, `backend/critic2/` |
-| Render: encoder, audio mix (loudnorm → alimiter), SFX, shorts, Remotion | `backend/rendering/` |
+| Render: encoder, audio mix (loudnorm → alimiter `level=0:latency=1`, ceiling −1.8 dBFS), SFX, shorts, Remotion | `backend/rendering/` |
 | QA technical (ffprobe + one decode pass: blackdetect, freezedetect, ebur128) and content | `backend/qa/` |
 | NL editing, conversation, versions | `backend/interaction/` |
 
@@ -57,8 +57,8 @@ consumer (`scripts/config_coverage.py`, enforced by a unit test).
 
 The shipped YAML names the owner's Windows folders (`D:/Gaming 2026`,
 `D:/Models/huggingface`). Since run `run-20261021-1509` the schema accepts
-drive-rooted Windows paths on any host (BL-001). `directories.models` still
-resolves under the data root on non-Windows hosts (BL-004).
+drive-rooted Windows paths on any host (BL-001); a directory key naming a
+Windows drive on another host falls back to its default (BL-004).
 
 ## Tests
 
@@ -76,8 +76,9 @@ Markers: `unit`, `integration`, `e2e`, `requires_ffmpeg`, `requires_gpu`,
 ## Rendering a sample
 
 Through the UI/API only (`scripts/serve.py`, import → analyze → export), or the
-`slow`-marked render tests (`tests/integration/test_render.py`). *Unverified on
-Linux*: needs Whisper and Ollama for a meaningful edit.
+`slow`-marked render tests (`tests/integration/test_render.py`), which pass on
+Linux without a GPU (libx264). Overlays need `cd remotion && npm ci`. A
+meaningful edit still needs Whisper and Ollama.
 
 ## Hardware assumptions
 
