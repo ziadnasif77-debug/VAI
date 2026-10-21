@@ -484,11 +484,21 @@ def codec_arguments(codec: str, preset: str, quality: int) -> list[str]:
     default-quality encode at a preset the encoder never heard of. The config
     keeps one ``preset`` and one ``crf`` key; this maps them to whatever the
     chosen encoder actually reads.
+
+    The other direction matters as much: the shipped config names ``p4`` for
+    ``h264_nvenc``, and :func:`resolve_codec` falls back to libx264 on a
+    machine without working NVENC. libx264 refuses ``-preset p4`` outright, so
+    the fallback that exists to keep the import alive failed every proxy
+    segment instead. An NVENC preset reaching a software encoder becomes
+    ``veryfast``, the counterpart of the ``p4`` a software preset becomes on
+    NVENC.
     """
+    hardware_preset = preset.startswith("p") and preset[1:].isdigit()
     if "nvenc" in codec:
-        chosen = preset if preset.startswith("p") and preset[1:].isdigit() else "p4"
+        chosen = preset if hardware_preset else "p4"
         return ["-c:v", codec, "-preset", chosen, "-cq", str(quality)]
-    return ["-c:v", codec, "-preset", preset, "-crf", str(quality)]
+    chosen = "veryfast" if hardware_preset else preset
+    return ["-c:v", codec, "-preset", chosen, "-crf", str(quality)]
 
 
 def resolve_codec(config: ProxyConfig, runner: FFmpegRunner) -> str:
