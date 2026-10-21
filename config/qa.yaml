@@ -18,6 +18,7 @@ qa:
       black_frames: true
       frozen_frames: true
       av_sync: true
+      true_peak: true
     thresholds:
       duration_tolerance_seconds: 2.0
       fps_tolerance: 0.5
@@ -31,6 +32,10 @@ qa:
       freeze_noise_db: -45.0
       max_av_desync_ms: 80
       min_audio_lufs: -30.0
+      # Decoded true peak above this clips on playback (ebur128 peak=true,
+      # read off the same decode pass). Full scale, not the mix's -1 dBTP
+      # target: the shipped chain lands between -0.6 and -0.2 after AAC.
+      max_true_peak_dbtp: 0.0
 
   # Content QA (§77). AI-assisted, advisory only.
   content:

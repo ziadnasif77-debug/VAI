@@ -137,6 +137,10 @@ def clips(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
         "silent": _make(directory / "silent.mp4", "testsrc", "anullsrc=r=48000:cl=stereo"),
         "no_audio": _make(directory / "no_audio.mp4", "testsrc", None),
         "short": _make(directory / "short.mp4", "testsrc", tone, seconds=2),
+        # Driven past full scale: the decoded AAC peaks well above 0 dBTP.
+        "clipped": _make(
+            directory / "clipped.mp4", "testsrc", "aevalsrc=1.4*sin(2*PI*997*t):s=48000"
+        ),
     }
 
 
@@ -348,6 +352,32 @@ class TestAcceptance:
 
         assert _status_of(findings, "loudness") is QAStatus.WARNING
         assert not report.blocks_export
+
+    def test_a_clipping_render_warns_with_its_peak(
+        self, clips, expected, runner, qa_config
+    ) -> None:
+        findings, report = _inspect(clips, "clipped", expected, runner, qa_config)
+
+        assert _status_of(findings, "true_peak") is QAStatus.WARNING
+        assert not report.blocks_export, "it plays; clipping is a judgement"
+
+    def test_a_clean_render_reports_its_peak(self, clips, expected, runner, qa_config) -> None:
+        findings, _ = _inspect(clips, "good", expected, runner, qa_config)
+
+        assert _status_of(findings, "true_peak") is QAStatus.PASSED
+
+    def test_the_true_peak_is_read_from_the_summary_not_the_frame_log(self) -> None:
+        stderr = (
+            "[Parsed_ebur128_0 @ 0x1] t: 0.1 TARGET:-23 LUFS M: -20 S: -20 "
+            "I: -20 LUFS LRA: 0 LU FTPK: -3.0 dBFS TPK: -3.0 dBFS\n"
+            "[Parsed_ebur128_0 @ 0x1] Summary:\n\n  Integrated loudness:\n"
+            "    I:         -14.0 LUFS\n\n  True peak:\n    Peak:       -0.6 dBFS\n"
+        )
+        assert technical._parse_true_peak(stderr) == -0.6
+        assert technical._parse_true_peak("True peak:\n    Peak:       -inf dBFS") == float(
+            "-inf"
+        )
+        assert technical._parse_true_peak("no summary") is None
 
     def test_a_missing_file_is_caught_before_anything_else(
         self, expected, runner, qa_config, tmp_path: Path

@@ -58,12 +58,16 @@ CHECKS: Final[tuple[str, ...]] = (
     "frozen_frames",
     "av_sync",
     "loudness",
+    "true_peak",
 )
 
 _BLACK_RE = re.compile(r"black_start:(?P<start>[\d.]+) black_end:(?P<end>[\d.]+)")
 _FREEZE_START_RE = re.compile(r"freeze_start: (?P<start>[\d.]+)")
 _FREEZE_DURATION_RE = re.compile(r"freeze_duration: (?P<duration>[\d.]+)")
 _LOUDNESS_RE = re.compile(r"I:\s*(?P<lufs>-?[\d.]+) LUFS")
+#: ``ebur128=peak=true`` prints its true peak under a "True peak:" heading as
+#: ``Peak: -0.6 dBFS``; a silent stream prints ``-inf``.
+_TRUE_PEAK_RE = re.compile(r"True peak:\s*\n\s*Peak:\s*(?P<peak>-?(?:[\d.]+|inf)) dBFS")
 
 #: Seconds of recording read either side of a freeze when checking the source.
 #: A freeze is bounded by the render's own timing; the stillness that explains
@@ -122,6 +126,7 @@ class DecodeMeasurements:
     black_runs: tuple[tuple[float, float], ...] = ()
     freeze_runs: tuple[tuple[float, float], ...] = ()
     integrated_lufs: float | None = None
+    true_peak_dbtp: float | None = None
 
     @property
     def longest_black(self) -> float:
@@ -256,6 +261,7 @@ def decode(
         black_runs=_parse_black(result.stderr),
         freeze_runs=_parse_freeze(result.stderr, total_seconds),
         integrated_lufs=_parse_loudness(result.stderr),
+        true_peak_dbtp=_parse_true_peak(result.stderr),
     )
 
 
@@ -400,6 +406,29 @@ def _decode_findings(
             )
         else:
             findings.append(passed("loudness", f"{lufs:.1f} LUFS"))
+
+    # The decode pass has always asked ebur128 for the true peak; nothing read
+    # it. A peak above full scale clips on playback whatever the integrated
+    # level says, and the limiter before the encoder works on samples, so the
+    # encoded file is the only place it can be seen.
+    if "true_peak" in checks and measurements.true_peak_dbtp is not None:
+        peak = measurements.true_peak_dbtp
+        ceiling = thresholds.max_true_peak_dbtp
+        if peak > ceiling:
+            findings.append(
+                warning(
+                    "true_peak",
+                    f"the programme peaks at {peak:+.1f} dBTP, above {ceiling:+.1f}",
+                    remedy=(
+                        "The mix clips after encoding. Lower the limiter ceiling "
+                        "or the loudness target."
+                    ),
+                    category="technical",
+                    true_peak_dbtp=round(peak, 2),
+                )
+            )
+        else:
+            findings.append(passed("true_peak", f"{peak:+.1f} dBTP"))
     return findings
 
 
@@ -734,7 +763,9 @@ def _av_sync(probe: ProbeResult, config: QaConfig) -> Finding:
 
 
 def _needs_decode(checks: set[str]) -> bool:
-    return bool(checks & {"decodes", "black_frames", "frozen_frames", "loudness"})
+    return bool(
+        checks & {"decodes", "black_frames", "frozen_frames", "loudness", "true_peak"}
+    )
 
 
 def _has_audio(path: Path, runner: FFmpegRunner) -> bool:
@@ -825,6 +856,14 @@ def _parse_loudness(stderr: str) -> float | None:
     """The last integrated-loudness figure ebur128 printed: its final summary."""
     matches = _LOUDNESS_RE.findall(stderr)
     return float(matches[-1]) if matches else None
+
+
+def _parse_true_peak(stderr: str) -> float | None:
+    """The true peak from ebur128's final summary, in dBTP."""
+    matches = _TRUE_PEAK_RE.findall(stderr)
+    if not matches:
+        return None
+    return float("-inf") if matches[-1] == "-inf" else float(matches[-1])
 
 
 def _first_error(stderr: str) -> str:
