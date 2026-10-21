@@ -121,6 +121,26 @@ class TestEncoderArguments:
         with pytest.raises(RenderError, match="bitrate"):
             video_arguments(NVENC, target, broken)
 
+    def test_a_fractional_rate_is_never_capped_below_itself(self, target, config) -> None:
+        # "2.5M" at a multiplier of 1.0 used to round to a "2M" maxrate under
+        # a 2.5M target.
+        tight = config.render.model_copy(
+            update={"bitrate": {"1080p60": "2.5M"}, "max_bitrate_multiplier": 1.0}
+        )
+
+        arguments = video_arguments(NVENC, target, tight)
+
+        assert _value(arguments, "-b:v") == "2.5M"
+        assert _value(arguments, "-maxrate") == "3M"
+
+    def test_the_shipped_ceilings_are_unchanged(self, target, config) -> None:
+        arguments = video_arguments(NVENC, target, config.render)
+
+        assert (_value(arguments, "-maxrate"), _value(arguments, "-bufsize")) == (
+            "22M",
+            "43M",
+        )
+
 
 class TestDuckingEnvelope:
     """§74, computed here so it is exact rather than guessed by a compressor."""

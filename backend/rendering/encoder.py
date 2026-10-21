@@ -20,6 +20,7 @@ matters when a wrong flag costs twenty minutes to discover.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -323,8 +324,11 @@ def _scaled(bitrate: str, multiplier: float) -> str:
         ) from exc
     scaled = value * multiplier
     # Whole units: FFmpeg accepts fractions, but "21.6M" in a log is harder to
-    # compare against a configured "16M" than "21M".
-    return f"{scaled:.0f}{suffix}"
+    # compare against a configured "16M" than "22M". Rounding must never
+    # bring a ceiling below the rate it caps: "2.5M" at 1.0 rounded to "2M",
+    # a maxrate under -b:v, which the rate controller can only honour by
+    # missing the target.
+    return f"{max(round(scaled), math.ceil(value)):.0f}{suffix}"
 
 
 __all__ = [
