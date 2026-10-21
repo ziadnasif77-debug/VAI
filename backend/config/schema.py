@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from backend.core.duration import SECONDS_PER_MINUTE, DurationPolicy
 from backend.core.models.enums import (
@@ -25,6 +25,23 @@ from backend.core.models.enums import (
 )
 
 Device = Literal["auto", "cuda", "cpu"]
+
+
+def _is_absolute_anywhere(value: str) -> bool:
+    """Whether ``value`` is absolute on this host, or a drive-qualified Windows path.
+
+    The shipped YAML names the owner's Windows drives (``D:/Gaming 2026``).
+    ``Path`` judges by the host's rules, so on Linux that path read as
+    relative and the default configuration failed to load at all -- every
+    test that calls ``load_config`` failed at collection. A drive-qualified
+    Windows path is accepted on every host; the reverse is not -- on Windows a
+    rooted path with no drive (``/x``) lands on the current drive, which may
+    be the refused system drive, so the host's own rule still decides there.
+    """
+    from pathlib import Path, PureWindowsPath
+
+    path = Path(value).expanduser()
+    return path.is_absolute() or PureWindowsPath(str(path)).is_absolute()
 
 
 class _Section(BaseModel):
@@ -91,10 +108,8 @@ class ApplicationConfig(_Section):
     @field_validator("media_source_roots")
     @classmethod
     def _absolute_roots(cls, roots: list[str]) -> list[str]:
-        from pathlib import Path
-
         for root in roots:
-            if not root or not Path(root).expanduser().is_absolute():
+            if not root or not _is_absolute_anywhere(root):
                 raise ValueError(
                     "application.media_source_roots entries must be absolute paths."
                 )
@@ -240,18 +255,20 @@ class DailyConfig(_Section):
 
     @field_validator("output_directory", "archive_directory")
     @classmethod
-    def _not_the_system_drive(cls, value: str | None) -> str | None:
+    def _not_the_system_drive(cls, value: str | None, info: ValidationInfo) -> str | None:
         if value is None:
             return None
-        from pathlib import Path
+        from pathlib import Path, PureWindowsPath
 
         path = Path(value).expanduser()
-        if not path.is_absolute():
-            raise ValueError("daily.output_directory must be an absolute path.")
-        drive = path.drive.rstrip(":").upper()
+        if not _is_absolute_anywhere(value):
+            raise ValueError(f"daily.{info.field_name} must be an absolute path.")
+        # The drive is read with Windows rules on every host: on POSIX
+        # ``Path("C:/x").drive`` is empty and the refusal would never fire.
+        drive = PureWindowsPath(str(path)).drive.rstrip(":").upper()
         if drive == "C":
             raise ValueError(
-                "daily.output_directory refuses the system drive: this "
+                f"daily.{info.field_name} refuses the system drive: this "
                 "machine's standing rule is that nothing is written to it."
             )
         return str(path)

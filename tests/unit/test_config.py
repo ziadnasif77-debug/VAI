@@ -210,3 +210,33 @@ class TestCaching:
         assert get_config(config_dir) is first
         reset_config_cache()
         assert get_config(config_dir) is not first
+
+
+class TestPathsAreJudgedByHowTheyAreWritten:
+    """The shipped YAML names Windows drives; it must load on any host."""
+
+    def test_a_drive_path_is_absolute_on_every_host(self) -> None:
+        from backend.config.schema import ApplicationConfig, DailyConfig
+
+        daily = DailyConfig(output_directory="D:/Gaming 2026/Output")
+        assert daily.output_directory is not None
+        app = ApplicationConfig(media_source_roots=["D:/Gaming 2026"])
+        assert app.media_source_roots == ["D:/Gaming 2026"]
+
+    def test_a_relative_path_is_still_refused(self) -> None:
+        from pydantic import ValidationError
+
+        from backend.config.schema import ApplicationConfig, DailyConfig
+
+        with pytest.raises(ValidationError, match="archive_directory must be an absolute"):
+            DailyConfig(archive_directory="Gaming 2026/Ferdig")
+        with pytest.raises(ValidationError, match="must be absolute paths"):
+            ApplicationConfig(media_source_roots=["Gaming 2026"])
+
+    def test_the_system_drive_is_refused_on_every_host(self) -> None:
+        from pydantic import ValidationError
+
+        from backend.config.schema import DailyConfig
+
+        with pytest.raises(ValidationError, match="refuses the system drive"):
+            DailyConfig(output_directory="C:/Videos")
