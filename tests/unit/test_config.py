@@ -210,3 +210,37 @@ class TestCaching:
         assert get_config(config_dir) is first
         reset_config_cache()
         assert get_config(config_dir) is not first
+
+
+class TestWindowsPathsOnAnyHost:
+    """The shipped files name the owner's Windows drives; every host must accept them.
+
+    ``Path("D:/x").is_absolute()`` is False on Linux, so the shipped
+    configuration failed validation there and the suite could not be
+    collected off Windows.
+    """
+
+    def test_a_drive_path_is_an_absolute_media_root(self) -> None:
+        from backend.config.schema import ApplicationConfig
+
+        config = ApplicationConfig(media_source_roots=["D:/Gaming 2026"])
+        assert config.media_source_roots == ["D:/Gaming 2026"]
+
+    def test_a_relative_media_root_is_still_refused(self) -> None:
+        from backend.config.schema import ApplicationConfig
+
+        with pytest.raises(ValueError, match="absolute"):
+            ApplicationConfig(media_source_roots=["Gaming 2026"])
+
+    def test_a_drive_path_is_an_absolute_daily_directory(self) -> None:
+        from backend.config.schema import DailyConfig
+
+        config = DailyConfig(output_directory="D:/Gaming 2026/Output")
+        assert config.output_directory is not None
+        assert config.output_directory.replace("\\", "/") == "D:/Gaming 2026/Output"
+
+    def test_the_system_drive_is_refused_on_any_host(self) -> None:
+        from backend.config.schema import DailyConfig
+
+        with pytest.raises(ValueError, match="system drive"):
+            DailyConfig(output_directory="C:/Output")

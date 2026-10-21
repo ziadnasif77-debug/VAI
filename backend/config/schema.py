@@ -27,6 +27,19 @@ from backend.core.models.enums import (
 Device = Literal["auto", "cuda", "cpu"]
 
 
+def _is_absolute(value: str) -> bool:
+    """Absolute on this machine, or a Windows drive path on any machine.
+
+    The shipped configuration names the owner's Windows drives
+    (``D:/Gaming 2026``). ``Path.is_absolute`` reads that as relative on
+    Linux, so the same file failed validation there and the suite could not
+    even be collected off Windows.
+    """
+    from pathlib import Path, PureWindowsPath
+
+    return Path(value).expanduser().is_absolute() or PureWindowsPath(value).is_absolute()
+
+
 class _Section(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -91,10 +104,8 @@ class ApplicationConfig(_Section):
     @field_validator("media_source_roots")
     @classmethod
     def _absolute_roots(cls, roots: list[str]) -> list[str]:
-        from pathlib import Path
-
         for root in roots:
-            if not root or not Path(root).expanduser().is_absolute():
+            if not root or not _is_absolute(root):
                 raise ValueError(
                     "application.media_source_roots entries must be absolute paths."
                 )
@@ -243,18 +254,17 @@ class DailyConfig(_Section):
     def _not_the_system_drive(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        from pathlib import Path
+        from pathlib import Path, PureWindowsPath
 
-        path = Path(value).expanduser()
-        if not path.is_absolute():
+        if not _is_absolute(value):
             raise ValueError("daily.output_directory must be an absolute path.")
-        drive = path.drive.rstrip(":").upper()
+        drive = PureWindowsPath(value).drive.rstrip(":").upper()
         if drive == "C":
             raise ValueError(
                 "daily.output_directory refuses the system drive: this "
                 "machine's standing rule is that nothing is written to it."
             )
-        return str(path)
+        return str(Path(value).expanduser())
 
 
 # ---------------------------------------------------------------------------
