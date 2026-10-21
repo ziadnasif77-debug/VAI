@@ -66,3 +66,9 @@ Thumbs.db
 /animation/out/
 /animation/godot/.godot/
 /animation/assets/
+
+# The autonomous engineering mission's scratch space: the run lock, partial
+# patches and throwaway media. Reports and the project map are versioned.
+/.ai-mission/tmp/
+/.ai-mission/run.lock
+/.ai-mission/patches/
