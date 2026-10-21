@@ -603,6 +603,7 @@ class TestWhenChromiumCrashes:
         assert _fewer_pages(single, crash) is None
 
 
+@pytest.mark.requires_node
 class TestAcceptance:
     """**EDL → Remotion → an alpha overlay that composites correctly.**"""
 
