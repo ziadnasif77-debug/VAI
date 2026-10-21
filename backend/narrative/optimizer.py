@@ -625,6 +625,13 @@ def repair_sequence(
     Every change keeps the total inside the duration band or strictly closer
     to the target than before; when neither swap nor drop is possible the run
     stays and the pacing report says so, exactly as it does today.
+
+    A moment a repair took out never comes back in a later round. Without
+    that the rules undo each other: say variety swaps a chaos out for a quiet
+    discovery, flatness swaps the quiet discovery for that same chaos, and
+    the pair trades places until the round limit, which then decides the
+    edit by parity. Recorded on the P0.6 benchmark: the same pair swapped
+    four times in twelve rounds.
     """
     from backend.narrative.pacing import intensity_of
 
@@ -632,6 +639,7 @@ def repair_sequence(
     key = lambda m: (m.media_id, m.start_seconds)  # noqa: E731
     taken = {key(m) for m in chosen}
     bench = [m for m in pool if key(m) not in taken]
+    retired: set[tuple[str, float]] = set()
     notes: list[str] = []
     floor_total = target_seconds - tolerance
     ceiling = target_seconds + tolerance
@@ -649,13 +657,15 @@ def repair_sequence(
         chosen.sort(key=lambda m: (m.media_id, m.context_start))
         bench.remove(candidate)
         bench.append(victim)
+        retired.add(key(victim))
 
     def best_bench(predicate, value_floor: float, victim: Moment) -> Moment | None:
         victim_value = _base_value(victim, config)
         candidates = [
             item
             for item in bench
-            if predicate(item)
+            if key(item) not in retired
+            and predicate(item)
             and _base_value(item, config) >= value_floor * victim_value
             and fits(total_of(chosen) - victim.context_duration + item.context_duration)
         ]
@@ -687,6 +697,7 @@ def repair_sequence(
             if total_of(chosen) - victim.context_duration >= floor_total:
                 chosen.remove(victim)
                 bench.append(victim)
+                retired.add(key(victim))
                 notes.append(
                     f"variety: dropped a {victim.moment_type.value} at "
                     f"{victim.start_seconds:.0f}s from a run of {len(run)}"
@@ -717,6 +728,7 @@ def repair_sequence(
             if total_of(chosen) - victim.context_duration >= floor_total:
                 chosen.remove(victim)
                 bench.append(victim)
+                retired.add(key(victim))
                 notes.append(
                     f"flatness: dropped a quiet {victim.moment_type.value} at "
                     f"{victim.start_seconds:.0f}s"
@@ -731,6 +743,7 @@ def repair_sequence(
         ):
             chosen.pop()
             bench.append(last)
+            retired.add(key(last))
             notes.append(
                 f"arc: dropped a quiet {last.moment_type.value} ending at "
                 f"{last.start_seconds:.0f}s so the edit ends on strength"
