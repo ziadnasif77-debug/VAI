@@ -9,6 +9,7 @@ get pinned here; the pipeline the policy drives is every other test file.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -746,3 +747,38 @@ class TestFerdigShelf:
 
         assert clip.is_file(), "only published work rests on the shelf"
         assert not archive.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a drive path is a real folder on Windows")
+class TestForeignDrivePaths:
+    """The shipped D:/ shelves load on any host (the schema accepts them),
+    and off Windows they must address nothing rather than a relative folder."""
+
+    def test_the_archive_sweep_writes_no_relative_drive_folder(
+        self, database, paths, config, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        vault = tmp_path / "vault"
+        producer = _producer(database, paths, config, vault=vault)
+        producer._config.daily.archive_directory = "D:/Gaming 2026/Ferdig"
+        clip = TestFerdigShelf()._published(producer, database, vault, sample_video)
+        monkeypatch.chdir(tmp_path)
+
+        producer.archive_published(None)
+
+        assert clip.is_file(), "the recording stays where it is"
+        # (tmp_path / "D:" / "Models" may exist: directories.models is resolved
+        # under the data root by backend/config/paths.py, a separate matter.)
+        assert not (tmp_path / "D:" / "Gaming 2026").exists(), "no relative shelf"
+
+    def test_a_project_gets_no_relative_output_folder(
+        self, database, paths, config, sample_video, tmp_path
+    ) -> None:
+        vault = tmp_path / "vault"
+        producer = _producer(database, paths, config, vault=vault)
+        producer._config.daily.output_directory = "D:/Gaming 2026/Output"
+        _recording(vault, "one.mkv", sample_video, mtime=1_000)
+        producer.discover("2026-08-29")
+        producer.produce("2026-08-29")
+
+        row = database.fetch_one("SELECT output_directory FROM projects", ())
+        assert row is not None and row["output_directory"] is None

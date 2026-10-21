@@ -49,6 +49,25 @@ _PUBLISHED: Final = "published"
 _FAILED: Final = "failed"
 
 
+def _on_this_host(directory: str | None) -> str | None:
+    """A configured shelf, or ``None`` when this machine cannot address it.
+
+    The schema accepts the owner's ``D:/...`` folders on any host so the
+    shipped files load everywhere; off Windows that text is a *relative*
+    path, and following it would create a ``D:`` folder under the working
+    directory. Unaddressable is treated as unset: nothing is written.
+    """
+    if not directory:
+        return None
+    if Path(directory).expanduser().is_absolute():
+        return directory
+    logger.warning(
+        "A daily folder is not an absolute path on this machine; treated as unset",
+        extra={"directory": directory},
+    )
+    return None
+
+
 @dataclass
 class DailyReport:
     """§12: what the day found, made, moved and shipped -- or why not."""
@@ -210,6 +229,7 @@ class DailyProducer:
 
     @staticmethod
     def _under(item: Path, directory: str | None) -> bool:
+        directory = _on_this_host(directory)
         if not directory:
             return False
         root = os.path.normcase(str(Path(directory).expanduser().resolve()))
@@ -227,7 +247,7 @@ class DailyProducer:
         §47 resume ever loses it. Moving is not deleting (§7): the
         original survives, relocated.
         """
-        directory = self._config.daily.archive_directory
+        directory = _on_this_host(self._config.daily.archive_directory)
         if not directory:
             return
         rows = self._db.fetch_all(
@@ -394,7 +414,7 @@ class DailyProducer:
                     # The policy schedules its own publication at 10:00; the
                     # immediate auto path stays off for daily projects.
                     auto_publish=False,
-                    output_directory=daily.output_directory,
+                    output_directory=_on_this_host(daily.output_directory),
                 )
             )
             MediaIngestionService(self._db, self._paths, self._config).import_media(
@@ -747,7 +767,7 @@ class DailyProducer:
 
     def verify_delivery(self, report: DailyReport) -> None:
         """§6: the copy is only a copy once the file is really there."""
-        directory = self._config.daily.output_directory
+        directory = _on_this_host(self._config.daily.output_directory)
         if not directory:
             report.reasons.append(
                 "no output directory is configured yet; the copy step waits for one"
