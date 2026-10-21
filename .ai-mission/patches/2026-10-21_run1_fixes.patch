@@ -1,0 +1,266 @@
+diff --git a/backend/config/schema.py b/backend/config/schema.py
+index 6074970..8ba1e19 100644
+--- a/backend/config/schema.py
++++ b/backend/config/schema.py
+@@ -27,6 +27,19 @@ from backend.core.models.enums import (
+ Device = Literal["auto", "cuda", "cpu"]
+ 
+ 
++def _is_absolute(value: str) -> bool:
++    """Absolute on this machine, or a Windows drive path on any machine.
++
++    The shipped configuration names the owner's Windows drives
++    (``D:/Gaming 2026``). ``Path.is_absolute`` reads that as relative on
++    Linux, so the same file failed validation there and the suite could not
++    even be collected off Windows.
++    """
++    from pathlib import Path, PureWindowsPath
++
++    return Path(value).expanduser().is_absolute() or PureWindowsPath(value).is_absolute()
++
++
+ class _Section(BaseModel):
+     model_config = ConfigDict(extra="forbid", validate_assignment=True)
+ 
+@@ -91,10 +104,8 @@ class ApplicationConfig(_Section):
+     @field_validator("media_source_roots")
+     @classmethod
+     def _absolute_roots(cls, roots: list[str]) -> list[str]:
+-        from pathlib import Path
+-
+         for root in roots:
+-            if not root or not Path(root).expanduser().is_absolute():
++            if not root or not _is_absolute(root):
+                 raise ValueError(
+                     "application.media_source_roots entries must be absolute paths."
+                 )
+@@ -243,18 +254,17 @@ class DailyConfig(_Section):
+     def _not_the_system_drive(cls, value: str | None) -> str | None:
+         if value is None:
+             return None
+-        from pathlib import Path
++        from pathlib import Path, PureWindowsPath
+ 
+-        path = Path(value).expanduser()
+-        if not path.is_absolute():
++        if not _is_absolute(value):
+             raise ValueError("daily.output_directory must be an absolute path.")
+-        drive = path.drive.rstrip(":").upper()
++        drive = PureWindowsPath(value).drive.rstrip(":").upper()
+         if drive == "C":
+             raise ValueError(
+                 "daily.output_directory refuses the system drive: this "
+                 "machine's standing rule is that nothing is written to it."
+             )
+-        return str(path)
++        return str(Path(value).expanduser())
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/backend/core/models/project.py b/backend/core/models/project.py
+index 8d135ae..10a2215 100644
+--- a/backend/core/models/project.py
++++ b/backend/core/models/project.py
+@@ -134,10 +134,15 @@ def _clean_output_directory(value: str | None) -> str | None:
+     stripped = value.strip().strip('"')
+     if not stripped:
+         return ""
+-    from pathlib import PureWindowsPath
++    from pathlib import Path, PureWindowsPath
+ 
+     path = PureWindowsPath(stripped)
+     if not path.is_absolute():
++        # A drive path is the owner's case; a native absolute path is every
++        # other host's -- read as Windows, "/home/x" has no drive and was
++        # refused on Linux.
++        if Path(stripped).is_absolute():
++            return stripped
+         raise ValueError(f"Output directory must be an absolute path, got {stripped!r}.")
+     if str(path.drive).upper() == "C:":
+         raise ValueError(
+diff --git a/backend/media/proxy.py b/backend/media/proxy.py
+index b9cec55..e811801 100644
+--- a/backend/media/proxy.py
++++ b/backend/media/proxy.py
+@@ -485,10 +485,16 @@ def codec_arguments(codec: str, preset: str, quality: int) -> list[str]:
+     keeps one ``preset`` and one ``crf`` key; this maps them to whatever the
+     chosen encoder actually reads.
+     """
++    hardware_preset = preset.startswith("p") and preset[1:].isdigit()
+     if "nvenc" in codec:
+-        chosen = preset if preset.startswith("p") and preset[1:].isdigit() else "p4"
++        chosen = preset if hardware_preset else "p4"
+         return ["-c:v", codec, "-preset", chosen, "-cq", str(quality)]
+-    return ["-c:v", codec, "-preset", preset, "-crf", str(quality)]
++    # The other direction is the fallback itself: the shipped config asks
++    # NVENC for p4, and when resolve_codec falls back to libx264 the same p4
++    # reached x264, which refuses it ("invalid preset 'p4'") -- so on a
++    # machine without NVENC every import failed at the proxy.
++    chosen = "veryfast" if hardware_preset else preset
++    return ["-c:v", codec, "-preset", chosen, "-crf", str(quality)]
+ 
+ 
+ def resolve_codec(config: ProxyConfig, runner: FFmpegRunner) -> str:
+diff --git a/backend/narrative/optimizer.py b/backend/narrative/optimizer.py
+index 85655ff..8fcbcf2 100644
+--- a/backend/narrative/optimizer.py
++++ b/backend/narrative/optimizer.py
+@@ -625,6 +625,13 @@ def repair_sequence(
+     Every change keeps the total inside the duration band or strictly closer
+     to the target than before; when neither swap nor drop is possible the run
+     stays and the pacing report says so, exactly as it does today.
++
++    A moment a repair took out never comes back in a later round. Without
++    that the rules undo each other: say variety swaps a chaos out for a quiet
++    discovery, flatness swaps the quiet discovery for that same chaos, and
++    the pair trades places until the round limit, which then decides the
++    edit by parity. Recorded on the P0.6 benchmark: the same pair swapped
++    four times in twelve rounds.
+     """
+     from backend.narrative.pacing import intensity_of
+ 
+@@ -632,6 +639,7 @@ def repair_sequence(
+     key = lambda m: (m.media_id, m.start_seconds)  # noqa: E731
+     taken = {key(m) for m in chosen}
+     bench = [m for m in pool if key(m) not in taken]
++    retired: set[tuple[str, float]] = set()
+     notes: list[str] = []
+     floor_total = target_seconds - tolerance
+     ceiling = target_seconds + tolerance
+@@ -649,13 +657,15 @@ def repair_sequence(
+         chosen.sort(key=lambda m: (m.media_id, m.context_start))
+         bench.remove(candidate)
+         bench.append(victim)
++        retired.add(key(victim))
+ 
+     def best_bench(predicate, value_floor: float, victim: Moment) -> Moment | None:
+         victim_value = _base_value(victim, config)
+         candidates = [
+             item
+             for item in bench
+-            if predicate(item)
++            if key(item) not in retired
++            and predicate(item)
+             and _base_value(item, config) >= value_floor * victim_value
+             and fits(total_of(chosen) - victim.context_duration + item.context_duration)
+         ]
+@@ -687,6 +697,7 @@ def repair_sequence(
+             if total_of(chosen) - victim.context_duration >= floor_total:
+                 chosen.remove(victim)
+                 bench.append(victim)
++                retired.add(key(victim))
+                 notes.append(
+                     f"variety: dropped a {victim.moment_type.value} at "
+                     f"{victim.start_seconds:.0f}s from a run of {len(run)}"
+@@ -717,6 +728,7 @@ def repair_sequence(
+             if total_of(chosen) - victim.context_duration >= floor_total:
+                 chosen.remove(victim)
+                 bench.append(victim)
++                retired.add(key(victim))
+                 notes.append(
+                     f"flatness: dropped a quiet {victim.moment_type.value} at "
+                     f"{victim.start_seconds:.0f}s"
+@@ -731,6 +743,7 @@ def repair_sequence(
+         ):
+             chosen.pop()
+             bench.append(last)
++            retired.add(key(last))
+             notes.append(
+                 f"arc: dropped a quiet {last.moment_type.value} ending at "
+                 f"{last.start_seconds:.0f}s so the edit ends on strength"
+diff --git a/tests/unit/test_config.py b/tests/unit/test_config.py
+index cdc31a2..8a9ff73 100644
+--- a/tests/unit/test_config.py
++++ b/tests/unit/test_config.py
+@@ -210,3 +210,37 @@ class TestCaching:
+         assert get_config(config_dir) is first
+         reset_config_cache()
+         assert get_config(config_dir) is not first
++
++
++class TestWindowsPathsOnAnyHost:
++    """The shipped files name the owner's Windows drives; every host must accept them.
++
++    ``Path("D:/x").is_absolute()`` is False on Linux, so the shipped
++    configuration failed validation there and the suite could not be
++    collected off Windows.
++    """
++
++    def test_a_drive_path_is_an_absolute_media_root(self) -> None:
++        from backend.config.schema import ApplicationConfig
++
++        config = ApplicationConfig(media_source_roots=["D:/Gaming 2026"])
++        assert config.media_source_roots == ["D:/Gaming 2026"]
++
++    def test_a_relative_media_root_is_still_refused(self) -> None:
++        from backend.config.schema import ApplicationConfig
++
++        with pytest.raises(ValueError, match="absolute"):
++            ApplicationConfig(media_source_roots=["Gaming 2026"])
++
++    def test_a_drive_path_is_an_absolute_daily_directory(self) -> None:
++        from backend.config.schema import DailyConfig
++
++        config = DailyConfig(output_directory="D:/Gaming 2026/Output")
++        assert config.output_directory is not None
++        assert config.output_directory.replace("\\", "/") == "D:/Gaming 2026/Output"
++
++    def test_the_system_drive_is_refused_on_any_host(self) -> None:
++        from backend.config.schema import DailyConfig
++
++        with pytest.raises(ValueError, match="system drive"):
++            DailyConfig(output_directory="C:/Output")
+diff --git a/tests/unit/test_media.py b/tests/unit/test_media.py
+index b4a02fe..7090c59 100644
+--- a/tests/unit/test_media.py
++++ b/tests/unit/test_media.py
+@@ -432,3 +432,13 @@ class TestProxyCodecArguments:
+         arguments = codec_arguments("h264_nvenc", "veryfast", 28)
+ 
+         assert arguments[arguments.index("-preset") + 1] == "p4"
++
++    def test_a_hardware_preset_on_the_software_fallback_is_mapped(self) -> None:
++        # The shipped proxy asks h264_nvenc for p4; when NVENC is unavailable
++        # resolve_codec falls back to libx264, which refuses "p4" outright.
++        from backend.media.proxy import codec_arguments
++
++        arguments = codec_arguments("libx264", "p4", 28)
++
++        assert arguments[arguments.index("-preset") + 1] == "veryfast"
++        assert arguments[arguments.index("-crf") + 1] == "28"
+diff --git a/tests/unit/test_narrative.py b/tests/unit/test_narrative.py
+index 87c39ae..cf052d0 100644
+--- a/tests/unit/test_narrative.py
++++ b/tests/unit/test_narrative.py
+@@ -1043,6 +1043,31 @@ class TestSequenceRepair:
+         assert [m.start_seconds for m in repaired] == [m.start_seconds for m in chosen]
+         assert notes == []
+ 
++    def test_a_moment_taken_out_is_never_brought_back(self, config) -> None:
++        # Before: variety swapped the chaos at 130 s out, flatness swapped it
++        # back in for the quiet discovery at 10 s, and the two rules traded
++        # the same pair until the round limit decided the edit by parity.
++        def clip(start, moment_type, *, loud, value):
++            moment = _moment(start, moment_type=moment_type, entertainment=value, narrative=value)
++            return self._loud(moment) if loud else self._quiet(moment)
++
++        chosen = [
++            clip(10.0, MomentType.DISCOVERY, loud=False, value=0.343),
++            clip(40.0, MomentType.DISCOVERY, loud=False, value=0.575),
++            clip(70.0, MomentType.CHAOS, loud=True, value=0.57),
++            clip(100.0, MomentType.CHAOS, loud=False, value=0.527),
++            clip(130.0, MomentType.CHAOS, loud=False, value=0.468),
++            clip(160.0, MomentType.TENSION, loud=True, value=0.785),
++        ]
++        bench = [clip(25.0, MomentType.TENSION, loud=False, value=0.614)]
++
++        repaired, notes = self._repair(chosen, bench, config, target=120.0, tolerance=20.0)
++
++        assert len(set(notes)) == len(notes), f"a repair was undone and redone: {notes}"
++        assert not any("for a chaos at 130s" in note for note in notes)
++        starts = [m.context_start for m in repaired]
++        assert starts == sorted(starts), "repair must never reorder"
++
+ 
+ class TestClimaxFallback:
+     """A session with no canonical climax type still has a biggest moment."""
