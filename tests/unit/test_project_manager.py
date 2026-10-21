@@ -321,6 +321,15 @@ class TestDeliveryChoices:
                 name="X", target_duration_seconds=900, output_directory="videos\\out"
             )
 
+    def test_an_absolute_folder_of_this_host_is_accepted(self, tmp_path: Path) -> None:
+        # Judged by Windows rules alone, no POSIX folder could ever be chosen.
+        created = ProjectCreate(
+            name="X", target_duration_seconds=900, output_directory=str(tmp_path)
+        )
+
+        assert created.output_directory is not None
+        assert Path(created.output_directory) == tmp_path
+
     def test_a_blank_output_directory_means_none(self) -> None:
         created = ProjectCreate(
             name="X", target_duration_seconds=900, output_directory="  "
