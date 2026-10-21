@@ -746,3 +746,26 @@ class TestFerdigShelf:
 
         assert clip.is_file(), "only published work rests on the shelf"
         assert not archive.exists()
+
+    @pytest.mark.skipif(
+        Path("D:/Gaming 2026").is_absolute(), reason="a drive path is usable on Windows"
+    )
+    def test_a_windows_shelf_read_on_another_machine_moves_nothing(
+        self, database, paths, config, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        vault = tmp_path / "vault"
+        producer = _producer(database, paths, config, vault=vault)
+        clip = self._published(producer, database, vault, sample_video)
+        producer._config = producer._config.model_copy(
+            update={
+                "daily": producer._config.daily.model_copy(
+                    update={"archive_directory": "D:/Gaming 2026/Ferdig"}
+                )
+            }
+        )
+        monkeypatch.chdir(tmp_path)
+
+        producer.archive_published(None)
+
+        assert clip.is_file(), "the recording stays where it is"
+        assert not (tmp_path / "D:" / "Gaming 2026").exists(), "no drive-named shelf here"

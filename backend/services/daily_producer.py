@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 
 from backend.config.paths import Paths
 from backend.config.schema import AppConfig
+from backend.core.fs import usable_here
 from backend.core.logging import LogChannel, get_logger
 from backend.core.models.enums import JobStage, JobStatus
 from backend.database.connection import Database
@@ -229,6 +230,13 @@ class DailyProducer:
         """
         directory = self._config.daily.archive_directory
         if not directory:
+            return
+        if not usable_here(directory):
+            logger.warning(
+                "The archive folder is not an absolute path on this machine; "
+                "nothing is moved",
+                extra={"directory": directory},
+            )
             return
         rows = self._db.fetch_all(
             "SELECT source_path FROM production_ledger WHERE state = ?", (_PUBLISHED,)

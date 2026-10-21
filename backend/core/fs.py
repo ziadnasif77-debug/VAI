@@ -88,6 +88,18 @@ def is_within(path: Path, base: Path) -> bool:
     return resolved_path == resolved_base or resolved_base in resolved_path.parents
 
 
+def usable_here(directory: str) -> bool:
+    """Whether a configured folder can be written to on *this* machine.
+
+    The configuration accepts a Windows drive path on any platform, because it
+    names the owner's folders and must still load elsewhere. Read on Linux,
+    ``D:/Gaming 2026/Ferdig`` is a relative path, and creating it would put a
+    ``D:`` folder in the working directory. A writer asks this first and
+    skips by name instead.
+    """
+    return Path(directory).expanduser().is_absolute()
+
+
 def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> Path:
     """Write ``content`` to ``path`` atomically.
 
@@ -161,4 +173,5 @@ __all__ = [
     "read_json",
     "sanitize_filename",
     "slugify",
+    "usable_here",
 ]

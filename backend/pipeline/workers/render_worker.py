@@ -244,12 +244,17 @@ class RenderWorker:
         """
         import shutil
 
-        from backend.core.fs import sanitize_filename
+        from backend.core.fs import sanitize_filename, usable_here
         from backend.database.repositories.projects import ProjectRepository
 
         project = ProjectRepository(context.database).get(context.project_id)
         if project is None or not project.output_directory:
             return None, None
+        if not usable_here(project.output_directory):
+            return None, (
+                f"delivery to {project.output_directory} skipped: "
+                "not an absolute path on this machine"
+            )
         directory = Path(project.output_directory)
         try:
             directory.mkdir(parents=True, exist_ok=True)
