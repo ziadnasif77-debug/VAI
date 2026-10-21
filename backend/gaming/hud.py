@@ -477,15 +477,18 @@ def _locate_row(window: Any, count: int) -> tuple[int, int, int, int] | None:
     five gives a reading that is wrong by one star -- silently, and in the
     direction that matters.
     """
+    import cv2
     import numpy as np
-    from scipy.ndimage import uniform_filter
 
     if window.shape[0] < 6 or window.shape[1] < 6 * count:
         return None
 
     # The HUD is drawn over the scene, so what differs from a blurred copy of
-    # the window is the overlay rather than whatever is behind it.
-    smooth = uniform_filter(window, size=(21, 21, 1))
+    # the window is the overlay rather than whatever is behind it. cv2.blur
+    # with reflected borders is scipy's uniform_filter(size=(21, 21, 1)) to
+    # 1e-12; scipy was never declared, so a clean install could not read a
+    # HUD at all.
+    smooth = cv2.blur(window, (21, 21), borderType=cv2.BORDER_REFLECT)
     edge = np.abs(window - smooth).mean(axis=2)
     if edge.max() < INK_THRESHOLD * 0.25:
         return None
