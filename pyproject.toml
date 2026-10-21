@@ -11,6 +11,11 @@ dependencies = [
     "PyYAML>=6.0",
     "fastapi>=0.111",
     "uvicorn>=0.30",
+    # Imported at module level by the audio and signal code that the API and
+    # every worker load (backend/analysis, backend/rendering/audio_mix.py), so
+    # `pip install -e ".[dev]"` without it fails before one test is collected.
+    # Same pin as the `ai` extra below.
+    "numpy==2.2.6",
 ]
 
 [project.optional-dependencies]
