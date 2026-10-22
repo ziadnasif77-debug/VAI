@@ -1,5 +1,5 @@
 # VAI QA gap: progress state
-RUN_LOCK: finished (run 1 started 2026-10-22T18:30Z)
+RUN_LOCK: finished (run 2 started 2026-10-22T20:08Z)
 BRANCH: claude/vai-qa-gap   BASE: b034df8   LAST_HEAD: c7feca9 (+ this state commit)
 PHASE 0: DONE
 BASELINE (stated in the routine): 2724 passed / 173 failed / 24 skipped / 9 errors
@@ -110,3 +110,5 @@ NOTES / SURPRISES
 RUN LOG
 - run 1 (2026-10-22 18:30Z-19:16Z): init state, measured baseline, items
   3, 1, 2, 4 DONE; 5 BLOCKED (TIME SOURCE). Draft PR opened.
+- run 2 (2026-10-22 20:08Z): nothing to do; 3/1/2/4 DONE, 5 still BLOCKED
+  (TIME SOURCE still UNDECIDED). No code changes, suite not re-run.
