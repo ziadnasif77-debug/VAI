@@ -394,6 +394,45 @@ def _clip_density(timeline: Timeline) -> Finding:
     )
 
 
+def cut_word_audit(
+    timeline: Timeline, words: Mapping[str, Sequence[tuple[float, float, str]]]
+) -> Finding:
+    """Does any cut land inside a spoken word? Recorded, never judged.
+
+    ``words`` is each recording's stored word timestamps, ``(start, end,
+    text)`` in source seconds. A cut on a word's boundary is not inside it.
+    Observe-only: the count is recorded so a threshold can be set from data.
+    """
+    clips = timeline.video_clips()
+    if not any(words.get(clip.media_id) for clip in clips):
+        return not_measured(
+            "cut_inside_word",
+            "no stored word timestamps for the recordings in this edit",
+            remedy="Run transcription with word timestamps, then run QA again.",
+            category="observation",
+        )
+    cuts = 0
+    examples: list[dict[str, object]] = []
+    for clip in clips:
+        spoken = words.get(clip.media_id) or ()
+        for edge, at in (("in", clip.source_in), ("out", clip.source_out)):
+            cuts += 1
+            word = next((item for item in spoken if item[0] < at < item[1]), None)
+            if word is not None:
+                examples.append(
+                    {"clip": clip.clip_index, "edge": edge, "at": round(at, 3), "word": word[2]}
+                )
+    return passed(
+        "cut_inside_word",
+        f"{len(examples)} of {cuts} cut(s) land inside a word "
+        "(observed only; threshold TBD-from-data)",
+        category="observation",
+        cuts=cuts,
+        inside_words=len(examples),
+        examples=examples[:20],
+    )
+
+
 def _captions_over_hud(
     captions: Sequence[Caption],
     config: CaptionsConfig,

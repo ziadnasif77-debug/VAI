@@ -33,6 +33,7 @@ from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.qa import QaRepository
 from backend.database.repositories.renders import RenderRepository
 from backend.database.repositories.timeline import TimelineRepository
+from backend.database.repositories.transcript import TranscriptRepository
 from backend.database.repositories.vision import VisionRepository
 from backend.gaming.profiles import load_profile
 from backend.pipeline.workers.base import WorkerContext
@@ -80,6 +81,7 @@ class QaWorker:
             width=_width_of(render),
             height=int(render.get("resolution") or 0),
             fps=float(render.get("fps") or 0.0),
+            timeline_seconds=timeline.duration if timeline.video_clips() else None,
         )
         findings = technical.inspect(
             path,
@@ -91,6 +93,9 @@ class QaWorker:
 
         context.report(0.7, "Checking the edit")
         findings.extend(self._content(context, timeline, findings))
+        if context.config.qa.content.checks.get("cut_inside_word", True):
+            # Observe-only (thresholds TBD-from-data): recorded, never judged.
+            findings.append(content.cut_word_audit(timeline, self._spoken_words(context, timeline)))
 
         report = build_report(findings, context.config.qa)
         stored = QaRepository(context.database).replace_for_render(
@@ -322,6 +327,18 @@ class QaWorker:
             timeline,
             config=context.config,
         )
+
+    def _spoken_words(self, context: WorkerContext, timeline) -> dict[str, list]:
+        """Each recording's stored word timestamps, for the join audit."""
+        transcripts = TranscriptRepository(context.database)
+        return {
+            media_id: [
+                (word.start, word.end, word.word)
+                for segment in transcripts.list_for_media(media_id)
+                for word in segment.words
+            ]
+            for media_id in {clip.media_id for clip in timeline.video_clips()}
+        }
 
     def _pacing_warnings(self, context: WorkerContext) -> tuple[str, ...]:
         """What the narrative stage already said about its own pacing (§38)."""
