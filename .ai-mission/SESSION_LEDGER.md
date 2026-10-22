@@ -64,3 +64,15 @@ truth and a correction entry is added here.
 - Everything pushed? yes — every change pushed and confirmed; this closing commit is pushed last. Branch `claude/lucid-heisenberg-auaak8`, not `ai/gaming-video-auto`: the cloud session may push only its designated branch.
 - Backlog changes: closed BL-017, BL-019 (new, closed); updated BL-015, BL-016, BL-018
 - Top five next actions: (1) owner merges this branch, deletes stale mission branches; (2) BL-018 with the probed source matrix + QA tag check; (3) owner runs `test_house_edit_frozen.py`; (4) BL-015 measured on the RTX 3070; (5) integration timings from `test_narrative_pipeline.py` on. NEXT RUN: start from `origin/claude/lucid-heisenberg-auaak8`, not `b034df8`.
+
+## [run-20261022-0624] correction [2026-10-22 08:35, Europe/Oslo] [0]
+- Backlog ID / title: BL-016: a second mission line ran in parallel
+- Type: correction
+- What changed and why: start-of-session sync found that this session's branch `claude/lucid-heisenberg-repo6c` sat at `b034df8`. It was fast-forwarded to `origin/claude/lucid-heisenberg-auaak8` (`e1351a8`, the 03:07 run), the line this ledger describes. A second line, `origin/claude/lucid-heisenberg-5r6sxv` (`076bec6`, run "run-20261022-a", 04:33 UTC), also started from `b034df8` and kept its own ledger. Its M-1, M-3 and M-4 repeat BL-001, BL-006 and BL-003. Its one fix not on this line is M-2 (`2ffbf1e`), ported in this run (entry 1). That branch is not merged here because both lines rewrote the same files and ledger, so the merge conflicts.
+- Files changed: none (record only)
+- Evidence: `git log HEAD..origin/claude/lucid-heisenberg-5r6sxv` (7 commits), `git show 2ffbf1e`
+- Status: Verified and implemented (record)
+- Commit hash: see push log of the run report
+- Push: see push log of the run report
+- Known risks / limitations: each new cloud session gets a fresh branch from `b034df8`. Until the owner merges a mission branch into the default branch, parallel lines can keep repeating fixes.
+- What this does NOT cover, next step: owner merges this branch; 5r6sxv's open M-5..M-10 items are copied into the backlog as BL-020 to BL-022 where they are not duplicates.
