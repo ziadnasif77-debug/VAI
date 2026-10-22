@@ -406,6 +406,27 @@ class TestMixGraph:
         assert f"loudnorm=I={config.audio.mix.normalization.target_lufs}" in plan.filter_complex
         assert "alimiter" in plan.filter_complex
 
+    def test_the_limiter_neither_adds_gain_nor_delays_the_programme(
+        self, config, tmp_path: Path
+    ) -> None:
+        # alimiter defaults to level=1 (output renormalised by 1/limit: +0.3 dB
+        # past the loudness target) and latency=0 (a 5 ms look-ahead delay).
+        plan = audio_mix.plan_mix(
+            game=tmp_path / "game.wav",
+            microphone=None,
+            music=[],
+            music_envelope=None,
+            game_envelope=None,
+            config=config.audio,
+            duration_seconds=60.0,
+        )
+
+        limiter = next(
+            chain for chain in plan.filter_complex.split(";") if "alimiter=" in chain
+        )
+        assert ":level=0" in limiter
+        assert ":latency=1" in limiter
+
 
 class TestLocalMusicOnly:
     """§73: nothing is downloaded, ever."""

@@ -432,7 +432,12 @@ def plan_mix(
 
     if config.mix.limiter.enabled:
         ceiling = _db_to_gain(config.mix.limiter.ceiling_db)
-        chains.append(f"[{last}]alimiter=limit={ceiling:.4f}[limited]")
+        # level=0: alimiter's default auto-level scales the output back up by
+        # 1/limit, which turned the ceiling into +0.3 dB of make-up gain and
+        # left the programme at -13.7 LUFS against a -14.0 target.
+        # latency=1: its 5 ms look-ahead otherwise delays every sample of the
+        # programme against the picture.
+        chains.append(f"[{last}]alimiter=limit={ceiling:.4f}:level=0:latency=1[limited]")
         last = "limited"
 
     fades = config.fades

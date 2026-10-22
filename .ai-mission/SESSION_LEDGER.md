@@ -94,3 +94,27 @@ Times are Europe/Oslo.
 - Known risks / limitations: the p→x264 table is a speed-class mapping, not a
   measured quality equivalence; the proxy is watched by detectors, not people.
 - Next step: none for this item.
+
+## [run-2026-10-22_0711] [2026-10-22 09:45, Europe/Oslo] [4]
+- Backlog ID / title: P1-AUDIO-1 / the programme limiter neither adds gain nor delays the audio
+- Type: fix
+- What changed and why: `audio_mix.plan_mix` ends the mix with
+  `alimiter=limit=0.9661`. FFmpeg's alimiter defaults to `level=1` ("auto level
+  output signal ... normalizes audio back to 0dB", doc/filters.texi) and
+  `latency=0`. Measured on this runner (FFmpeg 6.1.1): the default adds exactly
+  +0.30 dB after limiting (loudnorm→limiter output -13.7 LUFS vs -14.0 with
+  `level=0`; white-noise peak -2.71 vs -3.01 dBFS), and delays every sample by
+  5 ms (impulse at 1.0000 s → 1.0050 s; 1.0000 s with `latency=1`). Both
+  options are now set explicitly.
+- Files changed: `backend/rendering/audio_mix.py`, `tests/unit/test_rendering.py`
+- Evidence: new unit test fails without the change, passes with it;
+  `tests/unit/test_rendering.py` 61 passed; `tests/integration/test_render.py`
+  28 passed, 1 skipped (Remotion not installed here); rendered output
+  `ffprobe`: h264 30 fps 36.03 s + aac 48 kHz 36.00 s; `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: this commit (see push log)
+- Push: see run report push log
+- Known risks / limitations: the 36 s integration render still measures -13.0
+  LUFS integrated (target -14): single-pass loudnorm runs in dynamic mode. That
+  is backlog P1-AUDIO-2 (two-pass linear loudnorm), not this change.
+- Next step: P1-AUDIO-2.
