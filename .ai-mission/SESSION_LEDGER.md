@@ -41,3 +41,15 @@ truth and a correction entry is added here.
 - Push: see the run report's push log
 - Known risks / limitations: the header informs; it does not skip. Pipeline tests still fail without the package, deliberately (a green run without scene detection would be a false pass).
 - What this does NOT cover, next step: the integration suite file-by-file timing is in this run's report.
+
+## [run-20261022-0307] [2026-10-22 05:35, Europe/Oslo] [3]
+- Backlog ID / title: BL-015 — `encoder.py` said `-sc_threshold 0` gives closed GOPs
+- Type: docs
+- What changed and why: the comment now says what the flag does (no extra keyframes at scene cuts, fixed GOP length), that it is libx264-only, and that h264_nvenc ignores it and still inserts scene-cut I-frames with rc-lookahead unless `-no-scenecut 1`. No behaviour change: adding `-no-scenecut 1` stays an owner decision until measured on NVENC.
+- Files changed: `backend/rendering/encoder.py` (comment only)
+- Evidence: local libx264 (FFmpeg 6.1.1), 4 s synthetic clip with a hard cut at 2 s, `-g 120 -keyint_min 120`: default sc_threshold → 2 I-frames, `-sc_threshold 0` → 1 I-frame (ffprobe `pict_type`). `ffmpeg -h encoder=h264_nvenc` lists `-no-scenecut` ("When lookahead is enabled, set this to 1 to disable adaptive I-frame insertion at scene cuts"). `test_rendering.py`: 62 passed; ruff clean.
+- Status: Verified and implemented (the comment); NVENC behaviour itself remains "Verified finding awaiting implementation"
+- Commit hash: recorded in the push log of the run report
+- Push: see the run report's push log
+- Known risks / limitations: none, comment only.
+- What this does NOT cover, next step: on the RTX 3070, encode the same clip with and without `-no-scenecut 1` and count I-frames; then decide.

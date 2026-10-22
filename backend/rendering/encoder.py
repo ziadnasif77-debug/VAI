@@ -248,8 +248,10 @@ def video_arguments(
         "-pix_fmt", config.pixel_format,
         "-g", str(gop),
         "-keyint_min", str(gop),
-        # Closed GOPs: a player seeking to a keyframe must not need frames from
-        # before it.
+        # No extra keyframes at scene cuts, so the GOP stays the fixed length
+        # above. libx264 only: h264_nvenc never reads this option, and with
+        # rc-lookahead on it still inserts I-frames at cuts unless given
+        # -no-scenecut 1 -- left as is until measured on NVENC (BL-015).
         "-sc_threshold", "0",
         "-r", str(target.fps),
     ]
