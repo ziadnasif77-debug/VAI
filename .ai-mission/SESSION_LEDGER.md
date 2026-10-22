@@ -53,3 +53,14 @@ truth and a correction entry is added here.
 - Push: see the run report's push log
 - Known risks / limitations: none, comment only.
 - What this does NOT cover, next step: on the RTX 3070, encode the same clip with and without `-no-scenecut 1` and count I-frames; then decide.
+
+## [run-20261022-0307] correction [2026-10-22]
+- Entries 1-2 above carry hand-written Oslo times that are out of order (05:40, 06:05 before 05:35). Their commits (`9cad4cb`, `252b523`, `07b0238`) give the true order: 1, 2, 3.
+
+## [run-20261022-0307] CLOSING [2026-10-22, Europe/Oslo]
+- Items completed and verified (IDs): BL-019 (`9cad4cb`), BL-017 (`252b523`), BL-015 comment (`07b0238`), ledger reconstruction (`7795512`); BL-018 upgraded from hypothesis to verified finding (no code)
+- Items in progress (IDs, patch names): none
+- Items blocked (IDs, exact reason): BL-008 (no GPU / Ollama / Whisper on the runner); BL-016 merge is the owner's
+- Everything pushed? yes — every change pushed and confirmed; this closing commit is pushed last. Branch `claude/lucid-heisenberg-auaak8`, not `ai/gaming-video-auto`: the cloud session may push only its designated branch.
+- Backlog changes: closed BL-017, BL-019 (new, closed); updated BL-015, BL-016, BL-018
+- Top five next actions: (1) owner merges this branch, deletes stale mission branches; (2) BL-018 with the probed source matrix + QA tag check; (3) owner runs `test_house_edit_frozen.py`; (4) BL-015 measured on the RTX 3070; (5) integration timings from `test_narrative_pipeline.py` on. NEXT RUN: start from `origin/claude/lucid-heisenberg-auaak8`, not `b034df8`.

@@ -56,3 +56,15 @@ Report: [2026-10-21_2107_run.md](.ai-mission/reports/2026-10-21_2107_run.md).
 | FFmpeg `libavcodec/nvenc.c` | https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/nvenc.c | master, 2026-10 | no read of `scenechange_threshold`; `no_scenecut` only with lookahead; idrPeriod = gopLength | Yes — BL-015 |
 
 ffmpeg.org and remotion.dev did not resolve from this runner; GitHub raw did.
+
+## 2026-10-22 03:07 UTC — run-20261022-0307
+
+**Outcome:** fast-suite failures traced to a missing `scenedetect` (now named in the run header); stray P0.8 fix ported; NVENC scene-cut comment corrected; BT.601→709 conversion verified with a gotcha for untagged input. Session ledger started.
+Report: [2026-10-22_0307_run.md](.ai-mission/reports/2026-10-22_0307_run.md).
+
+| Title | URL | Date / version | What it demonstrates | Applicable |
+| --- | --- | --- | --- | --- |
+| FFmpeg `libavfilter/vf_scale.c` | https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/vf_scale.c | master, 2026-10 | `out_color_matrix` sets the output link/frame colorspace; `in_color_matrix` overrides the input tag; defaults auto/unspecified | Yes — BL-018 |
+| FFmpeg `h264_nvenc` encoder help (local) | `ffmpeg -h encoder=h264_nvenc` | FFmpeg 6.1.1 | `-no-scenecut`: disables adaptive I-frames at scene cuts with lookahead | Yes — BL-015 |
+
+OBS defaults (`UI/obs-app.cpp`) could not be fetched: 404 at that path on master (file moved); not retried this run. Fewer than six sources this run: research was a small part, the rest was local measurement.

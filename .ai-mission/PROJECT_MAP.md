@@ -69,6 +69,11 @@ python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/ruff check .
 ```
 
+Without `scenedetect` every pipeline integration test fails with a bare
+`KeyError` on a later stage; the run header now names the missing package
+(BL-017). Measured on the cloud runner (4 vCPU, 2026-10-22): the unit suite,
+file by file, is 397 s in total; `test_edl_pipeline.py` alone is ~155 s.
+
 Markers: `unit`, `integration`, `e2e`, `requires_ffmpeg`, `requires_gpu`,
 `requires_models`, `requires_node`, `slow`. `ruff format` is **not** enforced
 (193 files would be reformatted at `b034df8`).
