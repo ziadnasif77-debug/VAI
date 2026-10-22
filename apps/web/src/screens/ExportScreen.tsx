@@ -226,12 +226,17 @@ export function ExportScreen({
       <section className="panel">
         <h2>
           Quality check{' '}
-          {qa.data && (
+          {qa.data && !qa.data.pending && (
             <span className={`badge badge-${qa.data.qa_status}`}>{qa.data.qa_status}</span>
           )}
+          {qa.data?.pending && <span className="badge">pending</span>}
         </h2>
 
-        {!qa.data?.findings.length && (
+        {qa.data?.pending && (
+          <p className="muted">QA runs again on the new edit once it is rendered.</p>
+        )}
+
+        {!qa.data?.pending && !qa.data?.findings.length && (
           <p className="muted">No checks have run yet. They run automatically after a render.</p>
         )}
 

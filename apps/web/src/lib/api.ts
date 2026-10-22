@@ -229,6 +229,8 @@ export type QaReport = {
   needs_review: boolean;
   /** The verdicts above as one gate; a check that did not run is never `pass`. */
   gate: 'pass' | 'warn' | 'needs_review' | 'block';
+  /** QA is queued or running: no verdict on the current edit yet. */
+  pending: boolean;
   findings: QaFinding[];
 };
 
