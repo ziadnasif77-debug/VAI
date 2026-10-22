@@ -91,10 +91,14 @@ class ApplicationConfig(_Section):
     @field_validator("media_source_roots")
     @classmethod
     def _absolute_roots(cls, roots: list[str]) -> list[str]:
-        from pathlib import Path
+        from pathlib import Path, PureWindowsPath
 
+        # A Windows drive is absolute here on any system; the ingestion check
+        # is what keeps a root that names no place on this one from matching.
         for root in roots:
-            if not root or not Path(root).expanduser().is_absolute():
+            if not root or not (
+                Path(root).expanduser().is_absolute() or PureWindowsPath(root).is_absolute()
+            ):
                 raise ValueError(
                     "application.media_source_roots entries must be absolute paths."
                 )
@@ -243,12 +247,16 @@ class DailyConfig(_Section):
     def _not_the_system_drive(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        from pathlib import Path
+        from pathlib import Path, PureWindowsPath
 
         path = Path(value).expanduser()
-        if not path.is_absolute():
+        # The shipped file names a Windows drive. Read on any other system,
+        # Path() sees "D:/..." as relative and the whole configuration failed
+        # to load there -- every test on the Linux build machine with it.
+        windows = PureWindowsPath(value)
+        if not (path.is_absolute() or windows.is_absolute()):
             raise ValueError("daily.output_directory must be an absolute path.")
-        drive = path.drive.rstrip(":").upper()
+        drive = (path.drive or windows.drive).rstrip(":").upper()
         if drive == "C":
             raise ValueError(
                 "daily.output_directory refuses the system drive: this "

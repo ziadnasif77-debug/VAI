@@ -210,3 +210,30 @@ class TestCaching:
         assert get_config(config_dir) is first
         reset_config_cache()
         assert get_config(config_dir) is not first
+
+
+class TestDailyDirectories:
+    """The shipped file names a Windows drive and must load on any system."""
+
+    @pytest.mark.parametrize("value", ["D:/Gaming 2026/Output", "D:\\Videos\\VAI"])
+    def test_a_windows_drive_path_is_absolute_everywhere(self, value: str) -> None:
+        from backend.config.schema import DailyConfig
+
+        assert DailyConfig(output_directory=value).output_directory is not None
+
+    @pytest.mark.parametrize("value", ["C:/Users/anyone/Videos", "c:\\out"])
+    def test_the_system_drive_is_refused_everywhere(self, value: str) -> None:
+        from pydantic import ValidationError
+
+        from backend.config.schema import DailyConfig
+
+        with pytest.raises(ValidationError, match="system drive"):
+            DailyConfig(output_directory=value)
+
+    def test_a_relative_path_is_still_refused(self) -> None:
+        from pydantic import ValidationError
+
+        from backend.config.schema import DailyConfig
+
+        with pytest.raises(ValidationError, match="absolute"):
+            DailyConfig(output_directory="videos/out")

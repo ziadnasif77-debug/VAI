@@ -30,3 +30,23 @@ Times are Europe/Oslo.
 - Push: see CLOSING entry
 - Known risks / limitations: no GPU here, so NVENC/VRAM work cannot be measured.
 - Next step: fix the config-load failure so the suite can run at all.
+
+## [run-20261022-a] [2026-10-22 06:20, Europe/Oslo] [1]
+- Backlog ID / title: M-1 / The shipped configuration loads on non-Windows systems
+- Type: fix
+- What changed and why: `daily.output_directory`/`archive_directory` and
+  `application.media_source_roots` were validated with `Path.is_absolute()`;
+  on Linux `D:/Gaming 2026` is relative, so the shipped config raised
+  `ConfigurationError` and the whole test suite stopped at collection. Both
+  validators now also accept a `PureWindowsPath` absolute path; the
+  system-drive refusal reads the Windows drive too.
+- Files changed: `backend/config/schema.py`, `tests/unit/test_config.py`
+- Evidence: `pytest tests/unit/test_config.py` — without the fix 10 failed /
+  10 errors (new `TestDailyDirectories` incl. the C: refusal on Linux); with
+  it all pass. `ruff check .` clean.
+- Status: Verified and implemented (full suite result in CLOSING)
+- Commit hash: see CLOSING entry
+- Push: see CLOSING entry
+- Known risks: a Windows root on Linux now passes validation — paired with M-2
+  so it cannot widen the ingestion allowlist.
+- Next step: none for this item.
