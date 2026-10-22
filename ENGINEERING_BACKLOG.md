@@ -14,7 +14,9 @@ Ledger: `.ai-mission/SESSION_LEDGER.md`. Reports: `.ai-mission/reports/`.
 | --- | --- | --- | --- | --- | --- |
 | P0-PORT-1 | Shipped config loads on a POSIX checkout | Verified and implemented (78c4b81) | report 2026-10-22_0711 item 2 | `backend/config/schema.py` | -- |
 | P0-PROXY-1 | Software proxy fallback received NVENC preset `p4`; every import failed without NVENC | Verified and implemented (9d297f7) | report 2026-10-22_0711 item 3 | `backend/media/proxy.py` | -- |
-| P0-SUITE-1 | Remaining failures of `pytest -m "not slow"` on the Linux runner | Verified finding awaiting implementation | report 2026-10-22_0711 item 6 | see report | Triage each failing test: environment (missing easyocr/faster-whisper/Remotion, Windows-only paths) vs real defect; fix real defects first |
+| P0-PORT-2 | POSIX absolute output directory refused | Verified and implemented (23a8649) | report 2026-10-22_0711 item 7 | `backend/core/models/project.py` | -- |
+| P0-DEPS-1 | `hud.py` imported undeclared scipy | Verified and implemented (cfadee0) | report 2026-10-22_0711 item 8 | `backend/gaming/hud.py` | -- |
+| P0-SUITE-1 | Remaining `-m "not slow"` failures on the Linux runner | Verified finding awaiting implementation | unit: 3 failed / 2510 passed; integration: 1 failed + 9 errors / 356 passed (report 2026-10-22_0711 §7) | `tests/unit/test_rooted.py`, `tests/unit/test_speech.py`, `tests/integration/test_remotion.py` | `test_rooted.py` ×2: configured `D:/Models` root is Windows-only -- ask/decide whether a non-Windows checkout should ignore a drive root; `test_speech.py` ×1: needs faster-whisper (env); Remotion: see P2-TEST-1 |
 
 ## P1
 
@@ -29,5 +31,6 @@ Ledger: `.ai-mission/SESSION_LEDGER.md`. Reports: `.ai-mission/reports/`.
 
 | ID | Title | Status | Evidence | Files | Next step |
 | --- | --- | --- | --- | --- | --- |
+| P2-TEST-1 | `test_remotion.py::TestAcceptance` errors instead of skipping when `remotion/node_modules` is absent | Verified finding awaiting implementation | 9 setup errors + 1 failure, reason "dependencies are not installed"; module docstring promises a clean skip | `tests/integration/test_remotion.py` | Skip in the fixture when the overlay result is `skipped` for missing dependencies, mirroring `test_render.py:296` |
 | P2-RUNNER-1 | Mission runner cannot exercise Remotion, GPU, OCR or Whisper paths | Blocked by access, authorization, or infrastructure | no `nvidia-smi`; `remotion/node_modules` absent; easyocr/faster-whisper not installed (NEW_DEPENDENCY_ALLOWED=false) | -- | Owner decision: allow `npm ci` in `remotion/` on the runner (already a manifest dependency) |
 | P2-DOCS-1 | Research sources outside GitHub unreachable from the runner | Blocked by access, authorization, or infrastructure | ffmpeg.org, nvidia.com, ebu.ch, remotion.dev, pytorch.org → proxy 403 | -- | Owner may widen the environment's network policy |

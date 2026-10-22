@@ -196,3 +196,30 @@ Times are Europe/Oslo.
   tests are the behavioural check; the owner's machine still has scipy, so a
   side-by-side check there is cheap.
 - Next step: none for this item.
+
+## [run-2026-10-22_0711] CLOSING [2026-10-22 09:50, Europe/Oslo]
+- Items completed and verified (IDs): MISSION-1 (fd1da57), P0-PORT-1 (78c4b81),
+  P0-PROXY-1 (9d297f7), P1-AUDIO-1 (55ee08e), MISSION-2 (bdf72aa),
+  MISSION-3 (07ed43d), P0-PORT-2 (23a8649), P0-DEPS-1 (cfadee0); baseline
+  measured (report §7).
+- Items in progress (IDs, patch names): none.
+- Items blocked (IDs, exact reason): P1-NVENC-1 (no GPU on runner),
+  P1-REMOTION-1 (needs owner's Windows machine), P2-RUNNER-1 (npm ci /
+  model installs not authorised), P2-DOCS-1 (proxy 403 for non-GitHub docs).
+- Everything pushed? yes -- every change pushed and confirmed
+  (`git rev-parse HEAD` = `origin/claude/lucid-heisenberg-1824qd` after each);
+  this closing commit is pushed last. Branch is the session branch, not
+  `ai/gaming-video-auto` (harness restriction; see entry [1]).
+- Test state at close (`-m "not slow"`, HEAD cfadee0): unit 2510 passed,
+  3 failed (environment), 1 skipped; integration 356 passed, 6 skipped,
+  1 failed + 9 errors (all Remotion deps absent). Start of run: collection
+  aborted. `ruff check .` clean.
+- Backlog changes: opened P0-SUITE-1, P1-AUDIO-2, P1-NVENC-1, P1-REMOTION-1,
+  P2-TEST-1, P2-RUNNER-1, P2-DOCS-1; closed P0-PORT-1, P0-PROXY-1,
+  P1-AUDIO-1, P0-PORT-2, P0-DEPS-1.
+- Top five next actions for the next session (ordered):
+  1. P1-AUDIO-2 two-pass linear loudnorm (measurement pass, single-pass fallback, ebur128 ±0.5 LU).
+  2. P2-TEST-1 Remotion acceptance tests skip cleanly without node_modules.
+  3. P0-SUITE-1 `test_rooted.py` drive-root portability decision.
+  4. Run the `slow` tier once and record it.
+  5. P0.8 sequence-repair oscillation: reproduce on synthetic data, regression test.
