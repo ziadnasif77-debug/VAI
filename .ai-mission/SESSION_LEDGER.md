@@ -29,3 +29,15 @@ truth and a correction entry is added here.
 - Push: see the run report's push log
 - Known risks / limitations: the frozen house edit on the owner's machine may change if the old ping-pong was live there; `test_house_edit_frozen.py` will show it.
 - What this does NOT cover, next step: owner runs `pytest tests/integration/test_house_edit_frozen.py` on the machine with the database.
+
+## [run-20261022-0307] [2026-10-22 06:05, Europe/Oslo] [2]
+- Backlog ID / title: BL-017 — the "untriaged early failures" of the fast suite
+- Type: test
+- What changed and why: root cause found. On a host without the `ai` extra's `scenedetect`, the SCENES stage fails ("PySceneDetect is not installed") and every pipeline integration test then fails on `outcomes[JobStage.RENDER]` / `JobStage.STORY` with a bare `KeyError` (e.g. `test_qa.py::TestNothingToCheck::test_qa_skips_when_the_render_skipped`, 14 tests of `test_narrative_pipeline.py`). Not a code defect. `tests/conftest.py` now prints a report header naming any missing analysis package (scenedetect, numpy, cv2) and the install command, so the cause is visible at the top of the run.
+- Files changed: `tests/conftest.py`, `tests/unit/test_suite_header.py` (new)
+- Evidence: with scenedetect missing `test_qa.py`+`test_narrative_pipeline.py` fail with KeyError; after `pip install scenedetect==0.7.1` (pinned in `pyproject.toml [ai]`): 36 passed, 1 skipped. Unit suite file by file (scenedetect absent, all 77 files): every file passed, 397 s total — so the unit suite fits a run. New tests: 2 passed; header shown when scenedetect is uninstalled. `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: recorded in the push log of the run report
+- Push: see the run report's push log
+- Known risks / limitations: the header informs; it does not skip. Pipeline tests still fail without the package, deliberately (a green run without scene detection would be a false pass).
+- What this does NOT cover, next step: the integration suite file-by-file timing is in this run's report.

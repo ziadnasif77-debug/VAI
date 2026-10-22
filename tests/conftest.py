@@ -70,6 +70,32 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(skip_node)
 
 
+#: Imports the pipeline needs on every run, real models or not, from the
+#: ``ai`` extra. Unlike FFmpeg these are not skipped for: a missing one fails
+#: the stage that imports it, and the test then trips on a later stage with a
+#: ``KeyError`` that names nothing -- so the header names it instead.
+ANALYSIS_IMPORTS = {"scenedetect": "scenedetect", "numpy": "numpy", "cv2": "opencv-python-headless"}
+
+
+def missing_analysis_packages() -> list[str]:
+    """The ``ai``-extra packages this interpreter cannot import, by pip name."""
+    import importlib.util
+
+    return [
+        pip for module, pip in ANALYSIS_IMPORTS.items() if importlib.util.find_spec(module) is None
+    ]
+
+
+def pytest_report_header(config: pytest.Config) -> str | None:
+    missing = missing_analysis_packages()
+    if not missing:
+        return None
+    return (
+        f"analysis stack incomplete: {', '.join(missing)} not installed; pipeline tests "
+        'will fail at the stage that needs them (pip install -e ".[dev,ai]")'
+    )
+
+
 def _remotion_ready() -> tuple[bool, str]:
     """Whether an overlay can actually be rendered on this machine.
 
