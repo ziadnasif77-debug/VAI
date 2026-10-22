@@ -26,7 +26,14 @@ from typing import Any, Final
 from backend.config.schema import CaptionsConfig, QaConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.gaming.profiles import GameProfile, Region
-from backend.qa.report import Finding, enabled_checks, failure, passed, warning
+from backend.qa.report import (
+    Finding,
+    enabled_checks,
+    failure,
+    not_measured,
+    passed,
+    warning,
+)
 from backend.timeline.captions import Caption
 from backend.timeline.models import Timeline, TimelineClip
 
@@ -148,6 +155,10 @@ class ContentInputs:
     #: Black runs technical QA measured, in timeline time.
     black_runs: Sequence[tuple[float, float]] = ()
     profile: GameProfile | None = None
+    #: Why there is no ``profile`` when one should have been found -- no
+    #: game-events result names one, or the recordings disagree. ``None``
+    #: with no profile keeps the old meaning: nothing declared, a pass.
+    profile_unresolved: str | None = None
 
 
 def inspect(
@@ -180,7 +191,9 @@ def inspect(
     if "authorization_bounds" in checks:
         findings.append(_authorization_bounds(timeline))
     if "caption_covers_hud" in checks:
-        findings.append(_captions_over_hud(captions, caption_config, inputs.profile))
+        findings.append(
+            _captions_over_hud(captions, caption_config, inputs.profile, inputs.profile_unresolved)
+        )
 
     logger.info(
         "Content QA complete",
@@ -382,7 +395,10 @@ def _clip_density(timeline: Timeline) -> Finding:
 
 
 def _captions_over_hud(
-    captions: Sequence[Caption], config: CaptionsConfig, profile: GameProfile | None
+    captions: Sequence[Caption],
+    config: CaptionsConfig,
+    profile: GameProfile | None,
+    unresolved: str | None = None,
 ) -> Finding:
     """Would a caption sit on top of something the viewer needs to read? (§77)
 
@@ -392,6 +408,15 @@ def _captions_over_hud(
     """
     if not captions:
         return passed("caption_covers_hud", "no captions to place")
+    if profile is None and unresolved:
+        # Not knowing the game is not the same as knowing it has no HUD.
+        return not_measured(
+            "caption_covers_hud",
+            f"no game profile to read HUD regions from: {unresolved}",
+            remedy="Run game-event detection for every recording so they agree on one "
+            "game profile, then run QA again.",
+            category="content",
+        )
     if profile is None or not profile.regions:
         # The generic profile declares no regions (§23), so there is nothing to
         # collide with. Saying "checked, nothing known" beats silence.

@@ -290,13 +290,15 @@ class QaWorker:
                 if event.event_type.value == "silence"
             )
 
+        profile, unresolved = self._profile(context)
         inputs = content.ContentInputs(
             observations=observations,
             state_spans=state_spans,
             silences=silences,
             pacing_warnings=self._pacing_warnings(context),
             black_runs=_black_runs(technical_findings),
-            profile=self._profile(context),
+            profile=profile,
+            profile_unresolved=unresolved,
             clip_levels=self._clip_levels(context, timeline),
         )
         return content.inspect(
@@ -333,13 +335,28 @@ class QaWorker:
         return tuple(str(item) for item in warnings)
 
     def _profile(self, context: WorkerContext):
-        """The game profile, for its HUD regions (§22, §77)."""
-        job = JobRepository(context.database).find(context.project_id, JobStage.GAME_EVENTS)
-        name = (job.result or {}).get("game_profile") if job else None
-        if not name:
-            return None
+        """The game profile, for its HUD regions (§22, §77), or why there is none.
+
+        GAME_EVENTS runs once per recording, so its jobs carry a media_id and
+        a project-wide lookup never finds them. Every recording's job is read
+        instead, and they must agree: one edit, one HUD to keep clear of.
+        """
+        names = {
+            (job.result or {}).get("game_profile")
+            for job in JobRepository(context.database).list_for_project(context.project_id)
+            if job.stage is JobStage.GAME_EVENTS
+        }
+        if not names:
+            return None, "no game-event detection has run for this project"
+        if not all(names):
+            return None, "a recording has no game profile on record"
+        if len(names) > 1:
+            return None, "the recordings resolve to different game profiles: " + ", ".join(
+                sorted(str(name) for name in names)
+            )
+        name = names.pop()
         try:
-            return load_profile(str(name), context.profiles_dir).profile
+            return load_profile(str(name), context.profiles_dir).profile, None
         except GamingEditorError as error:
             # A malformed profile is a problem for the gaming stage to report,
             # not a reason for QA to fail: the rest of the checks still apply.
@@ -347,7 +364,7 @@ class QaWorker:
                 "Could not load the game profile for QA",
                 extra={"profile": name, "error": str(error)},
             )
-            return None
+            return None, f"the game profile {name!r} could not be loaded"
 
 
 def _width_of(render: dict[str, Any]) -> int:
