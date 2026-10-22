@@ -215,7 +215,8 @@ export type TimelineOperation = {
 export type QaFinding = {
   check: string;
   category: string;
-  qa_status: 'passed' | 'warning' | 'failed';
+  /** `not_measured`: the check could not run. Never a pass. */
+  qa_status: 'passed' | 'warning' | 'failed' | 'not_measured';
   detail: string;
   remedy: string;
 };
@@ -226,6 +227,8 @@ export type QaReport = {
   qa_status: 'passed' | 'warning' | 'failed';
   blocks_export: boolean;
   needs_review: boolean;
+  /** The verdicts above as one gate; a check that did not run is never `pass`. */
+  gate: 'pass' | 'warn' | 'needs_review' | 'block';
   findings: QaFinding[];
 };
 

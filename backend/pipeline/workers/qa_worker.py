@@ -382,8 +382,12 @@ def _black_runs(findings) -> tuple[tuple[float, float], ...]:
 def _message(report: QaReport) -> str:
     if report.blocks_export:
         return f"{len(report.failures)} technical failure(s); export blocked"
+    unmeasured = len(report.not_measured)
     if report.warnings:
-        return f"passed with {len(report.warnings)} warning(s)"
+        message = f"passed with {len(report.warnings)} warning(s)"
+        return f"{message}; {unmeasured} check(s) not measured" if unmeasured else message
+    if unmeasured:
+        return f"{unmeasured} check(s) not measured; the rest passed"
     return "all checks passed"
 
 

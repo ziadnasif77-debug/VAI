@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.dependencies import get_jobs, get_projects, get_state
 from backend.core.errors import ErrorCode, ValidationError
-from backend.core.models.enums import JobStage, JobStatus, MomentType, QAStatus
+from backend.core.models.enums import JobStage, JobStatus, MomentType, QAGate, QAStatus
 from backend.core.models.jobs import Job
 from backend.database.repositories.gaming import GameEventRepository
 from backend.database.repositories.media import MediaRepository
@@ -41,6 +41,7 @@ from backend.database.repositories.timeline import TimelineRepository
 from backend.gaming.exclusions import exclusions_for_media
 from backend.interaction.models import CommandKind, EditCommand
 from backend.interaction.service import InteractionService
+from backend.qa.report import gate_for
 from backend.services.job_manager import JobManager
 from backend.services.project_manager import ProjectManager
 from backend.timeline import operations, validation
@@ -198,6 +199,8 @@ class QaResponse(_Base):
     qa_status: QAStatus = QAStatus.PASSED
     blocks_export: bool = False
     needs_review: bool = False
+    #: The verdicts above as one gate; a check that did not run is never PASS.
+    gate: QAGate = QAGate.PASS
     findings: list[QaFindingView] = Field(default_factory=list)
 
 
@@ -452,6 +455,12 @@ def get_qa(
         qa_status=overall,
         blocks_export=bool(failures),
         needs_review=bool(failures or warnings),
+        gate=gate_for(
+            blocks_export=bool(failures),
+            needs_review=bool(failures or warnings),
+            warned=bool(warnings),
+            unmeasured=any(item.qa_status is QAStatus.NOT_MEASURED for item in findings),
+        ),
         findings=findings,
     )
 

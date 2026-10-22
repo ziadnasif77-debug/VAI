@@ -396,6 +396,23 @@ class QAStatus(str, Enum):
     PASSED = "passed"
     WARNING = "warning"
     FAILED = "failed"
+    #: The check could not run, so nothing is known. Never a pass, and
+    #: neither a failure nor a warning: the existing verdicts ignore it.
+    NOT_MEASURED = "not_measured"
+
+
+class QAGate(str, Enum):
+    """What QA's verdict means for publishing, read off the existing verdicts.
+
+    An adapter rather than a new policy: ``BLOCK`` is exactly ``blocks_export``,
+    ``NEEDS_REVIEW`` is ``needs_review`` -- or a check that did not run --
+    and ``WARN``/``PASS`` are what is left.
+    """
+
+    PASS = "pass"
+    WARN = "warn"
+    NEEDS_REVIEW = "needs_review"
+    BLOCK = "block"
 
 
 class PublishTarget(str, Enum):
@@ -464,6 +481,7 @@ __all__ = [
     "PublishStatus",
     "PublishTarget",
     "PublishVisibility",
+    "QAGate",
     "QAStatus",
     "ReactionType",
     "RenderEngine",
