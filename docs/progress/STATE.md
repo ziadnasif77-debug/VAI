@@ -1,5 +1,5 @@
 # VAI QA gap: progress state
-RUN_LOCK: finished (run 4 started 2026-10-22T22:05Z)
+RUN_LOCK: 2026-10-22T23:07Z (run 5 started)
 BRANCH: claude/vai-qa-gap   BASE: b034df8   LAST_HEAD: c7feca9 (+ this state commit)
 PHASE 0: DONE
 BASELINE (stated in the routine): 2724 passed / 173 failed / 24 skipped / 9 errors
