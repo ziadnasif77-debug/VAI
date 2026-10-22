@@ -124,3 +124,11 @@ truth and a correction entry is added here.
 - Push: see push log of the run report
 - Known risks / limitations: a recording tagged 601 that is not actually 601 inside would now be converted at cut time (entry 2) and pass QA. That trusts the tag, the same as every player does.
 - What this does NOT cover, next step: BL-018 is closed. A composite with a Remotion overlay on a 601 source should still be looked at once on the owner's machine.
+
+## [run-20261022-0624] CLOSING [2026-10-22 09:15, Europe/Oslo]
+- Items completed and verified (IDs): BL-016 correction (`237045a`), BL-020 (`1e2bd9a`), BL-018 (`8c32e51`, `b3bc714`, `082ca11`), BL-022 finding (no code)
+- Items in progress (IDs, patch names): none. No patches.
+- Items blocked (IDs, exact reason): BL-008 (no GPU/Ollama/Whisper); BL-009 (ffmpeg.org does not resolve; only 4 sources read, so research is marked incomplete); BL-016 merge is the owner's.
+- Everything pushed? yes. Every change was pushed and confirmed (local HEAD = origin). This closing commit is pushed last. Branch `claude/lucid-heisenberg-repo6c` (session-pinned), not `ai/gaming-video-auto`.
+- Backlog changes: closed BL-018; opened and closed BL-020; opened BL-021, BL-022; updated BL-016.
+- Top five next actions for the next session (ordered): (1) owner merges this branch; (2) BL-021, triage 5r6sxv's M-5..M-10; (3) owner runs `test_house_edit_frozen.py` and one captioned render from a 601 recording; (4) BL-015 on the RTX 3070; (5) BL-013 stinger limiter. NEXT RUN: start from `origin/claude/lucid-heisenberg-repo6c`, not `b034df8` or auaak8.

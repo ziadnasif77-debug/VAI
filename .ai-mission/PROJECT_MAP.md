@@ -39,8 +39,8 @@ re-editing re-runs only STORY → EDL → RENDER → QA.
 | Story, plans, judge, Director | `backend/narrative/`, `backend/director/` |
 | EDL / timeline, authorised spans | `backend/timeline/` |
 | Critic (pre-render), CRITIC2 (post-render) | `backend/critic/`, `backend/critic2/` |
-| Render: encoder, audio mix (loudnorm → alimiter `level=0:latency=1`, ceiling −1.8 dBFS), SFX, shorts, Remotion | `backend/rendering/` |
-| QA technical (ffprobe + one decode pass: blackdetect, freezedetect, ebur128) and content | `backend/qa/` |
+| Render: encoder, audio mix (loudnorm → alimiter `level=0:latency=1`, ceiling −1.8 dBFS), SFX, shorts, Remotion. Colour: overlay BT.709; BT.601-tagged recordings converted to BT.709 at the cut and tagged explicitly; untagged recordings left alone | `backend/rendering/` |
+| QA technical (ffprobe + one decode pass: blackdetect, freezedetect, ebur128; `colour_tags` warns on a BT.601-tagged result) and content | `backend/qa/` |
 | NL editing, conversation, versions | `backend/interaction/` |
 
 ## Games

@@ -68,3 +68,17 @@ Report: [2026-10-22_0307_run.md](.ai-mission/reports/2026-10-22_0307_run.md).
 | FFmpeg `h264_nvenc` encoder help (local) | `ffmpeg -h encoder=h264_nvenc` | FFmpeg 6.1.1 | `-no-scenecut`: disables adaptive I-frames at scene cuts with lookahead | Yes — BL-015 |
 
 OBS defaults (`UI/obs-app.cpp`) could not be fetched: 404 at that path on master (file moved); not retried this run. Fewer than six sources this run: research was a small part, the rest was local measurement.
+
+## 2026-10-22 06:24 UTC — run-20261022-0624
+
+**Outcome:** BL-018 closed. BT.601 recordings are converted to BT.709 at the cut and tagged explicitly, and QA warns on a 601-tagged result. M-2 ported from the parallel line (BL-020). Found that FFmpeg 6.1.1 does not tag frames after `scale=out_color_matrix`, which corrects the 03:07 run's reading of master.
+Report: [2026-10-22_0624_run.md](.ai-mission/reports/2026-10-22_0624_run.md).
+
+| Title | URL | Date / version | What it demonstrates | Applicable |
+| --- | --- | --- | --- | --- |
+| FFmpeg `libavfilter/vf_scale.c` | https://github.com/FFmpeg/FFmpeg/blob/n6.1.1/libavfilter/vf_scale.c | n6.1.1 (2023-12) | no `out->colorspace` assignment: converted frames keep the input tag | Yes — BL-018/BL-022 (local FFmpeg is 6.1.1) |
+| FFmpeg `libavfilter/vf_scale.c` | https://github.com/FFmpeg/FFmpeg/blob/master/libavfilter/vf_scale.c | master, 2026-10 | `out->colorspace = outlink->colorspace` (line 855): master tags converted frames | Yes — explains the 03:07 run's reading |
+| FFmpeg `fftools/ffmpeg_enc.c` | https://github.com/FFmpeg/FFmpeg/blob/master/fftools/ffmpeg_enc.c | master and n6.1.1 | encoder `colorspace/primaries/trc` copied from the first frame | Yes — why explicit `-colorspace` tags are needed on 6.1.1 |
+| ffmpeg-devel thread "Use the colour properties from the input stream when doing transcode" | https://lists.ffmpeg.org/pipermail/ffmpeg-devel/2018-May/230472.html | 2018-05 (old; search summary only) | filter chains did not carry colour tags; explicit output tags are the supported route; a wrong tag is worse than none | Yes, as background only. Old, and the page could not be fetched |
+
+ffmpeg.org still does not resolve from this runner (BL-009); raw.githubusercontent.com does. Only four sources this run, below the six §4A asks for. The run spent its time on implementation.
