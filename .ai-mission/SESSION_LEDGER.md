@@ -46,3 +46,27 @@ Times are Europe/Oslo.
 - Push: pending at time of writing (confirmed in the run report)
 - Known risks / limitations: none
 - Next step: baseline test run.
+
+## [run-2026-10-22_0711] [2026-10-22 09:25, Europe/Oslo] [2]
+- Backlog ID / title: P0-PORT-1 / the shipped configuration loads on a POSIX checkout
+- Type: fix
+- What changed and why: `config/application.yaml` and `config/daily.yaml` name
+  the owner's Windows drives (`D:/Gaming 2026`). `pathlib` on Linux calls those
+  relative, so `AppConfig` refused to load and test collection aborted
+  (`test_critic.py`, `test_director.py`: ConfigurationError) -- the suite could
+  not run anywhere but Windows. The validators now accept a path absolute on
+  this machine or a rooted Windows drive path; `D:folder` is still refused, and
+  the system-drive (`C:`) rule reads the drive the same way on every platform.
+- Files changed: `backend/config/schema.py`, `tests/unit/test_config.py`
+- Evidence: before: `pytest --collect-only -m "not slow" tests` → 2 collection
+  errors; `test_config.py` without the fix: 8 failed, 10 errors. After:
+  `test_config.py` 34 passed (3 new tests; the system-drive test fails without
+  the fix). `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: this commit (see push log)
+- Push: see run report push log
+- Known risks / limitations: on Linux a `D:/...` value is now accepted but would
+  resolve relative to the working directory if the daily producer ran there;
+  the daily producer is Windows-only in practice. Ingestion with a `D:/` root on
+  Linux fails closed (nothing is under it).
+- Next step: none for this item.

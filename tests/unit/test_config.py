@@ -201,6 +201,30 @@ class TestSemanticValidation:
             )
 
 
+class TestPathsReadTheSameOnEveryPlatform:
+    """The shipped files name Windows drives; a POSIX checkout must load them."""
+
+    def test_a_windows_drive_root_is_absolute(self, config_dir: Path) -> None:
+        config = load_config(
+            config_dir,
+            overrides={
+                "application": {"media_source_roots": ["D:/Gaming 2026"]},
+                "daily": {"output_directory": "D:/Gaming 2026/Output"},
+            },
+        )
+        assert config.application.media_source_roots == ["D:/Gaming 2026"]
+
+    def test_a_drive_without_a_root_is_still_relative(self, config_dir: Path) -> None:
+        with pytest.raises(ConfigurationError, match="absolute"):
+            load_config(
+                config_dir, overrides={"application": {"media_source_roots": ["D:Gaming"]}}
+            )
+
+    def test_the_system_drive_is_refused_on_every_platform(self, config_dir: Path) -> None:
+        with pytest.raises(ConfigurationError, match="system drive"):
+            load_config(config_dir, overrides={"daily": {"output_directory": "C:/Videos"}})
+
+
 class TestCaching:
     def test_reset_clears_the_cache(self, config_dir: Path) -> None:
         from backend.config.loader import get_config

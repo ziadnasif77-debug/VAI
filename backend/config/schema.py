@@ -76,6 +76,21 @@ class LoggingConfig(_Section):
     backup_count: int = Field(default=5, ge=0)
 
 
+def _is_absolute(value: str) -> bool:
+    """Absolute on this machine, or a Windows drive path read anywhere.
+
+    The shipped configuration names the owner's Windows drives
+    (``D:/Gaming 2026``). ``pathlib`` on POSIX calls that relative, so a Linux
+    checkout could not load the configuration at all -- every test that reads
+    it failed at collection. A drive path is still refused as relative when it
+    has no root (``D:folder``), and the system-drive rule reads the drive the
+    same way on every platform.
+    """
+    from pathlib import Path, PureWindowsPath
+
+    return Path(value).expanduser().is_absolute() or PureWindowsPath(value).is_absolute()
+
+
 class ApplicationConfig(_Section):
     name: str = "AI Gaming Video Editor"
     environment: Literal["development", "test", "production"] = "development"
@@ -91,10 +106,8 @@ class ApplicationConfig(_Section):
     @field_validator("media_source_roots")
     @classmethod
     def _absolute_roots(cls, roots: list[str]) -> list[str]:
-        from pathlib import Path
-
         for root in roots:
-            if not root or not Path(root).expanduser().is_absolute():
+            if not root or not _is_absolute(root):
                 raise ValueError(
                     "application.media_source_roots entries must be absolute paths."
                 )
@@ -243,12 +256,12 @@ class DailyConfig(_Section):
     def _not_the_system_drive(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        from pathlib import Path
+        from pathlib import Path, PureWindowsPath
 
         path = Path(value).expanduser()
-        if not path.is_absolute():
+        if not _is_absolute(value):
             raise ValueError("daily.output_directory must be an absolute path.")
-        drive = path.drive.rstrip(":").upper()
+        drive = PureWindowsPath(value).drive.rstrip(":").upper()
         if drive == "C":
             raise ValueError(
                 "daily.output_directory refuses the system drive: this "
