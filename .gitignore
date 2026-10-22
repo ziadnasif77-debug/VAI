@@ -66,3 +66,8 @@ Thumbs.db
 /animation/out/
 /animation/godot/.godot/
 /animation/assets/
+
+# Autonomous engineering mission: scratch media, the run lock and worktrees
+# are per-run; the ledger, reports and project map are versioned.
+/.ai-mission/tmp/
+/.ai-mission/run.lock
