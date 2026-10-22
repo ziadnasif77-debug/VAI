@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -319,6 +320,21 @@ class TestExclusiveSourceRoot:
             project_id, MediaImport(path=str(sample_video))
         )
         assert media.id.startswith("media-")
+
+    @pytest.mark.skipif(os.name == "nt", reason="a drive letter is absolute on Windows")
+    def test_a_drive_letter_root_on_another_system_allows_nothing(
+        self, database, paths, config, project_id, sample_video, tmp_path, monkeypatch
+    ) -> None:
+        # Resolved against the working directory, "D:/vault" would have
+        # allowed a folder of that very name sitting under it.
+        monkeypatch.chdir(tmp_path)
+        clip = self._clip(tmp_path / "D:" / "vault", sample_video)
+        service = self._service(database, paths, config, Path("D:/vault"))
+
+        with pytest.raises(MediaError) as caught:
+            service.import_media(project_id, MediaImport(path=str(clip)))
+
+        assert caught.value.code is ErrorCode.PATH_NOT_ALLOWED
 
     def test_the_shipped_configuration_names_the_owners_folder(self) -> None:
         from backend.config.loader import load_config, reset_config_cache

@@ -170,7 +170,13 @@ class MediaIngestionService:
             return
         resolved = os.path.normcase(str(path.expanduser().resolve()))
         for root in roots:
-            allowed = os.path.normcase(str(Path(root).expanduser().resolve()))
+            root_path = Path(root).expanduser()
+            # "D:/Gaming 2026" read on Linux is a relative path, and resolving
+            # it would allow a folder of that name under the working directory.
+            # A root that is not absolute on this system names nowhere here.
+            if not root_path.is_absolute():
+                continue
+            allowed = os.path.normcase(str(root_path.resolve()))
             if resolved == allowed or resolved.startswith(allowed + os.sep):
                 return
         raise MediaError(

@@ -50,3 +50,21 @@ Times are Europe/Oslo.
 - Known risks: a Windows root on Linux now passes validation — paired with M-2
   so it cannot widen the ingestion allowlist.
 - Next step: none for this item.
+
+## [run-20261022-a] [2026-10-22 06:22, Europe/Oslo] [2]
+- Backlog ID / title: M-2 / A drive-letter source root names nowhere on another system
+- Type: fix (security hardening of the owner's exclusive-source rule)
+- What changed and why: `_require_allowed_root` resolved each root with
+  `Path(root).resolve()`; on Linux `D:/vault` resolves under the working
+  directory, so a folder literally named `D:/vault` there would be importable.
+  Roots that are not absolute on this system are now skipped (allow nothing).
+- Files changed: `backend/services/media_ingestion.py`,
+  `tests/unit/test_media_ingestion.py`
+- Evidence: new test `test_a_drive_letter_root_on_another_system_allows_nothing`
+  fails without the fix (import succeeded), passes with it; the whole file
+  passes (31, 1 Windows-only skip).
+- Status: Verified and implemented
+- Commit hash: see CLOSING entry
+- Push: see CLOSING entry
+- Known risks: none known; Windows behaviour unchanged (test skipped on nt).
+- Next step: none.
