@@ -88,3 +88,15 @@ truth and a correction entry is added here.
 - Push: see push log of the run report
 - Known risks / limitations: none known.
 - What this does NOT cover, next step: none.
+
+## [run-20261022-0624] [2026-10-22 08:55, Europe/Oslo] [2]
+- Backlog ID / title: BL-018: a BT.601 recording is cut as BT.709
+- Type: fix
+- What changed and why: the render now probes each recording once. If the recording is tagged BT.601 (`bt470bg` or `smpte170m`), its segments get `in_color_matrix=bt601:out_color_matrix=bt709` in the same scale pass and are written with BT.709 tags. Untagged and BT.709 recordings are not touched (swscale reads untagged input as 601, so converting everything would shift normal captures). Converted segments get a `-709` name suffix, so a segment cut before this change is never reused as a converted one. Found while testing: FFmpeg 6.1.1's `vf_scale.c` does not put the output matrix into the frame's colour tag (master does, `out->colorspace = outlink->colorspace`), and `ffmpeg_enc.c` copies the encoder's tags from the frame. So the tags must be written explicitly. The previous run's note "the conversion also tags" was true only for master.
+- Files changed: `backend/rendering/ffmpeg_renderer.py`, `tests/integration/test_colour_matrix.py` (new)
+- Evidence: new tests (synthetic #FFD400, lossless x264, FFmpeg 6.1.1). Without the fix: 2 failed, 1 passed (programme still tagged `bt470bg`; read as BT.709 the green channel is off by 10). With the conversion but no explicit tags: 1 failed (tag). With the fix: 3 passed. Regression: `test_timeline.py test_rendering.py test_time_warp.py test_colour_matrix.py` 208 passed; `test_media_engine.py` 32 passed (198 s). `ruff check` clean.
+- Status: Verified and implemented (programme video). The final encode with the overlay and a QA tag check are not covered.
+- Commit hash: see push log of the run report
+- Push: see push log of the run report
+- Known risks / limitations: primaries are relabelled, not converted (SMPTE-C/EBU vs BT.709 differ very little). One extra ffprobe per recording per render. Full-range (`pc`) 601 sources are not handled specially.
+- What this does NOT cover, next step: check that the final encode (overlay composite, `encoder.py`) keeps the BT.709 tag, then add a QA `colour_tags` check (new check name and config key).

@@ -129,6 +129,7 @@ def render_programme(
     reused = 0
     baked_effects = 0
     elapsed = 0.0
+    matrices: dict[Path, str | None] = {}
     for position, clip in enumerate(enabled):
         if should_cancel is not None and should_cancel():
             raise CancelledError("Render cancelled between clips.")
@@ -151,9 +152,15 @@ def render_programme(
         effects = _realised(clip, (effects_by_clip or {}).get(clip.id, ()))
         warp = clip_retime(clip)
         baked_effects += len(effects) + (1 if warp is not None else 0)
+        if source not in matrices:
+            matrices[source] = _source_matrix(source, runner)
+        matrix = matrices[source]
+        # The conversion changes every pixel, so it is part of the name too:
+        # a segment cut before it existed must not be reused as a converted one.
         segment = segments_dir / (
             f"{position:05d}_{clip.id}{_fade_token(clip)}"
-            f"{_effects_token(effects)}{_retime_token(warp)}.mp4"
+            f"{_effects_token(effects)}{_retime_token(warp)}"
+            f"{'-709' if matrix else ''}.mp4"
         )
         if _is_complete(segment, clip.duration, runner):
             reused += 1
@@ -168,6 +175,7 @@ def render_programme(
                 target=target,
                 effects=effects,
                 warp=warp,
+                source_matrix=matrix,
                 should_cancel=should_cancel,
             )
         segments.append(segment)
@@ -233,6 +241,7 @@ def _cut(
     target: EncodeTarget,
     effects: Sequence[EffectInstance] = (),
     warp: ClipRetime | None = None,
+    source_matrix: str | None = None,
     should_cancel: CancelCheck | None,
 ) -> None:
     """Extract one clip, re-encoded so the cut lands on the requested frame.
@@ -253,11 +262,15 @@ def _cut(
 
     if warp is None:
         picture = _scale_arguments(
-            clip, target, fades=_fade_filter(clip) + _effect_filters(clip, effects, target)
+            clip,
+            target,
+            fades=_fade_filter(clip) + _effect_filters(clip, effects, target),
+            source_matrix=source_matrix,
         )
         source_read: list[str] = []
     else:
-        picture = ["-filter_complex", _warp_graph(clip, warp, effects, target), "-map", "[vout]"]
+        graph = _warp_graph(clip, warp, effects, target, source_matrix=source_matrix)
+        picture = ["-filter_complex", graph, "-map", "[vout]"]
         # Bound the read as well as the write: the graph stops passing frames
         # at ``source_duration``, but without an input-side ``-t`` FFmpeg
         # would keep decoding to the end of the recording feeding a finished
@@ -278,6 +291,7 @@ def _cut(
         "-an",
         *picture,
         *intermediate_arguments(encoder, config.render),
+        *(_BT709_TAGS if source_matrix else []),
         "-r", str(target.fps),
         # Every segment must start at zero for the concat demuxer, and a
         # source seek leaves the original timestamps in place.
@@ -300,7 +314,11 @@ def _cut(
 
 
 def _scale_arguments(
-    clip: TimelineClip, target: EncodeTarget, *, fades: str = ""
+    clip: TimelineClip,
+    target: EncodeTarget,
+    *,
+    fades: str = "",
+    source_matrix: str | None = None,
 ) -> list[str]:
     """Scale and pad every clip to the output frame.
 
@@ -308,13 +326,55 @@ def _scale_arguments(
     refuses streams that do not match. Padding rather than stretching keeps a
     4:3 capture from being distorted into 16:9; the bars are honest.
     """
-    return ["-vf", _frame_chain(target) + fades]
+    return ["-vf", _frame_chain(target, source_matrix) + fades]
 
 
-def _frame_chain(target: EncodeTarget) -> str:
-    """The geometry every segment shares, whichever route cuts it."""
+#: ffprobe's names for the BT.601 YCbCr matrix: PAL/SECAM and NTSC tag the
+#: same coefficients under different names.
+_BT601_MATRICES: Final = frozenset({"bt470bg", "smpte170m"})
+
+
+#: Output tags for a converted segment. The primaries are relabelled, not
+#: converted: SMPTE-C/EBU and BT.709 primaries differ too little for a game
+#: capture to show it, and the matrix is what visibly shifts colours.
+_BT709_TAGS: Final = (
+    "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+)
+
+
+def _source_matrix(source: Path, runner: FFmpegRunner) -> str | None:
+    """``"bt601"`` when the recording is tagged BT.601, otherwise ``None``.
+
+    The caption overlay is BT.709 (BL-014), so a BT.601 recording composited
+    unconverted shifts every saturated colour -- #FFD400 reads as 255,201,0.
+    Only an explicit 601 tag converts. An *untagged* recording is left alone:
+    swscale reads untagged input as BT.601, so a blanket conversion would
+    shift the colours of the ordinary untagged (in practice BT.709) capture.
+    """
+    try:
+        streams = probe_media(source, runner, require_video=True).raw.get("streams", [])
+    except MediaError:
+        return None
+    for stream in streams:
+        if stream.get("codec_type") == "video":
+            return "bt601" if stream.get("color_space") in _BT601_MATRICES else None
+    return None
+
+
+def _frame_chain(target: EncodeTarget, source_matrix: str | None = None) -> str:
+    """The geometry every segment shares, whichever route cuts it.
+
+    A BT.601 recording is also converted to BT.709 here, in the same scale
+    pass. swscale tags the converted frames, so the segment is written as
+    BT.709 and nothing downstream has to know where it came from.
+    """
+    matrix = (
+        f":in_color_matrix={source_matrix}:out_color_matrix=bt709"
+        if source_matrix
+        else ""
+    )
     return (
-        f"scale={target.width}:{target.height}:force_original_aspect_ratio=decrease,"
+        f"scale={target.width}:{target.height}:force_original_aspect_ratio=decrease{matrix},"
         f"pad={target.width}:{target.height}:(ow-iw)/2:(oh-ih)/2:color=black,"
         "setsar=1"
     )
@@ -627,6 +687,8 @@ def _warp_graph(
     warp: ClipRetime,
     effects: Sequence[EffectInstance],
     target: EncodeTarget,
+    *,
+    source_matrix: str | None = None,
 ) -> str:
     """The ``filter_complex`` that realises one clip's freeze or ramp.
 
@@ -645,7 +707,7 @@ def _warp_graph(
     fade-out belongs at the end of the clip the viewer gets, not the one the
     recording had.
     """
-    base = _frame_chain(target) + _effect_filters(clip, effects, target)
+    base = _frame_chain(target, source_matrix) + _effect_filters(clip, effects, target)
     fades = _fade_filter(clip)
     source = clip.source_duration
     at = min(max(warp.at_seconds, 0.0), source)
