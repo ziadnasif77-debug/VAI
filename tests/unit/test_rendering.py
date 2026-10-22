@@ -405,6 +405,8 @@ class TestMixGraph:
 
         assert f"loudnorm=I={config.audio.mix.normalization.target_lufs}" in plan.filter_complex
         assert "alimiter" in plan.filter_complex
+        # Auto level off, or the limit is not a ceiling (test_audio_mix_levels).
+        assert ":level=0" in plan.filter_complex
 
 
 class TestLocalMusicOnly:

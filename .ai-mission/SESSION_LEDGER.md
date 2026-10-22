@@ -68,3 +68,26 @@ Times are Europe/Oslo.
 - Push: see CLOSING entry
 - Known risks: none known; Windows behaviour unchanged (test skipped on nt).
 - Next step: none.
+
+## [run-20261022-a] [2026-10-22 06:24, Europe/Oslo] [3]
+- Backlog ID / title: M-3 / The mix limiter's ceiling is a ceiling (alimiter auto level off)
+- Type: fix (audio quality, §72/§74)
+- What changed and why: FFmpeg's `alimiter` has `level` (auto level) on by
+  default, which multiplies the output by 1/limit. The mix wrote
+  `alimiter=limit=X` without it, so the configured ceiling was not respected:
+  measured on FFmpeg 6.1.1 with synthetic pink noise, a -6 dB limit peaked at
+  0.00 dBFS, and the shipped loudnorm(TP -1) + limiter(-0.3) chain peaked at
+  -0.70 dB instead of -1.00. Now `alimiter=limit=X:level=0`. The option exists
+  since FFmpeg 4.2 (doxygen source), so the target's FFmpeg 9.0 has it.
+- Files changed: `backend/rendering/audio_mix.py`,
+  `tests/integration/test_audio_mix_levels.py` (new, runs real FFmpeg),
+  `tests/unit/test_rendering.py`
+- Evidence: both new integration tests fail before (peaks 0.00 / -0.70 dB),
+  pass after (≤ -6.0 / ≤ -1.0 dB, tolerance 0.1). `test_rendering.py` 60 pass.
+- Status: Verified and implemented
+- Commit hash: see CLOSING entry
+- Push: see CLOSING entry
+- Known risks: programme ~0.3 dB quieter than before (it was 0.3 dB over the
+  configured target). `backend/rendering/sfx.py` recipes still use auto level
+  (generated stingers normalise to 0 dBFS) — left alone, backlog M-6.
+- Next step: M-5 (loudnorm single-pass misses the target, measured below).
