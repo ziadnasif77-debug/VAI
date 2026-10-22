@@ -151,3 +151,23 @@ Times are Europe/Oslo.
 - Push: see run report push log
 - Known risks / limitations: P0-SUITE-1 contents filled when the unit tier finishes.
 - Next step: P1-AUDIO-2.
+
+## [run-2026-10-22_0711] [2026-10-22 10:10, Europe/Oslo] [7]
+- Backlog ID / title: P0-PORT-2 / a POSIX absolute output directory is accepted as written
+- Type: fix
+- What changed and why: `backend/core/models/project.py::_clean_output_directory`
+  judged every path as a `PureWindowsPath`, so on a POSIX checkout an absolute
+  `/home/...` folder was refused as relative (and, had it passed, would have
+  been rewritten with backslashes). A path with no Windows drive that is
+  absolute on this machine is now returned unchanged; Windows behaviour (drive
+  required, `C:` refused, normalised separators) is unchanged.
+- Files changed: `backend/core/models/project.py`, `tests/unit/test_project_manager.py`
+- Evidence: unit tier baseline had 2 failures in `test_publish_worker.py`
+  (`Output directory must be an absolute path, got '/home/user/VAI/...'`). After:
+  `test_project_manager.py` + `test_publish_worker.py` 61 passed; the new test
+  fails without the fix (skipped on Windows). `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: this commit
+- Push: see run report push log
+- Known risks / limitations: none known.
+- Next step: none for this item.

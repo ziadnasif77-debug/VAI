@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -320,6 +321,14 @@ class TestDeliveryChoices:
             ProjectCreate(
                 name="X", target_duration_seconds=900, output_directory="videos\\out"
             )
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="a POSIX path is relative on Windows")
+    def test_a_posix_absolute_output_directory_is_kept_as_written(self) -> None:
+        created = ProjectCreate(
+            name="X", target_duration_seconds=900, output_directory="/srv/videos/out"
+        )
+
+        assert created.output_directory == "/srv/videos/out"
 
     def test_a_blank_output_directory_means_none(self) -> None:
         created = ProjectCreate(
