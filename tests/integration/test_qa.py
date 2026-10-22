@@ -175,6 +175,38 @@ def _status_of(findings, check: str) -> QAStatus | None:
     return None
 
 
+class TestColourTags:
+    """A finished video tagged BT.601 warns; BT.709 or untagged passes (BL-018)."""
+
+    TAGGED = ("-c:v", "libx264", "-preset", "ultrafast", "-colorspace")
+
+    def _tagged(self, directory: Path, matrix: str) -> Path:
+        return _make(
+            directory / f"{matrix}.mp4", "testsrc", None, seconds=2,
+            encode=(*self.TAGGED, matrix),
+        )
+
+    def test_a_bt601_tag_warns_without_blocking(
+        self, tmp_path: Path, expected, runner, qa_config
+    ) -> None:
+        clip = self._tagged(tmp_path, "bt470bg")
+        findings = technical.inspect(clip, expected, runner=runner, config=qa_config.qa)
+
+        assert _status_of(findings, "colour_tags") is QAStatus.WARNING
+        assert not any(f.failed for f in findings if f.check == "colour_tags")
+
+    def test_a_bt709_tag_passes(self, tmp_path: Path, expected, runner, qa_config) -> None:
+        clip = self._tagged(tmp_path, "bt709")
+        findings = technical.inspect(clip, expected, runner=runner, config=qa_config.qa)
+
+        assert _status_of(findings, "colour_tags") is QAStatus.PASSED
+
+    def test_an_untagged_render_passes(self, clips, expected, runner, qa_config) -> None:
+        findings, _ = _inspect(clips, "good", expected, runner, qa_config)
+
+        assert _status_of(findings, "colour_tags") is QAStatus.PASSED
+
+
 class TestAcceptance:
     """**A deliberately broken render is detected.**"""
 

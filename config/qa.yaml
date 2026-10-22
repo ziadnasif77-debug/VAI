@@ -13,6 +13,8 @@ qa:
       duration: true
       resolution: true
       fps: true
+      # Warns when the finished video is tagged BT.601 (BL-018).
+      colour_tags: true
       video_stream: true
       audio_stream: true
       black_frames: true

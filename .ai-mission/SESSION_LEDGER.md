@@ -112,3 +112,15 @@ truth and a correction entry is added here.
 - Push: see push log of the run report
 - Known risks / limitations: the overlay path was not run here.
 - What this does NOT cover, next step: a QA `colour_tags` check that warns when the final file is not tagged BT.709 (needs a new config key in `config/qa.yaml`).
+
+## [run-20261022-0624] [2026-10-22 09:10, Europe/Oslo] [4]
+- Backlog ID / title: BL-018 (closing part): QA `colour_tags` check
+- Type: feature
+- What changed and why: technical QA now reads the finished video's colour matrix from the probe it already runs. A file tagged BT.601 (`bt470bg`/`smpte170m`) gets a warning. That tag means a step skipped the conversion, and the BT.709 captions would show shifted colours. It is a warning, not a failure, because the video still plays. BT.709 and untagged files pass, since players read untagged HD video as BT.709. The check is on by default (`enabled_checks` runs any check missing from the config) and is listed in `config/qa.yaml`. It needs no extra decode pass.
+- Files changed: `backend/qa/technical.py`, `config/qa.yaml`, `tests/integration/test_qa.py`
+- Evidence: 3 new tests (601 tag warns and does not block; 709 passes; untagged passes). Without the check: 3 failed. With it: 3 passed. `test_qa.py test_config_coverage.py test_config.py test_qa_content.py`: 69 passed. `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: see push log of the run report
+- Push: see push log of the run report
+- Known risks / limitations: a recording tagged 601 that is not actually 601 inside would now be converted at cut time (entry 2) and pass QA. That trusts the tag, the same as every player does.
+- What this does NOT cover, next step: BL-018 is closed. A composite with a Remotion overlay on a 601 source should still be looked at once on the owner's machine.

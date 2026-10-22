@@ -54,6 +54,7 @@ CHECKS: Final[tuple[str, ...]] = (
     "duration",
     "resolution",
     "fps",
+    "colour_tags",
     "black_frames",
     "frozen_frames",
     "av_sync",
@@ -184,6 +185,8 @@ def inspect(
 
     findings.extend(_stream_findings(probe, checks))
     findings.extend(_format_findings(probe, expected, config, checks))
+    if "colour_tags" in checks:
+        findings.extend(_colour_findings(probe))
 
     if _needs_decode(checks):
         measurements = decode(path, runner, config, total_seconds=probe.duration_seconds)
@@ -299,6 +302,41 @@ def _stream_findings(probe: ProbeResult, checks: set[str]) -> list[Finding]:
         else:
             findings.append(passed("audio_stream", f"{len(probe.audio_tracks)} audio stream(s)"))
     return findings
+
+
+#: ffprobe's names for the BT.601 YCbCr matrix (PAL/SECAM and NTSC).
+_BT601_MATRICES: Final = frozenset({"bt470bg", "smpte170m"})
+
+
+def _colour_findings(probe: ProbeResult) -> list[Finding]:
+    """Warn when the finished video says BT.601.
+
+    The caption overlay is BT.709 (BL-014) and a BT.601 recording is converted
+    when it is cut (BL-018), so a 601 tag on the finished file means a step
+    skipped the conversion: players read it with the 601 matrix and every
+    caption colour shifts (#FFD400 shows as 255,201,0). A warning, not a
+    failure: the video plays. An untagged file passes -- players read HD
+    untagged video as BT.709, and so does the overlay.
+    """
+    for stream in probe.raw.get("streams", []):
+        if stream.get("codec_type") != "video":
+            continue
+        matrix = stream.get("color_space") or "unknown"
+        if matrix in _BT601_MATRICES:
+            return [
+                warning(
+                    "colour_tags",
+                    f"the video is tagged {matrix} (BT.601); the captions are BT.709",
+                    remedy=(
+                        "Re-render: the cut should convert BT.601 recordings to BT.709. "
+                        "If it did not, check the recording's tags with ffprobe."
+                    ),
+                    category="technical",
+                    color_space=matrix,
+                )
+            ]
+        return [passed("colour_tags", f"colour matrix {matrix}", color_space=matrix)]
+    return []
 
 
 def _format_findings(
