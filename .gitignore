@@ -66,3 +66,8 @@ Thumbs.db
 /animation/out/
 /animation/godot/.godot/
 /animation/assets/
+
+# Autonomous engineering mission: scratch space and the single-run lock are
+# per-run by-products; the ledger, reports and backlog are versioned.
+/.ai-mission/tmp/
+/.ai-mission/run.lock
