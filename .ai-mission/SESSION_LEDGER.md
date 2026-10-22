@@ -118,3 +118,19 @@ Times are Europe/Oslo.
   LUFS integrated (target -14): single-pass loudnorm runs in dynamic mode. That
   is backlog P1-AUDIO-2 (two-pass linear loudnorm), not this change.
 - Next step: P1-AUDIO-2.
+
+## [run-2026-10-22_0711] [2026-10-22 09:55, Europe/Oslo] [5]
+- Backlog ID / title: MISSION-2 / project map
+- Type: docs
+- What changed and why: Added `.ai-mission/PROJECT_MAP.md`: stack, entry
+  points, JobStage pipeline, where models load, test commands and the runner
+  setup used, games, configuration, hardware, known limitations. Indexes the
+  project's own PLAN/SPEC/ARCHITECTURE rather than duplicating them.
+- Files changed: `.ai-mission/PROJECT_MAP.md`
+- Evidence: built from `backend/core/models/enums.py`, `docs/ARCHITECTURE.md`,
+  `docs/PLAN.md`, directory listings; unverified items marked.
+- Status: Verified and implemented
+- Commit hash: this commit
+- Push: see run report push log
+- Known risks / limitations: HITMAN profile location not verified.
+- Next step: keep updated when the architecture changes.
