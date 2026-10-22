@@ -76,3 +76,15 @@ truth and a correction entry is added here.
 - Push: see push log of the run report
 - Known risks / limitations: each new cloud session gets a fresh branch from `b034df8`. Until the owner merges a mission branch into the default branch, parallel lines can keep repeating fixes.
 - What this does NOT cover, next step: owner merges this branch; 5r6sxv's open M-5..M-10 items are copied into the backlog as BL-020 to BL-022 where they are not duplicates.
+
+## [run-20261022-0624] [2026-10-22 08:40, Europe/Oslo] [1]
+- Backlog ID / title: BL-020: port M-2 "A drive-letter source root allows nothing on a system without drives" (`2ffbf1e`, only on `5r6sxv`)
+- Type: fix
+- What changed and why: `_require_allowed_root` resolved each allowed root with `Path(root).resolve()`. On Linux, `D:/vault` is a relative path, so it resolved to a folder under the working directory, and a folder with that literal name there would pass the owner's exclusive-source rule. Roots that are not absolute on the running system are now skipped, so they allow nothing. Windows behaviour is unchanged.
+- Files changed: `backend/services/media_ingestion.py`, `tests/unit/test_media_ingestion.py`
+- Evidence: `pytest tests/unit/test_media_ingestion.py` baseline 29 passed, 1 skipped. With the new test but without the fix: 1 failed. With the fix: 30 passed, 1 skipped (the skip is a Windows-only test). `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: see push log of the run report
+- Push: see push log of the run report
+- Known risks / limitations: none known.
+- What this does NOT cover, next step: none.
