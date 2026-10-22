@@ -486,9 +486,31 @@ def codec_arguments(codec: str, preset: str, quality: int) -> list[str]:
     chosen encoder actually reads.
     """
     if "nvenc" in codec:
-        chosen = preset if preset.startswith("p") and preset[1:].isdigit() else "p4"
+        chosen = preset if _is_nvenc_preset(preset) else "p4"
         return ["-c:v", codec, "-preset", chosen, "-cq", str(quality)]
-    return ["-c:v", codec, "-preset", preset, "-crf", str(quality)]
+    # The other direction matters more: the shipped config names an NVENC
+    # preset, and on a machine without working NVENC ``resolve_codec`` falls
+    # back to libx264, which refuses ``p4`` outright -- every import failed.
+    chosen = _X264_FOR_NVENC_PRESET.get(preset, preset)
+    return ["-c:v", codec, "-preset", chosen, "-crf", str(quality)]
+
+
+#: NVENC's p1 (fastest) .. p7 (slowest) onto libx264 presets of a similar
+#: place on the same speed/quality scale. p3 lands on ``veryfast``, the
+#: software default for this proxy.
+_X264_FOR_NVENC_PRESET: Final[dict[str, str]] = {
+    "p1": "ultrafast",
+    "p2": "superfast",
+    "p3": "veryfast",
+    "p4": "faster",
+    "p5": "fast",
+    "p6": "medium",
+    "p7": "slow",
+}
+
+
+def _is_nvenc_preset(preset: str) -> bool:
+    return preset.startswith("p") and preset[1:].isdigit()
 
 
 def resolve_codec(config: ProxyConfig, runner: FFmpegRunner) -> str:

@@ -70,3 +70,27 @@ Times are Europe/Oslo.
   the daily producer is Windows-only in practice. Ingestion with a `D:/` root on
   Linux fails closed (nothing is under it).
 - Next step: none for this item.
+
+## [run-2026-10-22_0711] [2026-10-22 09:35, Europe/Oslo] [3]
+- Backlog ID / title: P0-PROXY-1 / the software proxy fallback no longer receives an NVENC preset
+- Type: fix
+- What changed and why: `config/rendering.yaml` sets `proxy.codec: h264_nvenc`,
+  `proxy.preset: p4`. On a machine without working NVENC, `resolve_codec` falls
+  back to libx264 (§95), but `codec_arguments` passed `-preset p4` through and
+  libx264 exits 234 ("invalid preset 'p4'"). Every import on such a machine
+  failed at PROXY_GENERATION_FAILED -- the documented fallback never worked.
+  NVENC p1..p7 now map to libx264 presets (p4 → faster); other presets pass
+  through unchanged. The opposite mapping already existed.
+- Files changed: `backend/media/proxy.py`, `tests/unit/test_media.py`
+- Evidence: captured argv/stderr on this runner: `/usr/bin/ffmpeg ... -c:v
+  libx264 -preset p4 -crf 28 ...` → returncode 234, `x264 [error]: invalid
+  preset 'p4'`. New unit test fails without the fix, passes with it.
+  `tests/integration/test_critique_pipeline.py`: failing before
+  (`KeyError: JobStage.EDL` after the proxy job failed), 8 passed after.
+  `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: this commit (see push log)
+- Push: see run report push log
+- Known risks / limitations: the p→x264 table is a speed-class mapping, not a
+  measured quality equivalence; the proxy is watched by detectors, not people.
+- Next step: none for this item.
