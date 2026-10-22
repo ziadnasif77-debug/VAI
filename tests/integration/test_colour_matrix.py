@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from backend.media.ffmpeg import FFmpegRunner
+from backend.rendering.composite import composite
 from backend.rendering.encoder import EncoderChoice, EncodeTarget
 from backend.rendering.ffmpeg_renderer import render_programme
 from backend.timeline.models import TimelineClip
@@ -139,3 +140,29 @@ class TestUntaggedRecording:
 
         assert _matrix_tag(runner, programme) in (None, "unknown")
         assert np.abs(before - after).max() <= 2, (before, after)
+
+
+class TestFinalEncode:
+    def test_the_finished_video_keeps_the_bt709_tag(
+        self, runner, config, tmp_path: Path
+    ) -> None:
+        # The final encode copies its tags from the frames it is given, so a
+        # converted programme must come out of composite still BT.709.
+        source = _yellow(runner, tmp_path / "bt601.mp4", bt601=True)
+        programme = _render(runner, config, source, tmp_path)
+
+        final = composite(
+            programme,
+            overlay=None,
+            mix=None,
+            destination=tmp_path / "final.mp4",
+            runner=runner,
+            config=config,
+            encoder=X264,
+            target=TARGET,
+            duration_seconds=1.5,
+        )
+
+        assert _matrix_tag(runner, final.path) == "bt709"
+        pixel = _centre(runner, final.path, read_as="bt709")
+        assert np.abs(pixel - np.array(YELLOW)).max() <= 5, pixel

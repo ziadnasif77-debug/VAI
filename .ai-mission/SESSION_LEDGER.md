@@ -100,3 +100,15 @@ truth and a correction entry is added here.
 - Push: see push log of the run report
 - Known risks / limitations: primaries are relabelled, not converted (SMPTE-C/EBU vs BT.709 differ very little). One extra ffprobe per recording per render. Full-range (`pc`) 601 sources are not handled specially.
 - What this does NOT cover, next step: check that the final encode (overlay composite, `encoder.py`) keeps the BT.709 tag, then add a QA `colour_tags` check (new check name and config key).
+
+## [run-20261022-0624] [2026-10-22 09:00, Europe/Oslo] [3]
+- Backlog ID / title: BL-018 follow-up: the finished video keeps BT.709
+- Type: test
+- What changed and why: entry 2 left one question open: does the final encode (`composite`) keep the BT.709 tag? `ffmpeg_enc.c` sets the encoder's colour tags from the first frame, so a converted programme should come out BT.709. Now measured.
+- Files changed: `tests/integration/test_colour_matrix.py`
+- Evidence: new test `test_the_finished_video_keeps_the_bt709_tag` (no overlay, no mix, libx264): passes on the current renderer, fails with the renderer from before `8c32e51` (1 failed). File: 4 passed.
+- Status: Verified and implemented (without an overlay. A composite with a Remotion overlay needs the Remotion toolchain, which this runner lacks)
+- Commit hash: see push log of the run report
+- Push: see push log of the run report
+- Known risks / limitations: the overlay path was not run here.
+- What this does NOT cover, next step: a QA `colour_tags` check that warns when the final file is not tagged BT.709 (needs a new config key in `config/qa.yaml`).
