@@ -133,3 +133,26 @@ Times are Europe/Oslo.
 - Push: see CLOSING entry
 - Known risks: synthetic signal is harsher than real gameplay audio.
 - Next step: M-5 needs QA loudness figures from real renders on the target machine.
+
+## [run-20261022-a] CLOSING [2026-10-22 06:35, Europe/Oslo]
+- Items completed and verified (IDs): BASE-0 (7cd04ba), M-1 (07907e4),
+  M-2 (2ffbf1e), M-3 (3957392), M-4 (8b27bb3), docs (db5f718); each push
+  confirmed by `git rev-parse HEAD == origin/claude/lucid-heisenberg-5r6sxv`.
+- Verification: `ruff check .` clean; `tests/unit` + touched integration
+  files: 2539 passed, 17 failed (all environment/portability, M-9/M-10,
+  none in changed code), 1 skipped. Full non-slow suite NOT completed (too
+  slow for the budget on 4 vCPU). Slow integration tests not run.
+- Items in progress: none. No patches.
+- Items blocked: GPU/NVENC/VRAM benchmarks (no GPU in container); research
+  depth (ffmpeg.org hosts unreachable) — run marked incomplete on §4A depth.
+- Everything pushed? yes; the closing commit carries this entry, the report,
+  and the backlog update.
+- Branch note: pushed to the session-pinned `claude/lucid-heisenberg-5r6sxv`,
+  not `ai/gaming-video-auto` (harness rule). Owner decides.
+- Backlog changes: opened M-1..M-10; closed M-1..M-4.
+- Top five next actions for the next session (ordered):
+  1. Owner-gated PLAN items (P0.6 viewing, DATASET GATE) if unblocked.
+  2. M-10: the remaining Windows-only path rules (project output dir, rooted model root).
+  3. M-7: true-peak margin in the mix, verified with ebur128.
+  4. M-9: scipy in the `ai` extra (needs owner approval: dependency).
+  5. M-5: loudness on real renders (target machine) before any mastering change.
