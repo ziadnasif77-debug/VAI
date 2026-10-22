@@ -171,3 +171,28 @@ Times are Europe/Oslo.
 - Push: see run report push log
 - Known risks / limitations: none known.
 - Next step: none for this item.
+
+## [run-2026-10-22_0711] [2026-10-22 10:15, Europe/Oslo] [8]
+- Backlog ID / title: P0-DEPS-1 / HUD row location no longer needs an undeclared scipy
+- Type: fix
+- What changed and why: `backend/gaming/hud.py::_locate_row` imported
+  `scipy.ndimage.uniform_filter`, but scipy is in no manifest (`pyproject.toml`
+  `[ai]` lists numpy/opencv, not scipy). A clean `pip install -e ".[ai]"` could
+  not read any HUD glyph row (GTA V wanted level etc.). Replaced by
+  `cv2.blur(window, (21, 21), borderType=cv2.BORDER_REFLECT)` -- the same
+  per-channel 21x21 box mean with scipy's default `reflect` edges.
+- Files changed: `backend/gaming/hud.py`
+- Evidence: unit tier baseline: 12 failures in `test_hud.py`
+  (`ModuleNotFoundError: No module named 'scipy'`). After: 26 passed.
+  Equivalence: max |cv2.blur − independent numpy symmetric-pad box mean| =
+  2.9e-12 over six shapes incl. windows shorter than the kernel (6x30, 9x9).
+  `ruff check` clean.
+- Status: Verified and implemented
+- Commit hash: this commit
+- Push: see run report push log
+- Known risks / limitations: equivalence was checked against a numpy reference
+  of scipy's documented `reflect` mode, not against scipy itself (scipy is not
+  installed on the runner and NEW_DEPENDENCY_ALLOWED=false). The existing HUD
+  tests are the behavioural check; the owner's machine still has scipy, so a
+  side-by-side check there is cheap.
+- Next step: none for this item.
