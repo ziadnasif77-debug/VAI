@@ -91,3 +91,25 @@ Times are Europe/Oslo.
   configured target). `backend/rendering/sfx.py` recipes still use auto level
   (generated stingers normalise to 0 dBFS) — left alone, backlog M-6.
 - Next step: M-5 (loudnorm single-pass misses the target, measured below).
+
+## [run-20261022-a] [2026-10-22 06:26, Europe/Oslo] [4]
+- Backlog ID / title: M-4 / The proxy's libx264 fallback no longer inherits NVENC's preset
+- Type: fix (§95 graceful degradation)
+- What changed and why: shipped `config/rendering.yaml` proxy is
+  `h264_nvenc` / `p4`. When `resolve_codec` finds NVENC unusable it returns
+  `libx264`, but `codec_arguments` passed `-preset p4` through and x264 exits
+  "invalid preset 'p4'": every import on a machine without working NVENC
+  failed at the proxy (found when the integration suite ran here, no GPU).
+  An NVENC-style `pN` preset now maps to `veryfast` (the schema's software
+  default) on software encoders.
+- Files changed: `backend/media/proxy.py`, `tests/unit/test_media.py`
+- Evidence: captured FFmpeg stderr `x264 [error]: invalid preset 'p4'`;
+  `tests/integration/test_critique_pipeline.py` then got past the proxy
+  (remaining failure was a missing PySceneDetect, installed from the
+  project's own `ai` extras → 8 passed). New unit test fails before, passes
+  after.
+- Status: Verified and implemented
+- Commit hash: see CLOSING entry
+- Push: see CLOSING entry
+- Known risks: none; NVENC path unchanged.
+- Next step: none.
