@@ -17,3 +17,15 @@ truth and a correction entry is added here.
 - Push: see the run's push log
 - Known risks / limitations: earlier runs' test evidence is quoted from their reports, not re-run here.
 - What this does NOT cover, next step: port `e13c267` (this run), keep one line of history from now on.
+
+## [run-20261022-0307] [2026-10-22 05:40, Europe/Oslo] [1]
+- Backlog ID / title: BL-019 — port P0.8 "A moment the sequence repair took out is never brought back" (`e13c267`, only on `claude/dreamy-mccarthy-4cvvu9`)
+- Type: fix
+- What changed and why: `repair_sequence` now remembers every moment a variety/flatness/arc repair removed and never offers it again from the bench. Before, variety and flatness could swap the same pair back and forth until the round limit decided the edit by parity. The fix was written in an earlier run on a branch that was never consolidated; ported unchanged.
+- Files changed: `backend/narrative/optimizer.py`, `tests/unit/test_narrative.py`
+- Evidence: new test `test_a_moment_taken_out_is_never_brought_back` fails on the old optimizer (1 failed) and passes with the port (1 passed). `test_narrative.py test_narrative_pipeline.py test_pacing_benchmark.py test_house_edit_frozen.py test_edl_pipeline.py`: 110 passed, 7 skipped (the benchmark/frozen-edit skips need the owner's database). `ruff check`: clean.
+- Status: Verified and implemented (the house-edit benchmark could not be replayed here: no database)
+- Commit hash: recorded in the push log of the run report
+- Push: see the run report's push log
+- Known risks / limitations: the frozen house edit on the owner's machine may change if the old ping-pong was live there; `test_house_edit_frozen.py` will show it.
+- What this does NOT cover, next step: owner runs `pytest tests/integration/test_house_edit_frozen.py` on the machine with the database.

@@ -1043,6 +1043,31 @@ class TestSequenceRepair:
         assert [m.start_seconds for m in repaired] == [m.start_seconds for m in chosen]
         assert notes == []
 
+    def test_a_moment_taken_out_is_never_brought_back(self, config) -> None:
+        # Before: variety swapped the chaos at 130 s out, flatness swapped it
+        # back in for the quiet discovery at 10 s, and the two rules traded
+        # the same pair until the round limit decided the edit by parity.
+        def clip(start, moment_type, *, loud, value):
+            moment = _moment(start, moment_type=moment_type, entertainment=value, narrative=value)
+            return self._loud(moment) if loud else self._quiet(moment)
+
+        chosen = [
+            clip(10.0, MomentType.DISCOVERY, loud=False, value=0.343),
+            clip(40.0, MomentType.DISCOVERY, loud=False, value=0.575),
+            clip(70.0, MomentType.CHAOS, loud=True, value=0.57),
+            clip(100.0, MomentType.CHAOS, loud=False, value=0.527),
+            clip(130.0, MomentType.CHAOS, loud=False, value=0.468),
+            clip(160.0, MomentType.TENSION, loud=True, value=0.785),
+        ]
+        bench = [clip(25.0, MomentType.TENSION, loud=False, value=0.614)]
+
+        repaired, notes = self._repair(chosen, bench, config, target=120.0, tolerance=20.0)
+
+        assert len(set(notes)) == len(notes), f"a repair was undone and redone: {notes}"
+        assert not any("for a chaos at 130s" in note for note in notes)
+        starts = [m.context_start for m in repaired]
+        assert starts == sorted(starts), "repair must never reorder"
+
 
 class TestClimaxFallback:
     """A session with no canonical climax type still has a biggest moment."""
