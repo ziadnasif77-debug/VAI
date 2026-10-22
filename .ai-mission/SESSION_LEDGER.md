@@ -134,3 +134,20 @@ Times are Europe/Oslo.
 - Push: see run report push log
 - Known risks / limitations: HITMAN profile location not verified.
 - Next step: keep updated when the architecture changes.
+
+## [run-2026-10-22_0711] [2026-10-22 10:00, Europe/Oslo] [6]
+- Backlog ID / title: MISSION-3 / backlog and research log
+- Type: docs
+- What changed and why: Added `ENGINEERING_BACKLOG.md` (P0/P1/P2 with status,
+  evidence, next step) and `RESEARCH_LOG.md` (sources table for this run).
+  Findings recorded: P1-AUDIO-2 single-pass loudnorm is dynamic mode (measured:
+  synthetic programme LRA 7.9 → 18.0 LU single-pass, 8.0 LU two-pass linear;
+  36 s integration render -13.0 LUFS vs -14 target); P1-NVENC-1 AQ/multipass
+  hypothesis; runner blockers.
+- Files changed: `ENGINEERING_BACKLOG.md`, `RESEARCH_LOG.md`
+- Evidence: commands recorded in the run report.
+- Status: Verified and implemented
+- Commit hash: this commit
+- Push: see run report push log
+- Known risks / limitations: P0-SUITE-1 contents filled when the unit tier finishes.
+- Next step: P1-AUDIO-2.
