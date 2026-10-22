@@ -113,3 +113,23 @@ Times are Europe/Oslo.
 - Push: see CLOSING entry
 - Known risks: none; NVENC path unchanged.
 - Next step: none.
+
+## [run-20261022-a] [2026-10-22 06:35, Europe/Oslo] [5]
+- Backlog ID / title: M-5..M-8 / research, gap analysis and mission docs
+- Type: research + docs
+- What changed and why: Read FFmpeg's alimiter and loudnorm sources and
+  filter docs; measured the shipped loudness chain on synthetic audio. Found
+  that single-pass loudnorm lands ≈3 LU under −14 LUFS on bursty material and
+  that two-pass linear mode is refused by loudnorm for exactly that material
+  (LRA and TP conditions in `af_loudnorm.c`), so the fix is an owner decision
+  on dynamics, not a two-pass switch. Created `ENGINEERING_BACKLOG.md`,
+  `RESEARCH_LOG.md`, `.ai-mission/PROJECT_MAP.md`.
+- Files changed: the three files above, this ledger
+- Evidence: ffmpeg/ebur128 measurements in the run report (synthetic pink
+  noise, FFmpeg 6.1.1); source excerpts quoted in the research log.
+- Status: Research hypothesis requiring an experiment (M-5); Verified finding
+  awaiting implementation (M-6, M-7, M-8)
+- Commit hash: see CLOSING entry
+- Push: see CLOSING entry
+- Known risks: synthetic signal is harsher than real gameplay audio.
+- Next step: M-5 needs QA loudness figures from real renders on the target machine.
