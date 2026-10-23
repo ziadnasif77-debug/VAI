@@ -30,9 +30,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from backend.api.dependencies import get_jobs, get_projects, get_state
 from backend.core.errors import ErrorCode, ValidationError
-from backend.core.models.enums import JobStage, JobStatus, MomentType, QAStatus
-from backend.core.models.jobs import Job
+from backend.core.models.enums import JobStage, JobStatus, MomentType, QAGate, QAStatus
+from backend.core.models.jobs import EDIT_STAGES, Job
 from backend.database.repositories.gaming import GameEventRepository
+from backend.database.repositories.jobs import JobRepository
 from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.moments import MomentRepository
 from backend.database.repositories.qa import QaRepository
@@ -41,6 +42,7 @@ from backend.database.repositories.timeline import TimelineRepository
 from backend.gaming.exclusions import exclusions_for_media
 from backend.interaction.models import CommandKind, EditCommand
 from backend.interaction.service import InteractionService
+from backend.qa.report import gate_for
 from backend.services.job_manager import JobManager
 from backend.services.project_manager import ProjectManager
 from backend.timeline import operations, validation
@@ -198,6 +200,11 @@ class QaResponse(_Base):
     qa_status: QAStatus = QAStatus.PASSED
     blocks_export: bool = False
     needs_review: bool = False
+    #: The verdicts above as one gate; a check that did not run is never PASS.
+    gate: QAGate = QAGate.PASS
+    #: True while QA is queued or running: the findings of an earlier render
+    #: are not a verdict on the one about to be judged.
+    pending: bool = False
     findings: list[QaFindingView] = Field(default_factory=list)
 
 
@@ -355,19 +362,27 @@ def generate_edit(
     project_id: str,
     projects: ProjectManager = Depends(get_projects),
     jobs: JobManager = Depends(get_jobs),
+    state=Depends(get_state),
 ) -> QueuedResponse:
     """Rebuild the edit from stored analysis (§127).
 
-    Re-runs STORY, EDL, CRITIQUE and RENDER without touching a frame of the
-    source, which is what makes changing the target duration cost seconds
-    instead of an hour.
+    Re-runs every edit stage, STORY through CRITIC2, without touching a frame
+    of the source, which is what makes changing the target duration cost
+    seconds instead of an hour.
+
+    QA's and CRITIC2's verdicts were about the previous edit, so they are
+    cleared rather than left for the publish gate and the report to read as
+    current; so is CRITIC2's snapshot, which would otherwise restore the
+    previous edit's clips over the new one.
     """
     projects.get(project_id)
-    requeued = _requeue(
-        jobs,
-        project_id,
-        (JobStage.STORY, JobStage.EDL, JobStage.CRITIQUE, JobStage.RENDER),
-    )
+    requeued = _requeue(jobs, project_id, EDIT_STAGES)
+    repository = JobRepository(state.database)
+    with state.database.transaction():
+        for job in jobs.list_jobs(project_id):
+            if job.stage in (JobStage.QA, JobStage.CRITIC2) and job.result:
+                repository.update(job.model_copy(update={"result": {}}))
+        state.database.execute("DELETE FROM critic2_snapshots WHERE project_id = ?", (project_id,))
     return QueuedResponse(
         project_id=project_id,
         queued=requeued,
@@ -427,6 +442,9 @@ def get_qa(
 ) -> QaResponse:
     """The QA report for the latest render (§76–§79)."""
     projects.get(project_id)
+    qa_job = JobRepository(state.database).find(project_id, JobStage.QA)
+    if qa_job is not None and qa_job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+        return QaResponse(project_id=project_id, pending=True, gate=QAGate.NEEDS_REVIEW)
     latest = RenderRepository(state.database).latest(project_id)
     if latest is None:
         return QaResponse(project_id=project_id)
@@ -452,6 +470,12 @@ def get_qa(
         qa_status=overall,
         blocks_export=bool(failures),
         needs_review=bool(failures or warnings),
+        gate=gate_for(
+            blocks_export=bool(failures),
+            needs_review=bool(failures or warnings),
+            warned=bool(warnings),
+            unmeasured=any(item.qa_status is QAStatus.NOT_MEASURED for item in findings),
+        ),
         findings=findings,
     )
 

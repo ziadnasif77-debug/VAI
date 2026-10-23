@@ -26,7 +26,14 @@ from typing import Any, Final
 from backend.config.schema import CaptionsConfig, QaConfig
 from backend.core.logging import LogChannel, get_logger
 from backend.gaming.profiles import GameProfile, Region
-from backend.qa.report import Finding, enabled_checks, failure, passed, warning
+from backend.qa.report import (
+    Finding,
+    enabled_checks,
+    failure,
+    not_measured,
+    passed,
+    warning,
+)
 from backend.timeline.captions import Caption
 from backend.timeline.models import Timeline, TimelineClip
 
@@ -148,6 +155,10 @@ class ContentInputs:
     #: Black runs technical QA measured, in timeline time.
     black_runs: Sequence[tuple[float, float]] = ()
     profile: GameProfile | None = None
+    #: Why there is no ``profile`` when one should have been found -- no
+    #: game-events result names one, or the recordings disagree. ``None``
+    #: with no profile keeps the old meaning: nothing declared, a pass.
+    profile_unresolved: str | None = None
 
 
 def inspect(
@@ -180,7 +191,9 @@ def inspect(
     if "authorization_bounds" in checks:
         findings.append(_authorization_bounds(timeline))
     if "caption_covers_hud" in checks:
-        findings.append(_captions_over_hud(captions, caption_config, inputs.profile))
+        findings.append(
+            _captions_over_hud(captions, caption_config, inputs.profile, inputs.profile_unresolved)
+        )
 
     logger.info(
         "Content QA complete",
@@ -381,8 +394,50 @@ def _clip_density(timeline: Timeline) -> Finding:
     )
 
 
+def cut_word_audit(
+    timeline: Timeline, words: Mapping[str, Sequence[tuple[float, float, str]]]
+) -> Finding:
+    """Does any cut land inside a spoken word? Recorded, never judged.
+
+    ``words`` is each recording's stored word timestamps, ``(start, end,
+    text)`` in source seconds. A cut on a word's boundary is not inside it.
+    Observe-only: the count is recorded so a threshold can be set from data.
+    """
+    clips = timeline.video_clips()
+    if not any(words.get(clip.media_id) for clip in clips):
+        return not_measured(
+            "cut_inside_word",
+            "no stored word timestamps for the recordings in this edit",
+            remedy="Run transcription with word timestamps, then run QA again.",
+            category="observation",
+        )
+    cuts = 0
+    examples: list[dict[str, object]] = []
+    for clip in clips:
+        spoken = words.get(clip.media_id) or ()
+        for edge, at in (("in", clip.source_in), ("out", clip.source_out)):
+            cuts += 1
+            word = next((item for item in spoken if item[0] < at < item[1]), None)
+            if word is not None:
+                examples.append(
+                    {"clip": clip.clip_index, "edge": edge, "at": round(at, 3), "word": word[2]}
+                )
+    return passed(
+        "cut_inside_word",
+        f"{len(examples)} of {cuts} cut(s) land inside a word "
+        "(observed only; threshold TBD-from-data)",
+        category="observation",
+        cuts=cuts,
+        inside_words=len(examples),
+        examples=examples[:20],
+    )
+
+
 def _captions_over_hud(
-    captions: Sequence[Caption], config: CaptionsConfig, profile: GameProfile | None
+    captions: Sequence[Caption],
+    config: CaptionsConfig,
+    profile: GameProfile | None,
+    unresolved: str | None = None,
 ) -> Finding:
     """Would a caption sit on top of something the viewer needs to read? (§77)
 
@@ -392,6 +447,15 @@ def _captions_over_hud(
     """
     if not captions:
         return passed("caption_covers_hud", "no captions to place")
+    if profile is None and unresolved:
+        # Not knowing the game is not the same as knowing it has no HUD.
+        return not_measured(
+            "caption_covers_hud",
+            f"no game profile to read HUD regions from: {unresolved}",
+            remedy="Run game-event detection for every recording so they agree on one "
+            "game profile, then run QA again.",
+            category="content",
+        )
     if profile is None or not profile.regions:
         # The generic profile declares no regions (§23), so there is nothing to
         # collide with. Saying "checked, nothing known" beats silence.

@@ -163,6 +163,9 @@ export function ExportScreen({
   const rendering = job?.status === 'running' || job?.status === 'queued';
   const failures = (qa.data?.findings ?? []).filter((item) => item.qa_status === 'failed');
   const warnings = (qa.data?.findings ?? []).filter((item) => item.qa_status === 'warning');
+  const notMeasured = (qa.data?.findings ?? []).filter(
+    (item) => item.qa_status === 'not_measured',
+  );
 
   return (
     <div className="screen">
@@ -223,12 +226,17 @@ export function ExportScreen({
       <section className="panel">
         <h2>
           Quality check{' '}
-          {qa.data && (
+          {qa.data && !qa.data.pending && (
             <span className={`badge badge-${qa.data.qa_status}`}>{qa.data.qa_status}</span>
           )}
+          {qa.data?.pending && <span className="badge">pending</span>}
         </h2>
 
-        {!qa.data?.findings.length && (
+        {qa.data?.pending && (
+          <p className="muted">QA runs again on the new edit once it is rendered.</p>
+        )}
+
+        {!qa.data?.pending && !qa.data?.findings.length && (
           <p className="muted">No checks have run yet. They run automatically after a render.</p>
         )}
 
@@ -260,11 +268,29 @@ export function ExportScreen({
           </div>
         )}
 
-        {qa.data && qa.data.findings.length > 0 && !failures.length && !warnings.length && (
-          <p className="muted">
-            All {qa.data.findings.length} checks passed.
-          </p>
+        {notMeasured.length > 0 && (
+          <div className="warning">
+            <strong>Not measured — these checks could not run, so they are not passes.</strong>
+            <ul>
+              {notMeasured.map((finding) => (
+                <li key={finding.check}>
+                  <strong>{finding.check}</strong> — {finding.detail}
+                  {finding.remedy && <div className="muted">→ {finding.remedy}</div>}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
+
+        {qa.data &&
+          qa.data.findings.length > 0 &&
+          !failures.length &&
+          !warnings.length &&
+          !notMeasured.length && (
+            <p className="muted">
+              All {qa.data.findings.length} checks passed.
+            </p>
+          )}
 
         {latest?.output_path && (
           <p className="muted mono file-path">{latest.output_path}</p>

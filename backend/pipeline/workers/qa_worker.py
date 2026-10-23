@@ -33,6 +33,7 @@ from backend.database.repositories.media import MediaRepository
 from backend.database.repositories.qa import QaRepository
 from backend.database.repositories.renders import RenderRepository
 from backend.database.repositories.timeline import TimelineRepository
+from backend.database.repositories.transcript import TranscriptRepository
 from backend.database.repositories.vision import VisionRepository
 from backend.gaming.profiles import load_profile
 from backend.pipeline.workers.base import WorkerContext
@@ -80,6 +81,7 @@ class QaWorker:
             width=_width_of(render),
             height=int(render.get("resolution") or 0),
             fps=float(render.get("fps") or 0.0),
+            timeline_seconds=timeline.duration if timeline.video_clips() else None,
         )
         findings = technical.inspect(
             path,
@@ -91,6 +93,9 @@ class QaWorker:
 
         context.report(0.7, "Checking the edit")
         findings.extend(self._content(context, timeline, findings))
+        if context.config.qa.content.checks.get("cut_inside_word", True):
+            # Observe-only (thresholds TBD-from-data): recorded, never judged.
+            findings.append(content.cut_word_audit(timeline, self._spoken_words(context, timeline)))
 
         report = build_report(findings, context.config.qa)
         stored = QaRepository(context.database).replace_for_render(
@@ -290,13 +295,15 @@ class QaWorker:
                 if event.event_type.value == "silence"
             )
 
+        profile, unresolved = self._profile(context)
         inputs = content.ContentInputs(
             observations=observations,
             state_spans=state_spans,
             silences=silences,
             pacing_warnings=self._pacing_warnings(context),
             black_runs=_black_runs(technical_findings),
-            profile=self._profile(context),
+            profile=profile,
+            profile_unresolved=unresolved,
             clip_levels=self._clip_levels(context, timeline),
         )
         return content.inspect(
@@ -321,6 +328,18 @@ class QaWorker:
             config=context.config,
         )
 
+    def _spoken_words(self, context: WorkerContext, timeline) -> dict[str, list]:
+        """Each recording's stored word timestamps, for the join audit."""
+        transcripts = TranscriptRepository(context.database)
+        return {
+            media_id: [
+                (word.start, word.end, word.word)
+                for segment in transcripts.list_for_media(media_id)
+                for word in segment.words
+            ]
+            for media_id in {clip.media_id for clip in timeline.video_clips()}
+        }
+
     def _pacing_warnings(self, context: WorkerContext) -> tuple[str, ...]:
         """What the narrative stage already said about its own pacing (§38)."""
         job = JobRepository(context.database).find(
@@ -333,13 +352,28 @@ class QaWorker:
         return tuple(str(item) for item in warnings)
 
     def _profile(self, context: WorkerContext):
-        """The game profile, for its HUD regions (§22, §77)."""
-        job = JobRepository(context.database).find(context.project_id, JobStage.GAME_EVENTS)
-        name = (job.result or {}).get("game_profile") if job else None
-        if not name:
-            return None
+        """The game profile, for its HUD regions (§22, §77), or why there is none.
+
+        GAME_EVENTS runs once per recording, so its jobs carry a media_id and
+        a project-wide lookup never finds them. Every recording's job is read
+        instead, and they must agree: one edit, one HUD to keep clear of.
+        """
+        names = {
+            (job.result or {}).get("game_profile")
+            for job in JobRepository(context.database).list_for_project(context.project_id)
+            if job.stage is JobStage.GAME_EVENTS
+        }
+        if not names:
+            return None, "no game-event detection has run for this project"
+        if not all(names):
+            return None, "a recording has no game profile on record"
+        if len(names) > 1:
+            return None, "the recordings resolve to different game profiles: " + ", ".join(
+                sorted(str(name) for name in names)
+            )
+        name = names.pop()
         try:
-            return load_profile(str(name), context.profiles_dir).profile
+            return load_profile(str(name), context.profiles_dir).profile, None
         except GamingEditorError as error:
             # A malformed profile is a problem for the gaming stage to report,
             # not a reason for QA to fail: the rest of the checks still apply.
@@ -347,7 +381,7 @@ class QaWorker:
                 "Could not load the game profile for QA",
                 extra={"profile": name, "error": str(error)},
             )
-            return None
+            return None, f"the game profile {name!r} could not be loaded"
 
 
 def _width_of(render: dict[str, Any]) -> int:
@@ -382,8 +416,12 @@ def _black_runs(findings) -> tuple[tuple[float, float], ...]:
 def _message(report: QaReport) -> str:
     if report.blocks_export:
         return f"{len(report.failures)} technical failure(s); export blocked"
+    unmeasured = len(report.not_measured)
     if report.warnings:
-        return f"passed with {len(report.warnings)} warning(s)"
+        message = f"passed with {len(report.warnings)} warning(s)"
+        return f"{message}; {unmeasured} check(s) not measured" if unmeasured else message
+    if unmeasured:
+        return f"{unmeasured} check(s) not measured; the rest passed"
     return "all checks passed"
 
 

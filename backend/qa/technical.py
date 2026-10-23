@@ -41,7 +41,7 @@ from backend.core.errors import GamingEditorError
 from backend.core.logging import LogChannel, get_logger
 from backend.media.ffmpeg import FFmpegRunner
 from backend.media.probe import ProbeResult, probe_media
-from backend.qa.report import Finding, enabled_checks, failure, passed, warning
+from backend.qa.report import Finding, enabled_checks, failure, not_measured, passed, warning
 
 logger = get_logger("qa.technical", LogChannel.QA)
 
@@ -58,12 +58,23 @@ CHECKS: Final[tuple[str, ...]] = (
     "frozen_frames",
     "av_sync",
     "loudness",
+    # Observe-only: raw values recorded, never a verdict, thresholds
+    # TBD-from-data. They report as passes once measured, not-measured if not.
+    "silence",
+    "timeline_duration",
 )
+
+#: Said of every observation, so no one mistakes a recorded number for a check.
+OBSERVE_ONLY: Final[str] = "observed only; threshold TBD-from-data"
 
 _BLACK_RE = re.compile(r"black_start:(?P<start>[\d.]+) black_end:(?P<end>[\d.]+)")
 _FREEZE_START_RE = re.compile(r"freeze_start: (?P<start>[\d.]+)")
 _FREEZE_DURATION_RE = re.compile(r"freeze_duration: (?P<duration>[\d.]+)")
 _LOUDNESS_RE = re.compile(r"I:\s*(?P<lufs>-?[\d.]+) LUFS")
+_SILENCE_START_RE = re.compile(r"silence_start: (?P<start>-?[\d.]+)")
+_SILENCE_END_RE = re.compile(r"silence_end: (?P<end>-?[\d.]+)")
+#: ebur128's closing summary: "True peak:" then "Peak: -5.9 dBFS".
+_TRUE_PEAK_RE = re.compile(r"True peak:\s*\n\s*Peak:\s*(?P<peak>-?[\d.]+|-inf) dBFS")
 
 #: Seconds of recording read either side of a freeze when checking the source.
 #: A freeze is bounded by the render's own timing; the stillness that explains
@@ -80,6 +91,9 @@ class Expected:
     width: int
     height: int
     fps: float
+    #: ``timeline.duration``: what the edit says the video lasts. Compared
+    #: with the rendered file as an observation; None when it is not known.
+    timeline_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +136,12 @@ class DecodeMeasurements:
     black_runs: tuple[tuple[float, float], ...] = ()
     freeze_runs: tuple[tuple[float, float], ...] = ()
     integrated_lufs: float | None = None
+    #: silencedetect at FFmpeg's own defaults (-60 dB, 2 s): (start, end).
+    silence_runs: tuple[tuple[float, float], ...] = ()
+    true_peak_dbfs: float | None = None
+    #: Whether the audio filters ran at all; without them nothing above
+    #: about the audio was measured.
+    audio_measured: bool = False
 
     @property
     def longest_black(self) -> float:
@@ -231,13 +251,14 @@ def decode(
         "null",
         "-",
     ]
-    if _has_audio(path, runner):
+    audio = _has_audio(path, runner)
+    if audio:
         argv = [
             *runner.base_arguments(loglevel="info"),
             "-i",
             str(path),
             "-filter_complex",
-            graph + ";[0:a]ebur128=peak=true[a]",
+            graph + ";[0:a]silencedetect,ebur128=peak=true[a]",
             "-map",
             "[v]",
             "-map",
@@ -256,6 +277,9 @@ def decode(
         black_runs=_parse_black(result.stderr),
         freeze_runs=_parse_freeze(result.stderr, total_seconds),
         integrated_lufs=_parse_loudness(result.stderr),
+        silence_runs=_parse_silence(result.stderr, total_seconds) if audio else (),
+        true_peak_dbfs=_parse_true_peak(result.stderr) if audio else None,
+        audio_measured=audio,
     )
 
 
@@ -324,6 +348,9 @@ def _format_findings(
                 passed("duration", f"{actual / 60:.1f} min", drift_seconds=round(drift, 3))
             )
 
+    if "timeline_duration" in checks:
+        findings.append(_timeline_duration(probe.duration_seconds, expected.timeline_seconds))
+
     if "resolution" in checks:
         if (metadata.width, metadata.height) != (expected.width, expected.height):
             findings.append(
@@ -382,6 +409,17 @@ def _decode_findings(
     if "frozen_frames" in checks:
         findings.append(_frozen_frames(measurements, config, runner, sources))
 
+    peak = {"true_peak_dbfs": measurements.true_peak_dbfs}
+    if "loudness" in checks and measurements.integrated_lufs is None:
+        findings.append(
+            not_measured(
+                "loudness",
+                "the programme's loudness could not be measured",
+                remedy="Check the render has an audio stream that FFmpeg's ebur128 can read.",
+                audio_measured=measurements.audio_measured,
+                **peak,
+            )
+        )
     if "loudness" in checks and measurements.integrated_lufs is not None:
         lufs = measurements.integrated_lufs
         if lufs < thresholds.min_audio_lufs:
@@ -396,11 +434,57 @@ def _decode_findings(
                     ),
                     category="technical",
                     lufs=round(lufs, 2),
+                    **peak,
                 )
             )
         else:
-            findings.append(passed("loudness", f"{lufs:.1f} LUFS"))
+            findings.append(passed("loudness", f"{lufs:.1f} LUFS", **peak))
+
+    if "silence" in checks:
+        findings.append(_silence(measurements))
     return findings
+
+
+def _silence(measurements: DecodeMeasurements) -> Finding:
+    """Silent stretches of the render, recorded rather than judged."""
+    if not measurements.audio_measured:
+        return not_measured(
+            "silence",
+            "the render's audio could not be scanned for silence",
+            remedy="Check the render has an audio stream FFmpeg can decode.",
+            category="observation",
+        )
+    runs = [[round(start, 3), round(end, 3)] for start, end in measurements.silence_runs]
+    longest = max((end - start for start, end in runs), default=0.0)
+    return passed(
+        "silence",
+        f"{len(runs)} silent stretch(es), longest {longest:.1f}s ({OBSERVE_ONLY})",
+        category="observation",
+        runs=runs,
+        longest_seconds=round(longest, 3),
+        detector="silencedetect at FFmpeg defaults (-60 dB, 2 s)",
+    )
+
+
+def _timeline_duration(rendered: float, timeline_seconds: float | None) -> Finding:
+    """The rendered file against the edit, not against the render's own row."""
+    if timeline_seconds is None:
+        return not_measured(
+            "timeline_duration",
+            "the edit's duration was not available to compare with",
+            remedy="Check the project has a stored timeline.",
+            category="observation",
+        )
+    drift = rendered - timeline_seconds
+    return passed(
+        "timeline_duration",
+        f"the render is {rendered:.1f}s, the edit {timeline_seconds:.1f}s ({OBSERVE_ONLY})",
+        category="observation",
+        rendered_seconds=round(rendered, 3),
+        timeline_seconds=round(timeline_seconds, 3),
+        drift_seconds=round(abs(drift), 3),
+        signed_drift_seconds=round(drift, 3),
+    )
 
 
 def _black_frames(
@@ -825,6 +909,24 @@ def _parse_loudness(stderr: str) -> float | None:
     """The last integrated-loudness figure ebur128 printed: its final summary."""
     matches = _LOUDNESS_RE.findall(stderr)
     return float(matches[-1]) if matches else None
+
+
+def _parse_silence(stderr: str, total_seconds: float) -> tuple[tuple[float, float], ...]:
+    """silencedetect's runs; one still open at the end runs to the end."""
+    starts = [float(match) for match in _SILENCE_START_RE.findall(stderr)]
+    ends = [float(match) for match in _SILENCE_END_RE.findall(stderr)]
+    runs = list(zip(starts, ends, strict=False))
+    if len(starts) > len(ends):
+        runs.append((starts[-1], max(total_seconds, starts[-1])))
+    return tuple(runs)
+
+
+def _parse_true_peak(stderr: str) -> float | None:
+    """The true peak from ebur128's closing summary, in dBFS."""
+    matches = _TRUE_PEAK_RE.findall(stderr)
+    if not matches:
+        return None
+    return float("-inf") if matches[-1] == "-inf" else float(matches[-1])
 
 
 def _first_error(stderr: str) -> str:

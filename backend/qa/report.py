@@ -21,6 +21,11 @@ The severity split is a policy, and it is the one §76 and §77 set out:
     Checked and fine. Kept in the report rather than dropped: "the audio was
     checked and is fine" and "nobody looked at the audio" are different
     statements, and a report that only lists problems cannot tell them apart.
+
+``NOT_MEASURED``
+    The check could not run. Never a pass, and neither a failure nor a
+    warning, so it leaves the verdicts above as they were; the gate sends it
+    to a person (``NEEDS_REVIEW``) and never blocks on it.
 """
 
 from __future__ import annotations
@@ -30,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from backend.config.schema import QaConfig
-from backend.core.models.enums import QAStatus
+from backend.core.models.enums import QAGate, QAStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +62,10 @@ class Finding:
     @property
     def warned(self) -> bool:
         return self.status is QAStatus.WARNING
+
+    @property
+    def unmeasured(self) -> bool:
+        return self.status is QAStatus.NOT_MEASURED
 
     def __str__(self) -> str:
         return f"[{self.status.value}] {self.check}: {self.message}"
@@ -90,6 +99,19 @@ class QaReport:
         return tuple(item for item in self.findings if item.warned)
 
     @property
+    def not_measured(self) -> tuple[Finding, ...]:
+        return tuple(item for item in self.findings if item.unmeasured)
+
+    @property
+    def gate(self) -> QAGate:
+        return gate_for(
+            blocks_export=self.blocks_export,
+            needs_review=self.needs_review,
+            warned=bool(self.warnings),
+            unmeasured=bool(self.not_measured),
+        )
+
+    @property
     def status(self) -> QAStatus:
         if self.failures:
             return QAStatus.FAILED
@@ -103,8 +125,10 @@ class QaReport:
             "checks": len(self.findings),
             "failures": [str(item) for item in self.failures],
             "warnings": [str(item) for item in self.warnings],
+            "not_measured": [str(item) for item in self.not_measured],
             "blocks_export": self.blocks_export,
             "needs_review": self.needs_review,
+            "gate": self.gate.value,
         }
 
     def explain(self) -> list[str]:
@@ -143,6 +167,22 @@ def build_report(findings: Iterable[Finding], config: QaConfig) -> QaReport:
     return QaReport(findings=collected, blocks_export=blocks, needs_review=review or bool(failures))
 
 
+def gate_for(*, blocks_export: bool, needs_review: bool, warned: bool, unmeasured: bool) -> QAGate:
+    """The gate, read off verdicts already decided elsewhere.
+
+    It adds no policy of its own: whoever decided ``blocks_export`` and
+    ``needs_review`` decided the gate. The one new input is a check that did
+    not run, which can only raise PASS or WARN to NEEDS_REVIEW.
+    """
+    if blocks_export:
+        return QAGate.BLOCK
+    if needs_review or unmeasured:
+        return QAGate.NEEDS_REVIEW
+    if warned:
+        return QAGate.WARN
+    return QAGate.PASS
+
+
 def passed(check: str, message: str, *, category: str = "technical", **measured: Any) -> Finding:
     return Finding(
         check=check,
@@ -179,6 +219,19 @@ def failure(
     )
 
 
+def not_measured(
+    check: str, message: str, *, remedy: str, category: str = "technical", **measured: Any
+) -> Finding:
+    return Finding(
+        check=check,
+        status=QAStatus.NOT_MEASURED,
+        category=category,
+        message=message,
+        remedy=remedy,
+        measured=measured,
+    )
+
+
 def enabled_checks(names: Sequence[str], configured: dict[str, bool]) -> list[str]:
     """Which of ``names`` the configuration turns on.
 
@@ -194,6 +247,8 @@ __all__ = [
     "build_report",
     "enabled_checks",
     "failure",
+    "gate_for",
+    "not_measured",
     "passed",
     "warning",
 ]
